@@ -1,0 +1,7 @@
+# Tests use gates. Timing belongs to an explicitly exclusive bench recipe.
+version = 2
+
+[recipe.check]
+command = ["bash", "-lc", 'export PATH="$HOME/.cargo/bin:$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"; exec nix --extra-experimental-features "nix-command flakes" shell github:NixOS/nixpkgs/7fd4004d0511991fff3a0524856a9be09e28c5f0#nodejs_24 --command just check']
+needs = ["linux"]
+may_run_elsewhere = true

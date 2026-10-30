@@ -1,0 +1,31 @@
+name: checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Rust and embedded renderer checks
+        run: |
+          cargo fmt --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo test --workspace --locked
+          cargo clippy -p atlas-core --no-default-features --all-targets --locked -- -D warnings
+          cargo test -p atlas-core --no-default-features --locked
+          RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
+          node --test renderer/*.test.mjs
+      - name: Installed executable outside its checkout
+        run: renderer/check-install.sh
+      - name: Verify vendored Pele against its lockfile
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run verify-vendor

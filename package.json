@@ -1,0 +1,15 @@
+{
+  "name": "atlas-maintenance",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "pele": "1.8.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test renderer/*.test.mjs",
+    "verify-vendor": "node renderer/verify-vendor.mjs"
+  }
+}

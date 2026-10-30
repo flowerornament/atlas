@@ -1,0 +1,8 @@
+atlas includes code adapted from Murail's murail-atlas.
+Source: https://github.com/flowerornament/murail
+Revision: 9463652fa8969b2e41201e529942307348a3cf8a
+Original package license expression: MIT OR Apache-2.0
+Original authors: Murail contributors.
+See PROVENANCE.md for exact source paths and adaptations.
+Pele 1.8.0 is bundled under its MIT license (and ISC icon notice).
+See vendor/pele/LICENSE and vendor/pele/README.md.

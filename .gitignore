@@ -1,0 +1,6 @@
+/target/
+/node_modules/
+/.jj/
+/artifacts/
+/docs/.anneal/
+/.ferry/

@@ -1,0 +1,23 @@
+{
+  "title": "Atlas: source model, projections and rendered artifacts",
+  "types": [
+    {
+      "name": "SourceGraph",
+      "file": "crates/atlas-core/src/model.rs"
+    },
+    {
+      "name": "Diagram",
+      "file": "crates/atlas-core/src/diagram.rs"
+    },
+    {
+      "name": "Artifact",
+      "file": "src/render/mod.rs"
+    }
+  ],
+  "preparation_files": [
+    "src/main.rs",
+    "crates/atlas-core/src/diagram/projection.rs",
+    "src/render/pele.rs",
+    "src/render/ascii.rs", "src/representations/render.rs"
+  ]
+}
