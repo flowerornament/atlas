@@ -1,9 +1,6 @@
 //! Explicit artifacts and evidence share one collision check before any writes.
-use crate::{
-    Backend,
-    output_files::{absolute as normalized, write},
-};
-use atlas::{Result, model::SourceGraph, render::Artifact};
+use crate::{Backend, output_files::publish};
+use atlas::{Result, render::Artifact};
 use clap::Args;
 use std::{
     io::Write,
@@ -24,7 +21,6 @@ impl Options {
     pub fn emit(
         &self,
         root: &Path,
-        graph: &SourceGraph,
         name: &str,
         evidence: &impl serde::Serialize,
         protected: &[PathBuf],
@@ -63,27 +59,7 @@ impl Options {
                 .into_iter()
                 .map(|d| (output.with_extension(d.suffix), d.bytes)),
         );
-        let protected: Vec<_> = graph
-            .files
-            .iter()
-            .map(|f| root.join(&f.path))
-            .chain(protected.iter().cloned())
-            .map(|p| normalized(&p))
-            .collect::<Result<_>>()?;
-        let mut destinations = std::collections::BTreeSet::new();
-        for (file, _) in &files {
-            let path = normalized(file)?;
-            if protected.contains(&path) || !destinations.insert(path) {
-                return Err(format!(
-                    "refusing output collision with source, query or companion: {}",
-                    file.display()
-                )
-                .into());
-            }
-        }
-        for (file, bytes) in files {
-            write(&file, bytes)?;
-        }
+        publish(files, protected)?;
         eprintln!("{}", output.display());
         Ok(())
     }

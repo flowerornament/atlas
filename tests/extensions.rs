@@ -373,3 +373,54 @@ fn successful_diagnostics_survive_the_process_boundary() {
     assert_eq!(invocation.diagnostics, "example diagnostic\n");
     assert!(invocation.reply.architecture().is_ok());
 }
+
+#[test]
+fn overview_cannot_replace_the_adapter_it_invoked() {
+    let f = project();
+    let adapter = f.0.join("adapter.txt");
+    fs::copy(plugin(), &adapter).expect("copy adapter");
+    let before = fs::read(&adapter).expect("adapter bytes");
+    let result = Command::new(env!("CARGO_BIN_EXE_atlas"))
+        .arg("overview")
+        .arg("--root")
+        .arg(&f.0)
+        .arg("--adapter")
+        .arg(&adapter)
+        .args(["--out", "adapter.txt"])
+        .output()
+        .expect("Atlas");
+    assert!(!result.status.success());
+    assert!(
+        String::from_utf8_lossy(&result.stderr).contains("collision"),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read(&adapter).expect("adapter bytes"), before);
+    assert!(!f.0.join("adapter.json").exists());
+}
+
+#[test]
+fn overview_protects_a_relative_adapter_in_the_callers_directory() {
+    let f = project();
+    let launch = Fixture::new(&[("src/lib.rs", "")]);
+    let adapter = launch.0.join("adapter.txt");
+    fs::copy(plugin(), &adapter).expect("copy adapter");
+    let before = fs::read(&adapter).expect("adapter bytes");
+    let result = Command::new(env!("CARGO_BIN_EXE_atlas"))
+        .current_dir(&launch.0)
+        .arg("overview")
+        .arg("--root")
+        .arg(&f.0)
+        .args(["--adapter", "adapter.txt", "--out"])
+        .arg(&adapter)
+        .output()
+        .expect("Atlas");
+    assert!(!result.status.success());
+    assert!(
+        String::from_utf8_lossy(&result.stderr).contains("collision"),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(fs::read(&adapter).expect("adapter bytes"), before);
+    assert!(!launch.0.join("adapter.json").exists());
+}

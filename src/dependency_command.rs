@@ -42,10 +42,9 @@ pub(crate) fn run(
     let view = dependencies::project(&facts, &scope, options.relation)?;
     options.output.emit(
         root,
-        graph,
         "dependencies",
         &serde_json::json!({"view":view,"facts":facts}),
-        &[],
+        &crate::protected_inputs(metadata, graph, []),
         || match options.output.backend {
             Backend::Ascii => Ascii.render(&view.diagram),
             Backend::Pele => Pele { html: false }.render(&view.diagram),

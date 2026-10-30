@@ -63,10 +63,9 @@ pub(crate) fn run(
     let views = representations::project(&facts, &query)?;
     options.output.emit(
         root,
-        graph,
         "representations",
         &serde_json::json!({"facts":facts,"views":views}),
-        &query_path.into_iter().collect::<Vec<_>>(),
+        &crate::protected_inputs(metadata, graph, query_path),
         || {
             options
                 .output

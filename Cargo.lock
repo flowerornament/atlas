@@ -54,7 +54,7 @@ dependencies = [
 
 [[package]]
 name = "atlas"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "atlas-core",
  "cargo_metadata",
@@ -62,6 +62,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
 ]
 
 [[package]]

@@ -209,8 +209,13 @@ fn program(root: &Path, metadata: &cargo_metadata::Metadata, options: &ProgramAr
         level: Level::Stages,
         view: View::Program,
     };
-    let destination = output::Destination::new(root, &options.render, &query);
-    destination.prepare(
+    let destination = output::Destination::new(
+        root,
+        &options.render,
+        &query,
+        protected_inputs(metadata, graph, [root.join(&options.architecture)]),
+    );
+    let pending = destination.prepare(
         Some(graph),
         &mut diagram,
         text.as_deref(),
@@ -218,39 +223,41 @@ fn program(root: &Path, metadata: &cargo_metadata::Metadata, options: &ProgramAr
             "program",
             &json(&serde_json::json!({"program": &program, "overview": &overview}))?,
         )),
-        options.render.backend == Backend::Pele,
     )?;
     let artifact = if options.render.backend == Backend::Ascii {
         let mut text = program.ascii(&overview);
         for (label, url) in &diagram.evidence_links {
             write!(text, "\n{label}: {url}").expect("formatting into a String cannot fail");
         }
-        Artifact {
+        Ok(Artifact {
             primary: Document {
                 suffix: "txt",
                 bytes: text.into_bytes(),
             },
             companions: vec![],
-        }
+        })
     } else {
-        render(&options.render, &diagram)?
+        render(&options.render, &diagram)
     };
-    destination.write(artifact)
+    destination.write(artifact, pending)
 }
 fn map(root: &Path, metadata: &cargo_metadata::Metadata, options: &MapArgs) -> Result<()> {
     let graph = discovery::scan_metadata(metadata)?;
     let (profile_text, profile) = architecture(root, options.architecture.as_deref())?;
     let query = options.query();
     let mut diagram = diagram::project(&graph, profile.as_ref(), &query)?;
-    let destination = output::Destination::new(root, &options.render, &query);
-    destination.prepare(
-        Some(&graph),
-        &mut diagram,
-        profile_text.as_deref(),
-        None,
-        options.render.backend == Backend::Pele,
-    )?;
-    destination.write(render(&options.render, &diagram)?)?;
+    let destination = output::Destination::new(
+        root,
+        &options.render,
+        &query,
+        protected_inputs(
+            metadata,
+            &graph,
+            options.architecture.iter().map(|path| root.join(path)),
+        ),
+    );
+    let pending = destination.prepare(Some(&graph), &mut diagram, profile_text.as_deref(), None)?;
+    destination.write(render(&options.render, &diagram), pending)?;
     if destination.path.is_some() {
         eprintln!("{}", diagram.summary());
     }
@@ -283,6 +290,8 @@ fn flow(root: &Path, metadata: &cargo_metadata::Metadata, options: &FlowArgs) ->
         }
         anchors
     };
+    let snapshot = discovery::snapshot_metadata(metadata)?;
+    let graph = snapshot.graph();
     let (flows, mut diagram) = if options.depth > 0 {
         let path = options
             .path
@@ -292,7 +301,6 @@ fn flow(root: &Path, metadata: &cargo_metadata::Metadata, options: &FlowArgs) ->
             .function
             .as_deref()
             .ok_or("--depth needs --function")?;
-        let snapshot = discovery::snapshot_metadata(metadata)?;
         let analysis = atlas_core::analysis::Analysis::new(&snapshot)?;
         let (flow, diagram) = analysis.expanded(path, function, options.depth)?;
         (vec![(function.to_owned(), flow)], diagram)
@@ -317,16 +325,28 @@ fn flow(root: &Path, metadata: &cargo_metadata::Metadata, options: &FlowArgs) ->
         level: Level::Declarations,
         view: View::Workflow,
     };
-    let destination = output::Destination::new(root, &options.render, &query);
-    destination.prepare(
+    let destination = output::Destination::new(
+        root,
+        &options.render,
+        &query,
+        protected_inputs(
+            metadata,
+            graph,
+            options
+                .architecture
+                .iter()
+                .map(|path| root.join(path))
+                .chain(anchors.iter().map(|anchor| root.join(&anchor.path))),
+        ),
+    );
+    let pending = destination.prepare(
         None,
         &mut diagram,
         profile_text.as_deref(),
         Some(("workflow", &json(&flows)?)),
-        options.render.backend == Backend::Pele,
     )?;
     let artifact = if options.render.backend == Backend::Ascii && options.depth > 0 {
-        Ascii.render(&diagram)?
+        Ascii.render(&diagram)
     } else if options.render.backend == Backend::Ascii {
         let mut text = flows
             .iter()
@@ -337,17 +357,17 @@ fn flow(root: &Path, metadata: &cargo_metadata::Metadata, options: &FlowArgs) ->
             write!(text, "\n{label}: {url}").expect("formatting into a String cannot fail");
         }
         text.push('\n');
-        Artifact {
+        Ok(Artifact {
             primary: Document {
                 suffix: "txt",
                 bytes: text.into_bytes(),
             },
             companions: Vec::new(),
-        }
+        })
     } else {
-        render(&options.render, &diagram)?
+        render(&options.render, &diagram)
     };
-    destination.write(artifact)
+    destination.write(artifact, pending)
 }
 fn workflow_diagram(flows: &[(String, workflow::Workflow)]) -> Result<Diagram> {
     let mut combined = Diagram {
@@ -897,4 +917,45 @@ fn source_review(
         }
     }
     Ok(())
+}
+
+fn protected_inputs(
+    metadata: &cargo_metadata::Metadata,
+    graph: &atlas::model::SourceGraph,
+    extra: impl IntoIterator<Item = PathBuf>,
+) -> Vec<PathBuf> {
+    metadata
+        .workspace_packages()
+        .into_iter()
+        .map(|package| package.manifest_path.as_std_path().to_owned())
+        .chain([
+            metadata
+                .workspace_root
+                .join(".cargo/config.toml")
+                .into_std_path_buf(),
+            metadata
+                .workspace_root
+                .join(".cargo/config")
+                .into_std_path_buf(),
+            metadata
+                .workspace_root
+                .join("Cargo.toml")
+                .into_std_path_buf(),
+            metadata
+                .workspace_root
+                .join("Cargo.lock")
+                .into_std_path_buf(),
+            metadata
+                .workspace_root
+                .join("rust-toolchain.toml")
+                .into_std_path_buf(),
+        ])
+        .chain(
+            graph
+                .files
+                .iter()
+                .map(|file| metadata.workspace_root.join(&file.path).into_std_path_buf()),
+        )
+        .chain(extra)
+        .collect()
 }

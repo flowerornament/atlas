@@ -37,6 +37,7 @@ pub(crate) fn run(
         std::env::current_exe()?
             .with_file_name(format!("atlas-girard{}", std::env::consts::EXE_SUFFIX)),
     );
+    let program = program.canonicalize()?;
     let invocation = adapter::invoke(&program, root, &input)?;
     if !invocation.diagnostics.is_empty() {
         eprint!("{}", invocation.diagnostics);
@@ -46,10 +47,9 @@ pub(crate) fn run(
     let overview = overview::project(&facts, &architecture)?;
     options.output.emit(
         root,
-        graph,
         "overview",
         &serde_json::json!({"overview":overview,"facts":facts,"adapter":reply,"adapter_diagnostics":invocation.diagnostics,"snapshot":input.snapshot}),
-        &[],
+        &crate::protected_inputs(metadata, graph, [program]),
         || options.output.backend.render_view(View::Overview(&overview)),
     )
 }

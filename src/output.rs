@@ -1,7 +1,7 @@
 //! Keep source payloads in ignored evidence, publish only bounded diagram artifacts.
 use crate::{
     Backend, Format, RenderOptions,
-    output_files::{absolute, write},
+    output_files::{absolute, preflight, publish},
 };
 use atlas::{
     Result,
@@ -14,15 +14,28 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub(crate) struct Pending {
+    files: Vec<(PathBuf, Vec<u8>)>,
+    protected: Vec<PathBuf>,
+    failure_diagram: Option<PathBuf>,
+}
+
 pub(crate) struct Destination {
     pub path: Option<PathBuf>,
     evidence: PathBuf,
     base: String,
     reference: PathBuf,
+    protected: Vec<PathBuf>,
+    pele: bool,
     svg_companion: bool,
 }
 impl Destination {
-    pub fn new(root: &Path, options: &RenderOptions, query: &Query) -> Self {
+    pub fn new(
+        root: &Path,
+        options: &RenderOptions,
+        query: &Query,
+        protected: Vec<PathBuf>,
+    ) -> Self {
         let focus = query.focus.as_deref().unwrap_or("overview");
         let name = Path::new(focus)
             .file_stem()
@@ -77,6 +90,8 @@ impl Destination {
             evidence,
             base,
             reference,
+            protected,
+            pele: options.backend == Backend::Pele,
             svg_companion: options.backend == Backend::Pele && options.format == Format::Html,
         }
     }
@@ -86,8 +101,7 @@ impl Destination {
         diagram: &mut Diagram,
         profile: Option<&str>,
         details: Option<(&str, &str)>,
-        pele: bool,
-    ) -> Result<()> {
+    ) -> Result<Pending> {
         let mut files = Vec::new();
         if let Some(graph) = graph {
             let path = self.evidence.join(format!("{}.source.json", self.base));
@@ -119,39 +133,61 @@ impl Destination {
             ));
             files.push((path, text.as_bytes().to_vec()));
         }
+        let failure_diagram = self.pele.then(|| diagram_path.clone());
         files.push((diagram_path, serde_json::to_vec_pretty(diagram)?));
-        if pele {
-            let path = self
-                .path
-                .as_ref()
-                .ok_or("Pele output destination missing")?;
-            files.push((path.with_extension("mmd"), mermaid(diagram)?.into_bytes()));
-        }
-        const COLLISION: &str = "output path collides with a companion; choose the primary .html/.svg/.txt extension and matching --format";
-        let mut destinations = std::collections::BTreeSet::new();
-        if let Some(path) = &self.path {
-            destinations.insert(absolute(path)?);
-            if self.svg_companion && !destinations.insert(absolute(&path.with_extension("svg"))?) {
-                return Err(COLLISION.into());
-            }
-        }
-        for (path, _) in &files {
-            if !destinations.insert(absolute(path)?) {
-                return Err(COLLISION.into());
-            }
-        }
-        for (path, bytes) in files {
-            write(&path, bytes)?;
-        }
-        Ok(())
+        let protected = self.protected.clone();
+        Ok(Pending {
+            files,
+            protected,
+            failure_diagram,
+        })
     }
-    pub fn write(&self, artifact: Artifact) -> Result<()> {
-        if let Some(path) = &self.path {
-            for document in artifact.companions {
-                write(&path.with_extension(document.suffix), document.bytes)?;
+    pub fn write(&self, artifact: Result<Artifact>, mut pending: Pending) -> Result<()> {
+        let artifact = match artifact {
+            Ok(artifact) => artifact,
+            Err(error) => {
+                // Keep the existing renderer-failure evidence contract, after the
+                // same source and destination preflight as successful artifacts.
+                if let Some(diagram_path) = pending.failure_diagram.take() {
+                    let bytes = &pending
+                        .files
+                        .iter()
+                        .find(|(path, _)| *path == diagram_path)
+                        .ok_or("diagram evidence missing")?
+                        .1;
+                    let diagram: Diagram = serde_json::from_slice(bytes)?;
+                    let path = self
+                        .path
+                        .as_ref()
+                        .ok_or("Pele output destination missing")?;
+                    pending
+                        .files
+                        .push((path.with_extension("mmd"), mermaid(&diagram)?.into_bytes()));
+                }
+                let mut paths: Vec<_> =
+                    pending.files.iter().map(|(path, _)| path.clone()).collect();
+                if let Some(path) = &self.path {
+                    paths.push(path.clone());
+                    if self.svg_companion {
+                        paths.push(path.with_extension("svg"));
+                    }
+                }
+                preflight(&paths, &pending.protected)?;
+                publish(pending.files, &pending.protected)?;
+                return Err(error);
             }
-            write(path, artifact.primary.bytes)?;
+        };
+        if let Some(path) = &self.path {
+            pending.files.extend(
+                artifact
+                    .companions
+                    .into_iter()
+                    .map(|document| (path.with_extension(document.suffix), document.bytes)),
+            );
+            pending.files.push((path.clone(), artifact.primary.bytes));
+            publish(pending.files, &pending.protected)?;
         } else {
+            publish(pending.files, &pending.protected)?;
             std::io::stdout()
                 .lock()
                 .write_all(&artifact.primary.bytes)?;

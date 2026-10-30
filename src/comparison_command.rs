@@ -63,14 +63,9 @@ pub(crate) fn run(
     )?;
     options.output.emit(
         root,
-        graph,
         "comparison",
         &comparison,
-        &options
-            .query
-            .iter()
-            .map(|p| root.join(p))
-            .collect::<Vec<_>>(),
+        &crate::protected_inputs(metadata, graph, options.query.iter().map(|p| root.join(p))),
         || {
             options
                 .output
