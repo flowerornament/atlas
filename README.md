@@ -29,8 +29,8 @@ Run these from a Cargo project, or add `--root /path/to/project`:
 ```sh
 atlas census --population pub-ish              # source and documentation counts
 atlas name MyType --population all --json      # declarations and lexical references
-atlas spans --scope src                       # items and their source boundaries
-atlas concentration --scope src               # block depth and item breadth
+atlas spans --scope src                        # items and their source boundaries
+atlas concentration --scope src                # block depth and item breadth
 atlas diff HEAD~1 --scope src --items --graph  # changed declarations and relationships
 atlas moved HEAD~1 --scope src                 # exact and rerooted body matches
 atlas visibility HEAD~1 --scope src            # written visibility changes
