@@ -220,7 +220,12 @@ fn read_metadata(
             let normalized = normalize_path(target.src_path.as_std_path());
             let path = normalized.as_path();
             if !path.starts_with(&src) && path.extension().is_some_and(|e| e == "rs") {
-                diagnostics.push(Diagnostic{package:Some(package.name.to_string()),file:rel_display(&root,path),line:None,message:"target root outside src included; sibling modules outside src are not recursively discovered".into()});
+                diagnostics.push(Diagnostic {
+                    package: Some(package.name.to_string()),
+                    file: rel_display(&root, path),
+                    line: None,
+                    message: "target root outside src included; sibling modules outside src are not recursively discovered".into(),
+                });
                 paths.insert(path.to_path_buf());
             }
         }
@@ -502,7 +507,12 @@ fn mark_test_files(
                 && !item.top_level
                 && item.declaration_block.trim_end().ends_with(';')
         }) {
-            diagnostics.push(Diagnostic { package: Some(package.to_owned()), file: file.rel.clone(), line: Some(item.line), message: "file module inside an inline module is not mounted by the rustfmt-shaped file-module reader".into() });
+            diagnostics.push(Diagnostic {
+                package: Some(package.to_owned()),
+                file: file.rel.clone(),
+                line: Some(item.line),
+                message: "file module inside an inline module is not mounted by the rustfmt-shaped file-module reader".into(),
+            });
         }
         for (name, explicit, _) in declarations {
             let candidates = explicit.as_ref().map_or_else(
@@ -519,7 +529,15 @@ fn mark_test_files(
                 .iter()
                 .any(|candidate| by_path.contains_key(candidate))
             {
-                diagnostics.push(Diagnostic { package: Some(package.to_owned()), file: file.rel.clone(), line: None, message: format!("module {name} has no discovered file mount (missing, outside the inventory, or excluded): {}", candidates.join(", ")) });
+                diagnostics.push(Diagnostic {
+                    package: Some(package.to_owned()),
+                    file: file.rel.clone(),
+                    line: None,
+                    message: format!(
+                        "module {name} has no discovered file mount (missing, outside the inventory, or excluded): {}",
+                        candidates.join(", ")
+                    ),
+                });
             }
         }
         for beside_file in [false, true] {

@@ -196,13 +196,29 @@ fn present(
     };
     let fingerprints = input_fingerprints(&snapshot, &reading.packages, question);
     if options.json {
+        let (files, tests) = match question {
+            Question::Stages => ("source-tree", "production"),
+            Question::Seams => ("source-tree-and-native-mounts", "production-and-tests"),
+        };
         println!(
             "{}",
             crate::cli::json(&serde_json::json!({
-                "schema":1,"question":question,"selection":{"scope":scope,"files":match question {Question::Stages=>"source-tree",Question::Seams=>"source-tree-and-native-mounts"},"tests":match question {Question::Stages=>"production",Question::Seams=>"production-and-tests"}},
-                "basis":{"policy":{"file":policy_path,"fingerprint":discovery::fingerprint(text.as_bytes())},"files":fingerprints},
-                "status":status,"observations":reading.observations,"violations":reading.violations,"unresolved_authority":references,"diagnostics":snapshot.graph().diagnostics,
-                "limits":["Textual stage paths, not execution or complete Rust resolution.","Report-only observations; no complete project policy PASS. Project wrappers resolve boundary declarations and authority."]
+                "schema": 1,
+                "question": question,
+                "selection": { "scope": scope, "files": files, "tests": tests },
+                "basis": {
+                    "policy": { "file": policy_path, "fingerprint": discovery::fingerprint(text.as_bytes()) },
+                    "files": fingerprints,
+                },
+                "status": status,
+                "observations": reading.observations,
+                "violations": reading.violations,
+                "unresolved_authority": references,
+                "diagnostics": snapshot.graph().diagnostics,
+                "limits": [
+                    "Textual stage paths, not execution or complete Rust resolution.",
+                    "Report-only observations; no complete project policy PASS. Project wrappers resolve boundary declarations and authority.",
+                ],
             }))?
         );
     } else {

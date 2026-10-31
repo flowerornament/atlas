@@ -478,3 +478,14 @@ environment variables without changing the caller's process environment. Ordinar
 Git reads verify that its reported toplevel is the requested workspace root;
 jj workspaces resolve only their own explicit backing. An ancestor repository
 cannot supply a revision merely because the selected source sits beneath it.
+
+
+## Index API in atlas-core 0.2
+
+The index owns correlated name/function/boundary tables. Its `functions()`,
+`boundaries()`, `roots()` and `inventory()` return borrowing slices; public mutable
+vectors are no longer exposed. Replace old field reads with these methods and use
+`to_vec()` when a client needs its own copy. Numeric positions belong to the index
+that produced them. `Target::InvalidFunction` explicitly reports an out-of-range
+caller; views must refuse it rather than classify it as an unresolved source call.
+Root public module paths and legacy JSON schemas remain stable.

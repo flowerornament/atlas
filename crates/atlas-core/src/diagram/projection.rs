@@ -85,12 +85,21 @@ fn profile_node(module: &Module, context: bool, level: Level) -> Node {
     }
 }
 fn notes(view: View) -> Vec<String> {
-    match view{
- View::Workflow|View::Program=>vec!["Source call/control order, not a runtime trace.".into()],
- View::Dependencies=>vec!["reads = declared allowed dependency from the architecture profile; not execution order or observed use.".into(),"Shared vocabulary/laws are permitted by the project's layer rule; absent declared edges do not mean no access.".into()],
- View::Types=>vec!["consumes/produces/composes are approximate declaration mentions, not runtime data flow or ownership.".into(),"Internal relationships are collapsed, with exact IDs retained per node. Coarse ambiguous names are summarized, never resolved by layout.".into()],
+    match view {
+        View::Workflow | View::Program => vec![
+            "Source call/control order, not a runtime trace.".into(),
+        ],
+        View::Dependencies => vec![
+            "reads = declared allowed dependency from the architecture profile; not execution order or observed use.".into(),
+            "Shared vocabulary/laws are permitted by the project's layer rule; absent declared edges do not mean no access.".into(),
+        ],
+        View::Types => vec![
+            "consumes/produces/composes are approximate declaration mentions, not runtime data flow or ownership.".into(),
+            "Internal relationships are collapsed, with exact IDs retained per node. Coarse ambiguous names are summarized, never resolved by layout.".into(),
+        ],
+    }
 }
-}
+
 fn diagram(
     graph: &SourceGraph,
     architecture: Option<&Architecture>,

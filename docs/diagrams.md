@@ -71,7 +71,7 @@ A saved question selects source symbols, never arrows:
     { "name": "Diagram", "file": "crates/atlas-core/src/diagram/mod.rs" },
     { "name": "Artifact", "file": "src/render/mod.rs" }
   ],
-  "preparation_files": ["crates/atlas-core/src/diagram/projection.rs", "src/main.rs"]
+  "preparation_files": ["crates/atlas-core/src/diagram/projection.rs", "src/cli/map.rs"]
 }
 ```
 

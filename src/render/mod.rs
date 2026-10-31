@@ -1,4 +1,5 @@
-//! Interchangeable backends consume exactly the same source-linked diagram.
+//! Backends present source-linked native view models as artifacts.
+//! Model families retain their own meanings; rendering never reopens source.
 mod ascii;
 pub(crate) mod comparison;
 pub(crate) mod overview;

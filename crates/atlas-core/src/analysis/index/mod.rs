@@ -1,4 +1,6 @@
 //! Conservative source names: Cargo roots, explicit imports, and inspected signatures.
+//! ParsedSource keeps lazy syntax/workflow facts beside retained source bytes;
+//! Analysis owns these sources and their invocation-local, selected caches.
 use crate::{
     Result,
     architecture::{Architecture, Kind, Module},

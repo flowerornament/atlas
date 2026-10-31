@@ -26,11 +26,11 @@ impl Options {
         protected: &[PathBuf],
         render: impl FnOnce() -> Result<Artifact>,
     ) -> Result<()> {
-        let evidence = serde_json::to_vec_pretty(evidence)?;
         if self.json {
             if self.out.is_some() {
                 return Err("--json writes stdout; omit --out".into());
             }
+            let evidence = serde_json::to_vec_pretty(evidence)?;
             std::io::stdout().lock().write_all(&evidence)?;
             println!();
             return Ok(());
@@ -49,6 +49,7 @@ impl Options {
         if output.extension().and_then(|s| s.to_str()) != Some(artifact.primary.suffix) {
             return Err(format!("output extension must be .{}", artifact.primary.suffix).into());
         }
+        let evidence = serde_json::to_vec_pretty(evidence)?;
         let mut files = vec![
             (output.clone(), artifact.primary.bytes),
             (output.with_extension("json"), evidence),

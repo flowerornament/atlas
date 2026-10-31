@@ -38,66 +38,66 @@ pub fn project(facts: &Facts, architecture: &Architecture) -> Result<Overview> {
     let candidates: Vec<_> = facts
         .functions
         .iter()
-        .filter_map(|f| {
-            let m = architecture.owner(&f.file)?;
-            if m.kind != Kind::Stage {
+        .filter_map(|function| {
+            let module = architecture.owner(&function.file)?;
+            if module.kind != Kind::Stage {
                 return None;
             }
-            let owner = f.owner_name();
-            ((owner.is_none() && f.name == m.entry)
-                || (f.public
+            let owner = function.owner_name();
+            ((owner.is_none() && function.name == module.entry)
+                || (function.public
                     && owner
                         .as_deref()
-                        .is_some_and(|o| o == m.entry || m.types.iter().any(|s| s == o))))
-            .then_some((f, m))
+                        .is_some_and(|o| o == module.entry || module.types.iter().any(|s| s == o))))
+            .then_some((function, module))
         })
         .collect();
-    let by_fn: BTreeMap<_, _> = candidates
+    let candidate_stages: BTreeMap<_, _> = candidates
         .iter()
-        .map(|(f, m)| (f.id.as_str(), *m))
+        .map(|(function, module)| (function.id.as_str(), *module))
         .collect();
     let mut operations = Vec::new();
     let mut type_ids = BTreeSet::new();
-    for (f, m) in candidates {
+    for (function, module) in candidates {
         let outputs: Vec<_> = facts
             .references
             .iter()
-            .filter(|r| r.from == f.id && success(r))
+            .filter(|output| output.from == function.id && success(output))
             .collect();
         let primary: Vec<_> = outputs
             .into_iter()
-            .filter(|r| {
-                let cross = facts.references.iter().any(|input| {
-                    input.to == r.to
+            .filter(|output| {
+                let accepted_by_other_stage = facts.references.iter().any(|input| {
+                    input.to == output.to
                         && input.role == Role::Input
-                        && by_fn
+                        && candidate_stages
                             .get(input.from.as_str())
-                            .is_some_and(|other| other.name != m.name)
+                            .is_some_and(|other| other.name != module.name)
                 });
-                let constructor = f.name.ends_with("::new")
+                let constructs_entry = function.name.ends_with("::new")
                     && facts
                         .types
                         .iter()
-                        .any(|t| t.id == r.to && t.name == m.entry);
-                f.owner_name().is_none() || cross || constructor
+                        .any(|ty| ty.id == output.to && ty.name == module.entry);
+                function.owner_name().is_none() || accepted_by_other_stage || constructs_entry
             })
             .collect();
-        if primary.is_empty() && f.owner_name().is_some() {
+        if primary.is_empty() && function.owner_name().is_some() {
             continue;
         }
         operations.push(Selector {
-            name: f.name.clone(),
-            file: Some(f.file.clone()),
+            name: function.name.clone(),
+            file: Some(function.file.clone()),
         });
-        type_ids.extend(primary.iter().map(|r| r.to.clone()));
+        type_ids.extend(primary.iter().map(|output| output.to.clone()));
     }
     let types: Vec<_> = facts
         .types
         .iter()
-        .filter(|t| type_ids.contains(&t.id))
-        .map(|t| Selector {
-            name: t.name.clone(),
-            file: Some(t.file.clone()),
+        .filter(|ty| type_ids.contains(&ty.id))
+        .map(|ty| Selector {
+            name: ty.name.clone(),
+            file: Some(ty.file.clone()),
         })
         .collect();
     let query = Query {
@@ -108,33 +108,38 @@ pub fn project(facts: &Facts, architecture: &Architecture) -> Result<Overview> {
         preparation_functions: vec![],
     };
     let views = representations::project(facts, &query)?;
-    let functions: BTreeMap<_, _> = facts.functions.iter().map(|f| (f.id.as_str(), f)).collect();
+    let functions: BTreeMap<_, _> = facts
+        .functions
+        .iter()
+        .map(|function| (function.id.as_str(), function))
+        .collect();
     let instruments = architecture
         .modules
         .iter()
-        .filter(|m| m.kind == Kind::Instrument)
-        .map(|m| {
+        .filter(|module| module.kind == Kind::Instrument)
+        .map(|module| {
             let calls: BTreeSet<_> = facts
                 .calls
                 .iter()
-                .filter_map(|c| {
-                    let (Some(a), Some(b)) =
-                        (functions.get(c.from.as_str()), functions.get(c.to.as_str()))
-                    else {
+                .filter_map(|call| {
+                    let (Some(caller), Some(callee)) = (
+                        functions.get(call.from.as_str()),
+                        functions.get(call.to.as_str()),
+                    ) else {
                         return None;
                     };
                     if architecture
-                        .owner(&a.file)
-                        .is_some_and(|owner| owner.name == m.name)
+                        .owner(&caller.file)
+                        .is_some_and(|owner| owner.name == module.name)
                         && architecture
-                            .owner(&b.file)
-                            .is_none_or(|owner| owner.name != m.name)
+                            .owner(&callee.file)
+                            .is_none_or(|owner| owner.name != module.name)
                     {
                         Some(InstrumentCall {
-                            from: a.name.clone(),
-                            to: b.name.clone(),
-                            file: c.site.path.clone(),
-                            line: c.site.line,
+                            from: caller.name.clone(),
+                            to: callee.name.clone(),
+                            file: call.site.path.clone(),
+                            line: call.site.line,
                         })
                     } else {
                         None
@@ -142,8 +147,8 @@ pub fn project(facts: &Facts, architecture: &Architecture) -> Result<Overview> {
                 })
                 .collect();
             Instrument {
-                name: m.name.clone(),
-                path: m.path.clone(),
+                name: module.name.clone(),
+                path: module.path.clone(),
                 calls: calls.into_iter().collect(),
             }
         })
@@ -152,7 +157,14 @@ pub fn project(facts: &Facts, architecture: &Architecture) -> Result<Overview> {
         views,
         architecture: architecture.clone(),
         instruments,
-        selection_rule: "Successful output forms of declared stage entry functions; public surface methods producing forms accepted by other stages or constructing an entry type. Error alternatives and isolated surface metadata do not become main forms. Extra observed literal initializers survive selection. Instrument calls are separate observations; no runtime order inferred.".into()
+        selection_rule: concat!(
+            "Successful output forms of declared stage entry functions; public surface methods ",
+            "producing forms accepted by other stages or constructing an entry type. ",
+            "Error alternatives and isolated surface metadata do not become main forms. ",
+            "Extra observed literal initializers survive selection. ",
+            "Instrument calls are separate observations; no runtime order inferred."
+        )
+        .into(),
     })
 }
 

@@ -129,13 +129,32 @@ pub(super) fn diagram(program: &Program, view: &Overview) -> Result<Diagram> {
             declarations: vec![format!("program-overview:{i}")],
         })
         .collect();
-    let diagram=Diagram{title:"Whole program — calls and stages".into(),level:Level::Stages,view:View::Program,nodes:view.nodes.clone(),edges,inventory:program.inventory.clone(),coverage:Coverage{represented_files:program.represented_files.clone(),unassigned_files:program.outside_view_files.clone(),..Default::default()},notes:vec![
-        "Arrows mean calls, not execution sequence or typed data flow. Numbers give source traversal order within each caller; arguments are source spellings.".into(),
-        "Single-callee wrappers and unsupported leaves are folded; complete call chains, branch/loop context, and every opaque/unresolved observation remain in program evidence.".into(),
-        "Selected workflow coordinators stay visible as drilldowns. Use flow to read their within-body sequence.".into(),
-        "Context nodes are declared stages not surfaced by supported syntax. Calls inside macros or deferred bodies are not guessed.".into(),
-        format!("{} represented source files / {} inventoried; {} summarized or opaque observations. Outside-view files are not a dead-code claim.",program.represented_files.len(),program.inventory.len(),program.observations.len()),
-    ],evidence_links:vec![]};
+    let diagram = Diagram {
+        title: "Whole program — calls and stages".into(),
+        level: Level::Stages,
+        view: View::Program,
+        nodes: view.nodes.clone(),
+        edges,
+        inventory: program.inventory.clone(),
+        coverage: Coverage {
+            represented_files: program.represented_files.clone(),
+            unassigned_files: program.outside_view_files.clone(),
+            ..Default::default()
+        },
+        notes: vec![
+            "Arrows mean calls, not execution sequence or typed data flow. Numbers give source traversal order within each caller; arguments are source spellings.".into(),
+            "Single-callee wrappers and unsupported leaves are folded; complete call chains, branch/loop context, and every opaque/unresolved observation remain in program evidence.".into(),
+            "Selected workflow coordinators stay visible as drilldowns. Use flow to read their within-body sequence.".into(),
+            "Context nodes are declared stages not surfaced by supported syntax. Calls inside macros or deferred bodies are not guessed.".into(),
+            format!(
+                "{} represented source files / {} inventoried; {} summarized or opaque observations. Outside-view files are not a dead-code claim.",
+                program.represented_files.len(),
+                program.inventory.len(),
+                program.observations.len()
+            ),
+        ],
+        evidence_links: vec![],
+    };
     diagram.validate()?;
     Ok(diagram)
 }
@@ -167,7 +186,14 @@ pub(super) fn ascii(program: &Program, view: &Overview) -> String {
                 .expect("formatting into a String cannot fail");
         }
     }
-    write!(out, "\n{} coordinators folded; {} represented / {} inventoried files; {} observations retained.\n",view.collapsed.len(),program.represented_files.len(),program.inventory.len(),program.observations.len()).expect("formatting into a String cannot fail");
+    write!(
+        out,
+        "\n{} coordinators folded; {} represented / {} inventoried files; {} observations retained.\n",
+        view.collapsed.len(),
+        program.represented_files.len(),
+        program.inventory.len(),
+        program.observations.len()
+    ).expect("formatting into a String cannot fail");
     out.push_str("Arrows are calls. Numbers order source call sites within a caller, not runtime paths. Use flow for sequence; program evidence retains composed chains and unresolved dispatch.\n");
     out
 }

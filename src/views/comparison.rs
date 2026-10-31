@@ -70,15 +70,6 @@ fn observations(f: &Facts, query: Option<&Query>) -> Result<BTreeMap<(String, St
             )
         })
         .collect();
-    let mut all = BTreeSet::new();
-    for k in types.values().chain(functions.values()) {
-        if !all.insert(k) {
-            return Err(format!(
-                "ambiguous stable source symbol {k}; no arbitrary comparison match is permitted"
-            )
-            .into());
-        }
-    }
     let selected: BTreeSet<_> = f
         .types
         .iter()
@@ -91,6 +82,43 @@ fn observations(f: &Facts, query: Option<&Query>) -> Result<BTreeMap<(String, St
         })
         .map(|t| t.id.as_str())
         .collect();
+    // Only identities that contribute observations to this question must match.
+    // Unrelated cfg alternatives are not a reason to discard a selected view.
+    let related_functions: BTreeSet<_> = f
+        .references
+        .iter()
+        .filter(|reference| {
+            selected.contains(reference.to.as_str())
+                && matches!(reference.role, Role::Input | Role::Output)
+        })
+        .map(|reference| reference.from.as_str())
+        .chain(
+            f.constructors
+                .iter()
+                .chain(&f.default_calls)
+                .filter(|constructor| selected.contains(constructor.to.as_str()))
+                .map(|constructor| constructor.from.as_str()),
+        )
+        .collect();
+    let mut identities = BTreeSet::new();
+    for key in types
+        .iter()
+        .filter(|(id, _)| selected.contains(*id))
+        .map(|(_, key)| key)
+        .chain(
+            functions
+                .iter()
+                .filter(|(id, _)| related_functions.contains(*id))
+                .map(|(_, key)| key),
+        )
+    {
+        if !identities.insert(key) {
+            return Err(format!(
+                "ambiguous stable source symbol {key}; no arbitrary comparison match is permitted"
+            )
+            .into());
+        }
+    }
     let mut out = BTreeMap::new();
     for t in f.types.iter().filter(|t| selected.contains(t.id.as_str())) {
         out.insert(

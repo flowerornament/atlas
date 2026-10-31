@@ -36,9 +36,12 @@ atlas moved HEAD~1 --scope src                 # exact and rerooted body matches
 atlas visibility HEAD~1 --scope src            # written visibility changes
 ```
 
-`--json` gives structured observations for scripts and agents. `--scope` selects
-files inside the Cargo workspace; `--population` selects supported declaration
-populations. Run `atlas COMMAND --help` for each question, selection and limit.
+`--json` gives structured observations for scripts and agents. Review and diagram
+commands use `--scope` for workspace paths; stage/seam checks use it for Cargo
+packages. Native navigation also has package/directory selectors. `--population`
+selects each command's supported declaration population; run `atlas COMMAND --help`
+for the exact selection and evidence meaning. Revision examples below use Git's
+`HEAD~1`; in a jj workspace pass a revset such as `main-`, or an exact commit ID.
 
 ## Draw a question
 
@@ -63,6 +66,27 @@ understands `MODULES` and `SURFACES`. Atlas does not invent a project's stages.
 
 See [diagram examples and meanings](docs/diagrams.md) and
 [project adapters and renderers](docs/extensions.md).
+
+## Try it on Atlas
+
+From a checkout of this repository, with Atlas installed:
+
+```sh
+atlas name SourceGraph --population all
+atlas flow --path src/main.rs --function main --detail control
+atlas representations --query examples/queries/atlas.json --panel contracts --backend pele --out target/atlas/atlas.svg
+atlas compare --before HEAD~1 --query examples/queries/atlas.json --json
+```
+
+The name card locates the captured source model and its lexical references. The
+flow shows the CLI entry's supported branches and exits. The saved question
+follows `SourceGraph`, `Diagram` and `Artifact`, with files and signature witnesses;
+open `target/atlas/atlas.svg` to inspect it. The comparison asks that same question
+of the previous commit and current source. It reports changed contracts and
+construction sites, rather than claiming changed runtime behavior.
+
+These are existing source questions, not a profile containing authored arrows.
+Use their source links to check an observation or read what a view leaves unknown.
 
 ## Check declared architecture
 
@@ -92,7 +116,9 @@ Atlas reads written source. It does not expand macros, fully resolve Rust's type
 system, prove runtime ownership, or establish behavioral equivalence. Source-flow
 views retain supported control syntax, with explicit boundaries for unsupported
 or unresolved work. Large diagrams can still be difficult to read. The source
-and uncertainty behind a picture are part of its result.
+and uncertainty behind a picture are part of its result. Contract comparison
+refuses duplicate stable identities among observations in the selected question;
+it does not choose a matching arbitrarily.
 
 ## Develop
 

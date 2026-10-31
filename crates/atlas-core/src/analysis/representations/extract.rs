@@ -94,7 +94,12 @@ impl References<'_> {
                         wrappers: wrappers.to_vec(),
                     });
                 } else {
-                    self.unknown.push(UnknownType{from:self.r.id.clone(),spelling:text(self.source,p.span()),role: *role,reason:"not a uniquely resolved workspace struct/enum/alias (may be external, trait, primitive or ambiguous)".into()});
+                    self.unknown.push(UnknownType {
+                        from: self.r.id.clone(),
+                        spelling: text(self.source, p.span()),
+                        role: *role,
+                        reason: "not a uniquely resolved workspace struct/enum/alias (may be external, trait, primitive or ambiguous)".into(),
+                    });
                 }
                 for segment in &p.path.segments {
                     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {

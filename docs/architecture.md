@@ -26,6 +26,15 @@ pipeline every command must traverse. A JSON query can finish before rendering.
 Errors return to main, which writes the diagnostic and exits unsuccessfully.
 Policy refusal and unavailable evidence retain their distinct structured status.
 
+Three evidence families explain superficially similar paths. **Lexical** views
+use declaration spellings and approximate mentions; **qualified** views follow
+supported Cargo/import/signature syntax and retain unresolved targets; **native**
+reports preserve the original review/check population and counting contracts.
+They share source and grammar without claiming interchangeable meanings.
+Depth-zero flow deliberately reads explicitly selected bodies, including tests;
+it publishes their own workflow evidence and protects those source paths. Expanded
+flow uses the selected qualified index and its captured syntax cache.
+
 ## Where code belongs
 
 - **`crates/atlas-core/src/source/`** owns source bytes, physical/package/mount

@@ -20,6 +20,28 @@ fn project() -> Fixture {
     ])
 }
 fn run(fixture: &Fixture, body: &str) -> Output {
+    let output = invoke(
+        fixture,
+        body,
+        &[
+            "representations",
+            "--query",
+            "question.json",
+            "--panel",
+            "contracts",
+            "--backend",
+            "pele",
+            "--out",
+            "result.svg",
+        ],
+    );
+    assert!(
+        fixture.path().join("fake/pid").exists(),
+        "fixture must reach the renderer"
+    );
+    output
+}
+fn invoke(fixture: &Fixture, body: &str, arguments: &[&str]) -> Output {
     let real = Command::new("node")
         .args(["-p", "process.execPath"])
         .output()
@@ -43,18 +65,8 @@ fn run(fixture: &Fixture, body: &str) -> Output {
         &std::env::var_os("PATH").expect("PATH for Node fixture"),
     ));
     let mut child = Command::new(env!("CARGO_BIN_EXE_atlas"))
-        .args([
-            "representations",
-            "--query",
-            "question.json",
-            "--panel",
-            "contracts",
-            "--backend",
-            "pele",
-            "--out",
-            "result.svg",
-            "--root",
-        ])
+        .args(arguments)
+        .arg("--root")
         .arg(fixture.path())
         .env(
             "PATH",
@@ -86,15 +98,16 @@ fn run(fixture: &Fixture, body: &str) -> Output {
     let output = child
         .wait_with_output()
         .expect("collect Atlas fixture result");
-    let pid = fs::read_to_string(fixture.path().join("fake/pid")).expect("read renderer PID");
-    let alive = Command::new("kill")
-        .args(["-0", pid.trim()])
-        .output()
-        .expect("check renderer process disappearance");
-    assert!(
-        !alive.status.success(),
-        "owned renderer must be reaped: {pid}"
-    );
+    if let Ok(pid) = fs::read_to_string(fixture.path().join("fake/pid")) {
+        let alive = Command::new("kill")
+            .args(["-0", pid.trim()])
+            .output()
+            .expect("check renderer process disappearance");
+        assert!(
+            !alive.status.success(),
+            "owned renderer must be reaped: {pid}"
+        );
+    }
     output
 }
 fn refuses(body: &str, message: &str) {
@@ -177,4 +190,43 @@ fn stdout_and_stderr_are_drained_while_a_large_request_is_written() {
     assert!(svg.contains("data-pipe-control"));
     assert!(svg.ends_with("</svg>"));
     assert!(svg.len() > 256 * 1024);
+}
+
+#[test]
+fn oversized_request_refuses_before_starting_node_or_changing_inputs() {
+    let fixture = project();
+    let profile = serde_json::json!({
+        "schema": 1, "source": [], "workflows": [],
+        "modules": [{ "name": "\0".repeat(3 * 1024 * 1024), "kind": "stage",
+            "path": "src/lib.rs", "entry": "Token", "types": ["Token"], "dependencies": [] }],
+    });
+    let profile = serde_json::to_string(&profile).unwrap();
+    fixture.write("profile.json", &profile);
+    let output = invoke(
+        &fixture,
+        "throw new Error('renderer must never start');",
+        &[
+            "map",
+            "--architecture",
+            "profile.json",
+            "--backend",
+            "pele",
+            "--format",
+            "svg",
+            "--out",
+            "result.svg",
+        ],
+    );
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Pele request exceeds 16 MiB"));
+    assert!(!fixture.path().join("fake/pid").exists());
+    assert!(!fixture.path().join("result.svg").exists());
+    assert_eq!(
+        fs::read_to_string(fixture.path().join("profile.json")).unwrap(),
+        profile
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.path().join("src/lib.rs")).unwrap(),
+        "pub struct Token;\n"
+    );
 }

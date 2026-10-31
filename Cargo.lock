@@ -54,7 +54,7 @@ dependencies = [
 
 [[package]]
 name = "atlas"
-version = "0.6.2"
+version = "0.7.0"
 dependencies = [
  "atlas-core",
  "cargo_metadata",
@@ -67,7 +67,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "cargo_metadata",
  "clap",

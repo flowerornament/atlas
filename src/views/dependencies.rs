@@ -15,6 +15,25 @@ pub enum Relation {
     Fields,
     All,
 }
+// Preserve the historical alphabetic relation order in diagram/evidence edges.
+impl Ord for Relation {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        fn order(relation: Relation) -> u8 {
+            match relation {
+                Relation::All => 0,
+                Relation::Calls => 1,
+                Relation::Fields => 2,
+                Relation::Signatures => 3,
+            }
+        }
+        order(*self).cmp(&order(*other))
+    }
+}
+impl PartialOrd for Relation {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Witness {
     pub from: String,
@@ -106,10 +125,10 @@ pub fn project(facts: &Facts, scope: &str, relation: Relation) -> Result<Depende
         .into_iter()
         .filter(|w| w.from != w.to && files.contains(&w.from))
         .partition(|w| files.contains(&w.to));
-    let mut grouped = BTreeMap::<(String, String, String), Vec<usize>>::new();
+    let mut grouped = BTreeMap::<(String, String, Relation), Vec<usize>>::new();
     for (i, w) in witnesses.iter().enumerate() {
         grouped
-            .entry((w.from.clone(), w.to.clone(), format!("{:?}", w.relation)))
+            .entry((w.from.clone(), w.to.clone(), w.relation))
             .or_default()
             .push(i);
     }
@@ -150,7 +169,42 @@ pub fn project(facts: &Facts, scope: &str, relation: Relation) -> Result<Depende
                 .is_some_and(|f| files.contains(&f.file))
         })
         .count();
-    let mut diagram=Diagram{title:format!("Source {:?}: {}",relation,if scope.is_empty(){"workspace"}else{scope}),level:Level::Files,view:View::Types,nodes:files.iter().map(|f|Node{id:f.clone(),label:f.rsplit('/').next().unwrap_or(f).into(),group:f.rsplit_once('/').map_or(".",|(p,_)|p).into(),source_sites:vec![f.clone()],context:false,internal_relationships:vec![],surface:None}).collect(),edges,inventory:files.iter().cloned().collect(),coverage:Coverage{source_relationships:witnesses.len(),represented_files:files.into_iter().collect(),..Coverage::default()},notes:vec!["Calls, signature types and direct field types are separate positive source observations; none denotes runtime order.".into(),format!("{} outside-scope observations retained in evidence; {unresolved_calls} unresolved/external call observations are not proved absent.",outside.len())],evidence_links:vec![]};
+    let mut diagram = Diagram {
+        title: format!(
+            "Source {:?}: {}",
+            relation,
+            if scope.is_empty() { "workspace" } else { scope }
+        ),
+        level: Level::Files,
+        view: View::Types,
+        nodes: files
+            .iter()
+            .map(|file| Node {
+                id: file.clone(),
+                label: file.rsplit('/').next().unwrap_or(file).into(),
+                group: file.rsplit_once('/').map_or(".", |(parent, _)| parent).into(),
+                source_sites: vec![file.clone()],
+                context: false,
+                internal_relationships: vec![],
+                surface: None,
+            })
+            .collect(),
+        edges,
+        inventory: files.iter().cloned().collect(),
+        coverage: Coverage {
+            source_relationships: witnesses.len(),
+            represented_files: files.into_iter().collect(),
+            ..Coverage::default()
+        },
+        notes: vec![
+            "Calls, signature types and direct field types are separate positive source observations; none denotes runtime order.".into(),
+            format!(
+                "{} outside-scope observations retained in evidence; {unresolved_calls} unresolved/external call observations are not proved absent.",
+                outside.len()
+            ),
+        ],
+        evidence_links: vec![],
+    };
     diagram.notes.extend(facts.limitations.clone());
     diagram.validate()?;
     Ok(Dependencies {
