@@ -137,7 +137,11 @@ fn render(v: &Views, panel: Panel, vertical: bool) -> Result<Artifact> {
         40.,
         82.,
         18,
-        "Source contracts and construction observations; shared types do not assert shared runtime values or execution order.",
+        if matches!(panel, Panel::Preparation) {
+            "Direct resolved producer calls. Boxes are functions, grouped by physical source file."
+        } else {
+            "Source contracts and construction observations; shared types do not assert shared runtime values or execution order."
+        },
     );
     text(
         &mut out,
@@ -146,6 +150,8 @@ fn render(v: &Views, panel: Panel, vertical: bool) -> Result<Artifact> {
         17,
         if matches!(panel, Panel::Retention) {
             "Matrix: row contains column. & = reference; * = nested type; hover for the complete field expression."
+        } else if matches!(panel, Panel::Preparation) {
+            "A shared callee is one source implementation; it does not assert shared runtime values or execution order."
         } else {
             "Return contracts and literal construction are distinct observations. Repeated routes prompt reading; they do not prove duplication."
         },
@@ -179,14 +185,18 @@ fn render(v: &Views, panel: Panel, vertical: bool) -> Result<Artifact> {
         40.,
         height - 58.,
         16,
-        "Creation: literals and explicit Type::default() calls are separate. Default dispatch, Clone and macro construction may be unknown.",
+        if matches!(panel, Panel::Preparation) {
+            "Call-site locations witness each edge. This is a selected call view, not a complete call graph or evaluation trace."
+        } else {
+            "Creation: literals and explicit Type::default() calls are separate. Default dispatch, Clone and macro construction may be unknown."
+        },
     );
     text(
         &mut out,
         40.,
         height - 30.,
         16,
-        "Preparation rows compare direct producer calls; repeated patterns are observations, not a semantic duplication verdict.",
+        "Preparation shows direct producer calls; repeated patterns are observations, not a semantic duplication verdict.",
     );
     out.push_str("</svg>");
     Ok(Artifact {
@@ -209,7 +219,7 @@ fn provenance(v: &Views, svg: &str) -> String {
             "{}:{}\n{}\n{}",
             t.file,
             t.line,
-            t.name,
+            t.declaration(),
             t.fields
                 .iter()
                 .map(|(n, t)| format!("{n}: {t}"))
@@ -229,13 +239,14 @@ fn provenance(v: &Views, svg: &str) -> String {
             ),
         );
     }
-    for (i, row) in v.preparation.iter().enumerate() {
-        let title = format!(
-            "{}:{}\n{}",
-            row.function.file, row.function.line, row.function.signature
+    for (i, function) in preparation::functions(v).iter().enumerate() {
+        titles.insert(
+            format!("prep{i}"),
+            format!(
+                "{}:{}\n{}",
+                function.file, function.line, function.signature
+            ),
         );
-        titles.insert(format!("c{i}"), title.clone());
-        titles.insert(format!("d{i}"), title);
     }
     for (i, t) in v.types.iter().enumerate() {
         for (j, target) in v.types.iter().enumerate() {

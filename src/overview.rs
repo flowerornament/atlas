@@ -104,6 +104,7 @@ pub fn project(facts: &Facts, architecture: &Architecture) -> Result<Overview> {
         types,
         apis: operations,
         preparation_files: vec![],
+        preparation_functions: vec![],
     };
     let views = representations::project(facts, &query)?;
     let functions: BTreeMap<_, _> = facts.functions.iter().map(|f| (f.id.as_str(), f)).collect();

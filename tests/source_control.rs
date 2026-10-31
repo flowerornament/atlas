@@ -237,3 +237,154 @@ fn large_empty_match_arms_refuse_the_node_budget_instead_of_evading_it() {
     let error = workflow::expanded(&f.0, &m, &graph, "src/lib.rs", "run", 1).unwrap_err();
     assert!(error.to_string().contains("600"));
 }
+
+#[test]
+fn compact_control_preserves_retained_paths_and_every_folded_observation() {
+    for source in [
+        CONTROL,
+        "pub fn run(x:Option<u8>){match x{Some(v) if guard(&v)=>take(v),_=>()}} fn guard(_: &u8)->bool{true} fn take(_:u8){}",
+        "mod child {pub fn work()->Result<(),()>{Ok(())}} pub fn run()->Result<(),()>{child::work()?;child::work()?;Ok(())}",
+        "pub fn run(){for x in values(){if ready(){continue;} consume(&x);} opaque!();} fn ready()->bool{true} fn values()->[u8;0]{[]} fn consume(_: &u8){}",
+        "pub fn run()->Result<(),()>{combine(first()?, &second());Ok(())} fn first()->Result<u8,()>{Err(())} fn second()->u8{0} fn combine(_:u8,_:&u8){}",
+        "pub fn run(){loop {continue;} after();} fn after(){}",
+        "pub fn run(){run();}",
+    ] {
+        let function = if source == CONTROL { "nested" } else { "run" };
+        let fixture = Fixture::new(&[("src/lib.rs", source)]);
+        let metadata = cargo_metadata::MetadataCommand::new()
+            .current_dir(&fixture.0)
+            .no_deps()
+            .exec()
+            .unwrap();
+        let graph = discovery::scan_metadata(&metadata).unwrap();
+        let architecture = atlas::architecture::Architecture {
+            schema: 1,
+            provenance: vec![],
+            modules: vec![],
+            workflows: vec![],
+        };
+        let index =
+            atlas_core::source_index::Index::new(&fixture.0, &metadata, &graph, &architecture)
+                .unwrap();
+        for depth in [0, 1] {
+            let (_, raw) = workflow::expand(&index, "src/lib.rs", function, depth).unwrap();
+            let (_, compact) = workflow::expand_with_detail(
+                &index,
+                "src/lib.rs",
+                function,
+                depth,
+                workflow::Detail::Control,
+            )
+            .unwrap();
+            compact.validate().unwrap();
+            let accounted: BTreeSet<_> = compact
+                .nodes
+                .iter()
+                .chain(&compact.coverage.summarized_nodes)
+                .map(|n| n.id.as_str())
+                .collect();
+            assert_eq!(accounted, raw.nodes.iter().map(|n| n.id.as_str()).collect());
+            assert_eq!(
+                compact.nodes.len() + compact.coverage.summarized_nodes.len(),
+                raw.nodes.len()
+            );
+            for node in &compact.coverage.summarized_nodes {
+                let original = raw.nodes.iter().find(|n| n.id == node.id).unwrap();
+                assert_eq!(node.label, original.label);
+                assert_eq!(node.source_sites, original.source_sites);
+            }
+            for from in &compact.nodes {
+                for to in &compact.nodes {
+                    assert_eq!(
+                        reachable(&raw, &from.id, &to.id),
+                        reachable(&compact, &from.id, &to.id),
+                        "{} → {} at depth {depth}",
+                        from.label,
+                        to.label
+                    );
+                }
+            }
+            for edge in raw.edges.iter().filter(|e| {
+                e.label
+                    .as_deref()
+                    .is_some_and(|s| s.starts_with("return to"))
+            }) {
+                assert!(
+                    compact
+                        .edges
+                        .iter()
+                        .any(|e| e.from == edge.from && e.to == edge.to && e.label == edge.label)
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn control_cli_folds_mechanics_and_retains_summary_custody() {
+    let fixture = Fixture::new(&[(
+        "src/lib.rs",
+        "pub fn run()->Result<(),()>{let x = first(&1)?; second(&x); Ok(())} fn first(_: &u8)->Result<u8,()>{Ok(1)} fn second(_: &u8){} fn other()->Result<(),()>{ first(&2)?; Ok(()) }",
+    )]);
+    fixture.write("profile.json", r#"{"schema":1,"source":["src/lib.rs"],"modules":[],"workflows":[{"name":"run","path":"src/lib.rs","function":"run"},{"name":"other","path":"src/lib.rs","function":"other"}]}"#);
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_atlas"))
+        .args(["flow", "--root"])
+        .arg(&fixture.0)
+        .args([
+            "--architecture",
+            "profile.json",
+            "--detail",
+            "control",
+            "--out",
+            "target/atlas/run.txt",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let directory = fixture.0.join("target/atlas");
+    let diagram: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(directory.join("run.diagram.json")).unwrap())
+            .unwrap();
+    let folded = diagram["coverage"]["summarized_nodes"].as_array().unwrap();
+    assert!(!folded.is_empty());
+    assert!(
+        folded
+            .iter()
+            .any(|node| node["id"].as_str().unwrap().starts_with("w0_"))
+    );
+    assert!(
+        folded
+            .iter()
+            .any(|node| node["id"].as_str().unwrap().starts_with("w1_"))
+    );
+    assert!(
+        folded
+            .iter()
+            .any(|node| node["label"].as_str().unwrap().contains("propagate ?"))
+    );
+    let text = std::fs::read_to_string(directory.join("run.txt")).unwrap();
+    assert!(text.contains("x = first(&1) ?"));
+    assert!(text.contains("residual"));
+    assert!(!text.contains("propagate ?"));
+}
+
+#[test]
+fn compact_unexpanded_control_refuses_oversize_before_folding() {
+    let fixture = Fixture::new(&[(
+        "src/lib.rs",
+        &format!("pub fn run() {{ {} }}", "external();".repeat(601)),
+    )]);
+    let flow = workflow::read(&fixture.0, "src/lib.rs", "run").unwrap();
+    assert!(
+        flow.diagram().nodes.len() > 600,
+        "detailed view keeps its existing behavior"
+    );
+    let error = flow
+        .diagram_with_detail(workflow::Detail::Control)
+        .unwrap_err();
+    assert!(error.to_string().contains("600"));
+}

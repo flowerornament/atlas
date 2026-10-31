@@ -33,4 +33,24 @@ pub struct Query {
     /// Files whose producer-returning functions become preparation rows.
     #[serde(default)]
     pub preparation_files: Vec<String>,
+    /// Exact preparation functions; optional file selection further narrows them.
+    #[serde(default)]
+    pub preparation_functions: Vec<Selector>,
+}
+
+impl Query {
+    pub(crate) fn prepares(&self, function: &Function) -> bool {
+        if self.preparation_functions.is_empty() {
+            self.preparation_files.contains(&function.file)
+        } else {
+            self.preparation_functions.iter().any(|selector| {
+                selector.name == function.name
+                    && selector
+                        .file
+                        .as_deref()
+                        .is_none_or(|file| file == function.file)
+            }) && (self.preparation_files.is_empty()
+                || self.preparation_files.contains(&function.file))
+        }
+    }
 }

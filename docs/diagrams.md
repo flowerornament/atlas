@@ -193,3 +193,41 @@ tests. `just check-install` tests an installed binary outside its checkout.
 `just verify-vendor` checks the pinned Pele package. Rust is pinned in
 `rust-toolchain.toml`. The crate is MIT OR Apache-2.0; the embedded Pele bundle is MIT.
 
+
+## Named aliases and control detail
+
+Representation queries include named Rust aliases such as `type Forms = Vec<Form>`.
+Their written RHS is shown explicitly; the alias stays the signature's handoff.
+RHS references are `alias-target` observations, never fields or ownership claims.
+They are not recursively expanded. External/ambiguous RHS names remain unknown;
+cycles remain finite written links. Comparison reports RHS changes.
+
+For an entry sequence without separate borrow and synthetic `?` bridge boxes:
+
+```sh
+atlas flow --root . --path src/main.rs --function main --detail control --backend pele --format svg --out target/atlas/main.svg
+```
+
+`--detail expressions` is the default. Control detail contracts only designated
+borrow/bridge nodes with one incoming and one outgoing edge. A residual decision
+can join an unexpanded call with one continuation in the same file. Branches,
+loops, guards, opaque operations, exits and occurrence-specific call returns remain.
+Control detail refuses over 600 raw source-control nodes before folding, also at
+depth zero. The original unexpanded expression detail keeps its existing limit.
+Folded node labels and witnesses are retained in `coverage.summarized_nodes` in
+`diagram.json`; `workflow.json` retains the original selected workflow steps.
+Source-control possibilities are not path feasibility or a termination proof.
+
+The Pele preparation panel groups functions by file and connects actual resolved
+producer calls to one box per function identity. Two callers sharing a callee are
+visible as two routes to that implementation, not a claim of one runtime value.
+Locations witness call sites without asserting an evaluation order.
+ASCII retains the corresponding comparable preparation rows.
+
+Use `preparation_functions` in a saved query for an exact overview, for example
+`[{"name":"least_forms","file":"src/frontend/elaborate/least.rs"},
+{"name":"build","file":"src/frontend/elaborate/program.rs"}]`.
+Each selector must resolve uniquely and return a selected representation.
+`preparation_files`, when also present, limits those selections to those files.
+Omit function selection to retain all producer-returning rows in the chosen files.
+All source facts remain in JSON; the query selects a view, not an asserted architecture.

@@ -7,6 +7,18 @@ pub(super) fn render(v: &Views, panel: Panel) -> String {
         "{}\nContracts and direct fields, not runtime value flow.\n",
         v.query.title
     );
+    for t in &v.types {
+        if t.alias.is_some() {
+            writeln!(
+                s,
+                "{} @ {}:{} (written alias; not expanded)",
+                t.declaration(),
+                t.file,
+                t.line
+            )
+            .expect("formatting into a String cannot fail");
+        }
+    }
     if matches!(panel, Panel::All | Panel::Contracts) {
         s.push_str("\nA  REPRESENTATION CONTRACTS\n");
         for c in &v.contracts {

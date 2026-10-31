@@ -152,6 +152,7 @@ fn graph_and_table_families_share_backends_without_erasing_their_models() {
         }],
         apis: vec![],
         preparation_files: vec![],
+        preparation_functions: vec![],
     };
     let views = representations::project(&facts, &q).unwrap();
     let graph = atlas::workflow::read(&f.0, "src/build.rs", "build")

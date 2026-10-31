@@ -96,7 +96,9 @@ fn observations(f: &Facts, query: Option<&Query>) -> Result<BTreeMap<(String, St
     for t in f.types.iter().filter(|t| selected.contains(t.id.as_str())) {
         out.insert(
             ("type".into(), types[t.id.as_str()].clone()),
-            if t.fields.is_empty() {
+            if t.alias.is_some() {
+                t.declaration()
+            } else if t.fields.is_empty() {
                 "(no direct fields)".into()
             } else {
                 t.fields
@@ -107,11 +109,9 @@ fn observations(f: &Facts, query: Option<&Query>) -> Result<BTreeMap<(String, St
             },
         );
     }
-    for r in f
-        .references
-        .iter()
-        .filter(|r| selected.contains(r.to.as_str()) && r.role != Role::Field)
-    {
+    for r in f.references.iter().filter(|r| {
+        selected.contains(r.to.as_str()) && matches!(r.role, Role::Input | Role::Output)
+    }) {
         let Some(from) = functions.get(r.from.as_str()) else {
             continue;
         };
@@ -183,12 +183,11 @@ fn observations(f: &Facts, query: Option<&Query>) -> Result<BTreeMap<(String, St
             outgoing.entry(&c.from).or_default().push(to.clone());
         }
     }
-    for function in f.functions.iter().filter(|x| {
-        returners.contains(x.id.as_str())
-            && query.is_none_or(|q| {
-                q.preparation_files.is_empty() || q.preparation_files.contains(&x.file)
-            })
-    }) {
+    for function in f
+        .functions
+        .iter()
+        .filter(|x| returners.contains(x.id.as_str()) && query.is_none_or(|q| q.prepares(x)))
+    {
         let calls = outgoing
             .get(function.id.as_str())
             .cloned()
@@ -203,7 +202,7 @@ fn observations(f: &Facts, query: Option<&Query>) -> Result<BTreeMap<(String, St
     }
     Ok(out)
 }
-/// No rename inference: file/symbol moves are additions/removals, and aliases/unknowns remain limits.
+/// No rename inference: file/symbol moves are additions/removals, and alias expansion/unknowns remain limits.
 pub fn compare(
     before: &Facts,
     after: &Facts,

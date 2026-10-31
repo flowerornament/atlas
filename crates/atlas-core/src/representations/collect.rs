@@ -1,4 +1,4 @@
-//! Written structs, enums, signatures and immediate literal initializers.
+//! Written structs, enums, aliases, signatures and immediate literal initializers.
 use super::types::{Constant, Literal};
 use proc_macro2::Span;
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,6 +19,7 @@ pub(super) struct Record {
     pub(super) signature: Option<syn::Signature>,
     pub(super) owner: Option<syn::Type>,
     pub(super) fields: Vec<(String, syn::Type)>,
+    pub(super) alias: Option<syn::Type>,
     pub(super) text: String,
 }
 pub(super) struct Collector<'a> {
@@ -71,6 +72,7 @@ impl Collector<'_> {
             signature: sig,
             owner: self.owner.clone(),
             fields,
+            alias: None,
             text: self.text(span),
         });
         id
@@ -142,6 +144,18 @@ impl<'ast> Visit<'ast> for Collector<'_> {
             record
                 .parameters
                 .extend(s.generics.type_params().map(|p| p.ident.to_string()));
+        }
+    }
+    fn visit_item_type(&mut self, alias: &'ast syn::ItemType) {
+        if self.function.is_some() || !self.selection.admits(alias.span()) {
+            return;
+        }
+        self.record(alias.ident.to_string(), alias.ident.span(), None, vec![]);
+        if let Some(record) = self.records.last_mut() {
+            record.alias = Some(*alias.ty.clone());
+            record
+                .parameters
+                .extend(alias.generics.type_params().map(|p| p.ident.to_string()));
         }
     }
     fn visit_item_enum(&mut self, e: &'ast syn::ItemEnum) {

@@ -185,6 +185,7 @@ impl Reader<'_> {
     }
     fn action(&self, expr: &Expr) -> Step {
         Step::Action {
+            binding: None,
             label: self.text(expr.span()),
             fallible: false,
             site: self.site(expr.span()),
@@ -205,8 +206,12 @@ impl Reader<'_> {
                     if let Some(init) = &local.init {
                         let mut steps = self.expr(&init.expr);
                         if let Some(step) = steps.last_mut() {
+                            if let Step::Action { binding, .. } = step {
+                                *binding = Some(self.text(local.pat.span()));
+                            }
                             let label = match step {
-                                Step::Action { label, .. }
+                                Step::Borrow { label, .. }
+                                | Step::Action { label, .. }
                                 | Step::Match { label, .. }
                                 | Step::Branch { label, .. }
                                 | Step::Loop { label, .. }
@@ -270,6 +275,7 @@ impl Reader<'_> {
             Expr::Try(e) => {
                 let mut steps = self.expr(&e.expr);
                 steps.push(Step::Action {
+                    binding: None,
                     label: "propagate ?".into(),
                     fallible: true,
                     site,
@@ -446,7 +452,14 @@ impl Reader<'_> {
                 steps.push(self.action(expr));
                 steps
             }
-            Expr::Reference(e) => self.with_operand(expr, &e.expr),
+            Expr::Reference(e) => {
+                let mut steps = self.operand(&e.expr);
+                steps.push(Step::Borrow {
+                    label: self.text(expr.span()),
+                    site,
+                });
+                steps
+            }
             Expr::Unary(e) => self.with_operand(expr, &e.expr),
             Expr::Field(e) => self.with_operand(expr, &e.base),
             Expr::Index(e) => {
@@ -498,7 +511,7 @@ mod tests {
         let source = "fn build() {\n let x = parse()?;\n for item in values() {\n match check(item) { Ok(v) => save(v), Err(e) => return fail(e) }\n }\n finish(x);\n}";
         let flow = parse(source, "src/lib.rs", "build").unwrap();
         assert!(
-            matches!(&flow.steps[0],Step::Action{label,fallible:false,site} if label=="parse()" && site.line==2 && site.column==9)
+            matches!(&flow.steps[0],Step::Action{label,fallible:false,site,..} if label=="parse()" && site.line==2 && site.column==9)
         );
         let Step::Loop { body, .. } = &flow.steps[3] else {
             panic!("loop")

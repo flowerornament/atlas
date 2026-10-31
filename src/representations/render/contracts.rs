@@ -21,7 +21,7 @@ pub(super) fn source(v: &Views) -> (String, Vec<Edge>) {
         groups.entry(&t.file).or_default().push(format!(
             "{}([\"{}\"]):::object",
             ids[t.id.as_str()],
-            label(&t.name)
+            label(&t.declaration())
         ));
     }
     for (i, c) in v.contracts.iter().enumerate() {

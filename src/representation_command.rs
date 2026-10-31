@@ -55,6 +55,7 @@ pub(crate) fn run(
                 .collect(),
             apis: vec![],
             preparation_files: vec![],
+            preparation_functions: vec![],
         }
     };
     let snapshot = discovery::snapshot_metadata(metadata)?;

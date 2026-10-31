@@ -94,7 +94,7 @@ impl References<'_> {
                         wrappers: wrappers.to_vec(),
                     });
                 } else {
-                    self.unknown.push(UnknownType{from:self.r.id.clone(),spelling:text(self.source,p.span()),role: *role,reason:"not a uniquely resolved workspace struct/enum (may be external, alias, trait, primitive or ambiguous)".into()});
+                    self.unknown.push(UnknownType{from:self.r.id.clone(),spelling:text(self.source,p.span()),role: *role,reason:"not a uniquely resolved workspace struct/enum/alias (may be external, trait, primitive or ambiguous)".into()});
                 }
                 for segment in &p.path.segments {
                     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
@@ -291,6 +291,9 @@ pub(crate) fn from_selected_sources(
         for (name, t) in &r.fields {
             refs.field(t, Role::Field, name);
         }
+        if let Some(alias) = &r.alias {
+            refs.field(alias, Role::AliasTarget, "alias");
+        }
         if let Some(sig) = &r.signature {
             refs.signature(sig);
             facts.functions.push(Function {
@@ -322,6 +325,7 @@ pub(crate) fn from_selected_sources(
                     .join("::"),
                 file: r.file.clone(),
                 line: r.line,
+                alias: r.alias.as_ref().map(|t| text(source, t.span())),
                 fields: r
                     .fields
                     .iter()

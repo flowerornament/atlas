@@ -70,6 +70,16 @@ impl<'a> Analysis<'a> {
         function: &str,
         depth: u8,
     ) -> Result<(workflow::Workflow, crate::diagram::Diagram)> {
+        self.expanded_with_detail(path, function, depth, workflow::Detail::Expressions)
+    }
+    /// Source-control contraction retains its folded nodes in structured coverage.
+    pub fn expanded_with_detail(
+        &self,
+        path: &str,
+        function: &str,
+        depth: u8,
+        detail: workflow::Detail,
+    ) -> Result<(workflow::Workflow, crate::diagram::Diagram)> {
         workflow::check_depth(depth)?;
         let architecture = Architecture {
             schema: 1,
@@ -77,6 +87,6 @@ impl<'a> Analysis<'a> {
             modules: vec![],
             workflows: vec![],
         };
-        workflow::expand(&self.index(&architecture)?, path, function, depth)
+        workflow::expand_with_detail(&self.index(&architecture)?, path, function, depth, detail)
     }
 }

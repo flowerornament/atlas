@@ -78,3 +78,44 @@ This misses the goal of a readable whole-program explanation. Expansion therefor
 remains opt-in, the default overview remains contracts, and Atlas #1 stays open for
 readable abstraction of the control facts. A structurally qualified graph is not
 automatically a communicative diagram. No whole-program visual acceptance is claimed.
+
+## 2026-10-30: frontend follow-up
+
+On pinned Girard source `70374b6acb23c26350a474db11baca0a4164fbdf`, the
+representation query now includes its actual `Forms` alias, without substituting
+another selected type. Aliases keep their written RHS and declaration identity;
+RHS links are neither retained fields nor normalized equivalences. Regression
+cases cover contracts, producer/preparation selection, comparison, nested shape,
+generic parameters, unknown targets and cyclic written references.
+
+An opt-in control projection reduced the entry from 17 to 6 displayed nodes,
+retaining 11 folded observations in structured coverage. Its SVG height fell from
+1,638 to 822 units. The same branches and residual exits remain. Tests compare
+reachability for every retained node across detailed/compact variants of nested
+residuals, guarded matches, loops, repeated calls, recursion and opaque syntax.
+Matched return edges are preserved; multi-anchor evidence keeps distinct IDs.
+Control detail refuses above 600 raw nodes before contraction, including at depth
+zero. The default expression-level path collects no fold bookkeeping.
+
+Exact preparation function selection and one box per callee identity expose both
+passes calling the same evaluator factory. Boxes remain grouped by physical file;
+edges name actual call-site locations, not evaluation order. Return expressions
+retain their wrappers. The same selection applies to revision comparison; an empty
+preparation selection no longer silently compares every preparation route.
+
+A fresh reader inspected compact-entry and selected-producer pictures before five
+source files. Its image-only account identified the entry sequence, early exits
+and shared source-level factory. The source check found no incorrect displayed
+call or sequence. The reader still needed source for the passes' different work:
+judging applicable text versus output-driven construction, retained forms versus
+disposable graph state, and fresh evaluator instances. Thus the pair qualifies
+entry control and narrow implementation reuse, not a complete semantic explanation
+or human acceptance. More visible call edges alone cannot supply that missing
+meaning. No formal-model/implementation proof is claimed.
+
+The broad simplify review corrected default-path bookkeeping, an uncapped compact
+path, dependence on rendered binding labels, repeated alias-label formatting,
+return-wrapper loss, and multi-anchor summary custody coverage. Workspace and
+no-default-feature tests/Clippy, rustdoc, renderer tests and the installed-executable
+check passed. Output-safety regressions remain part of the workspace gate. Generated
+figures, full facts and previews are ignored consumer evidence, not shipped diagrams.

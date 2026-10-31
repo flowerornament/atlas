@@ -1,5 +1,5 @@
 //! Source control and matched call occurrences, grouped by physical file.
-use super::{ExitKind, LoopKind, Site, Step, Workflow};
+use super::{Detail, ExitKind, LoopKind, Site, Step, Workflow, compact::Folds};
 use crate::{
     Result,
     diagram::{Coverage, Diagram, Edge, EdgeEvidence, Level, Node, View},
@@ -8,18 +8,25 @@ use crate::{
 use std::fmt::Write as _;
 
 pub(super) fn diagram(flow: &Workflow) -> Diagram {
-    let mut b = Builder::new(None, usize::MAX);
+    let mut b = Builder::new(None, usize::MAX, Detail::Expressions);
     b.function(flow, None, 0);
     b.finish(flow)
 }
-pub(super) fn expanded(index: &Index, entry: usize, depth: u8) -> Result<Diagram> {
+pub(super) fn with_detail(flow: &Workflow, detail: Detail) -> Result<Diagram> {
+    let budget = if detail == Detail::Control {
+        600
+    } else {
+        usize::MAX
+    };
+    let mut b = Builder::new(None, budget, detail);
+    b.function(flow, None, 0);
+    b.checked(flow)
+}
+pub(super) fn expanded(index: &Index, entry: usize, depth: u8, detail: Detail) -> Result<Diagram> {
     let flow = &index.functions[entry].flow;
-    let mut b = Builder::new(Some(index), 600);
+    let mut b = Builder::new(Some(index), 600, detail);
     b.function(flow, Some(entry), depth);
-    if b.exhausted {
-        return Err("expanded flow exceeds 600 source-control nodes; lower --depth or select a smaller function (nothing emitted)".into());
-    }
-    Ok(b.finish(flow))
+    b.checked(flow)
 }
 struct Builder<'a> {
     nodes: Vec<Node>,
@@ -33,6 +40,7 @@ struct Builder<'a> {
     depth: u8,
     budget: usize,
     exhausted: bool,
+    folds: Option<Folds>,
     targets: std::collections::BTreeMap<(usize, Site), Target>,
 }
 struct LoopTarget {
@@ -41,7 +49,7 @@ struct LoopTarget {
     exit: String,
 }
 impl<'a> Builder<'a> {
-    fn new(index: Option<&'a Index>, budget: usize) -> Self {
+    fn new(index: Option<&'a Index>, budget: usize, detail: Detail) -> Self {
         Self {
             nodes: vec![],
             edges: vec![],
@@ -54,17 +62,29 @@ impl<'a> Builder<'a> {
             depth: 0,
             budget,
             exhausted: false,
+            folds: (detail == Detail::Control).then(Folds::default),
             targets: std::collections::BTreeMap::new(),
         }
+    }
+    fn checked(self, flow: &Workflow) -> Result<Diagram> {
+        if self.exhausted {
+            return Err("flow exceeds 600 source-control nodes; lower --depth or select a smaller function (nothing emitted)".into());
+        }
+        Ok(self.finish(flow))
     }
     fn finish(self, flow: &Workflow) -> Diagram {
         let files: std::collections::BTreeSet<_> =
             self.nodes.iter().map(|n| n.group.clone()).collect();
-        Diagram {title:format!("{} — source control and call occurrences",flow.function),level:Level::Declarations,view:View::Workflow,
+        let diagram = Diagram {title:format!("{} — source control and call occurrences",flow.function),level:Level::Declarations,view:View::Workflow,
             nodes:self.nodes,edges:self.edges,inventory:files.iter().cloned().collect(),coverage:Coverage{represented_files:files.into_iter().collect(),..Coverage::default()},
             notes:vec!["Source-control possibilities, not path feasibility or a proof of termination. Panics, unwinding, destructors, overloaded operations and macro effects are not inferred.".into(),
             "Call occurrences have distinct continuations. Unexpanded calls continue only if they return; recursion and unresolved bodies are visible boundaries.".into(),
-            "Pattern failure skips its guard; guard failure tries the next pattern. Each ? exits the current function on its residual branch.".into()],evidence_links:vec![]}
+            "Pattern failure skips its guard; guard failure tries the next pattern. Each ? exits the current function on its residual branch.".into()],evidence_links:vec![]};
+        if let Some(folds) = self.folds {
+            folds.apply(diagram)
+        } else {
+            diagram
+        }
     }
     fn node(&mut self, label: &str, site: &Site) -> String {
         if self.nodes.len() >= self.budget {
@@ -116,6 +136,11 @@ impl<'a> Builder<'a> {
                 }
             }
             self.stack.push(i);
+        }
+        if let Some(folds) = &mut self.folds {
+            folds
+                .call_sites
+                .extend(flow.calls.iter().map(|c| c.site.clone()));
         }
         let entry = self.node(&format!("fn {}", flow.function), &flow.site);
         let end = self.node(
@@ -195,13 +220,29 @@ impl<'a> Builder<'a> {
                     label,
                     if *fallible { " ?" } else { "" }
                 ),
-                Step::Branch { label, .. }
+                Step::Borrow { label, .. }
+                | Step::Branch { label, .. }
                 | Step::Match { label, .. }
                 | Step::Loop { label, .. }
                 | Step::Exit { label, .. } => label.clone(),
             };
             let id = self.node(&label, step.site());
             self.connect(tails, &id);
+            if let Some(folds) = &mut self.folds {
+                if matches!(step, Step::Borrow { .. }) {
+                    folds.linear.push(id.clone());
+                }
+                if matches!(
+                    step,
+                    Step::Action {
+                        fallible: false,
+                        ..
+                    }
+                ) && folds.call_sites.contains(step.site())
+                {
+                    folds.calls.insert(id.clone());
+                }
+            }
             tails = match step {
                 Step::Branch { arms, site, .. } => {
                     let mut ends = vec![];
@@ -317,16 +358,30 @@ impl<'a> Builder<'a> {
                     site,
                     ..
                 } => {
+                    if let Some(folds) = &mut self.folds {
+                        let binding = if let Step::Action { binding, .. } = step {
+                            binding.clone()
+                        } else {
+                            None
+                        };
+                        folds.residuals.push((id.clone(), binding));
+                    }
                     let early = self.node("? returns early (residual)", site);
+                    if let Some(folds) = &mut self.folds {
+                        folds.linear.push(early.clone());
+                    }
                     self.edge(&id, &early, Some("residual"));
                     let exit = self.exit.clone();
                     self.edge(&early, &exit, Some("return residual"));
                     let success = self.node("? continues", site);
+                    if let Some(folds) = &mut self.folds {
+                        folds.linear.push(success.clone());
+                    }
                     self.edge(&id, &success, Some("success"));
                     vec![success]
                 }
                 Step::Action { site, .. } => vec![self.call(&id, site).unwrap_or(id)],
-                Step::Opaque { .. } => vec![id],
+                Step::Borrow { .. } | Step::Opaque { .. } => vec![id],
             };
         }
         tails

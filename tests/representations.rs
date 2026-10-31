@@ -21,6 +21,7 @@ fn query() -> Query {
             file: None,
         }],
         preparation_files: vec!["src/lib.rs".into()],
+        preparation_functions: vec![],
     }
 }
 fn inspect(source: &str) -> (Fixture, representations::Facts, representations::Views) {
@@ -157,6 +158,7 @@ fn type_only_files_and_cross_file_impl_owner_use_the_shared_index() {
             .collect(),
         apis: vec![],
         preparation_files: vec!["src/lib.rs".into()],
+        preparation_functions: vec![],
     };
     let v = representations::project(&facts, &q).unwrap();
     assert_eq!(v.retention.len(), 1);
@@ -271,6 +273,7 @@ fn default_api_selection_includes_trait_implementation_methods() {
         }],
         apis: vec![],
         preparation_files: vec![],
+        preparation_functions: vec![],
     };
     let v = representations::project(&facts, &q).unwrap();
     let c = v

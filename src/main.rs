@@ -302,7 +302,8 @@ fn flow(root: &Path, metadata: &cargo_metadata::Metadata, options: &FlowArgs) ->
             .as_deref()
             .ok_or("--depth needs --function")?;
         let analysis = atlas_core::analysis::Analysis::new(&snapshot)?;
-        let (flow, diagram) = analysis.expanded(path, function, options.depth)?;
+        let (flow, diagram) =
+            analysis.expanded_with_detail(path, function, options.depth, options.detail)?;
         (vec![(function.to_owned(), flow)], diagram)
     } else {
         let selections: Vec<_> = anchors
@@ -314,7 +315,7 @@ fn flow(root: &Path, metadata: &cargo_metadata::Metadata, options: &FlowArgs) ->
             .zip(workflow::read_many(root, &selections)?)
             .map(|(a, f)| (a.name.clone(), f))
             .collect();
-        let diagram = workflow_diagram(&flows)?;
+        let diagram = workflow_diagram(&flows, options.detail)?;
         (flows, diagram)
     };
     let query = Query {
@@ -345,7 +346,9 @@ fn flow(root: &Path, metadata: &cargo_metadata::Metadata, options: &FlowArgs) ->
         profile_text.as_deref(),
         Some(("workflow", &json(&flows)?)),
     )?;
-    let artifact = if options.render.backend == Backend::Ascii && options.depth > 0 {
+    let artifact = if options.render.backend == Backend::Ascii
+        && (options.depth > 0 || options.detail == workflow::Detail::Control)
+    {
         Ascii.render(&diagram)
     } else if options.render.backend == Backend::Ascii {
         let mut text = flows
@@ -369,7 +372,10 @@ fn flow(root: &Path, metadata: &cargo_metadata::Metadata, options: &FlowArgs) ->
     };
     destination.write(artifact, pending)
 }
-fn workflow_diagram(flows: &[(String, workflow::Workflow)]) -> Result<Diagram> {
+fn workflow_diagram(
+    flows: &[(String, workflow::Workflow)],
+    detail: workflow::Detail,
+) -> Result<Diagram> {
     let mut combined = Diagram {
         title: "Source workflows (independent bodies)".into(),
         level: Level::Declarations,
@@ -382,7 +388,7 @@ fn workflow_diagram(flows: &[(String, workflow::Workflow)]) -> Result<Diagram> {
         evidence_links: vec![],
     };
     for (index, (name, flow)) in flows.iter().enumerate() {
-        let mut diagram = flow.diagram();
+        let mut diagram = flow.diagram_with_detail(detail)?;
         for node in &mut diagram.nodes {
             node.id = format!("w{index}_{}", node.id);
             node.group = format!("{} · {}", node.group, name);
@@ -391,6 +397,18 @@ fn workflow_diagram(flows: &[(String, workflow::Workflow)]) -> Result<Diagram> {
             edge.from = format!("w{index}_{}", edge.from);
             edge.to = format!("w{index}_{}", edge.to);
         }
+        for node in &mut diagram.coverage.summarized_nodes {
+            node.id = format!("w{index}_{}", node.id);
+            node.group = format!("{} · {}", node.group, name);
+        }
+        combined
+            .coverage
+            .summarized_nodes
+            .extend(diagram.coverage.summarized_nodes);
+        combined
+            .coverage
+            .represented_files
+            .extend(diagram.coverage.represented_files);
         combined.nodes.extend(diagram.nodes);
         combined.edges.extend(diagram.edges);
         combined.inventory.extend(diagram.inventory);
@@ -672,6 +690,9 @@ struct FlowArgs {
     /// Expand matched source calls; recursion/unknown bodies remain explicit (max 6).
     #[arg(long,default_value_t=0,value_parser=clap::value_parser!(u8).range(0..=i64::from(workflow::MAX_DEPTH)),requires="path")]
     depth: u8,
+    /// Fold borrow operands and generated ? bridges; raw steps remain in evidence.
+    #[arg(long, value_enum, default_value = "expressions")]
+    detail: workflow::Detail,
     /// Profile workflow name. Omit to show independent source bodies together.
     anchor: Option<String>,
     /// Select a declared workflow without a positional ROOT.

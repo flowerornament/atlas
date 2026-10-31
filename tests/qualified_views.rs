@@ -100,6 +100,7 @@ fn inferred()->Graph {Default::default()}
             .collect(),
         apis: vec![],
         preparation_files: vec![],
+        preparation_functions: vec![],
     };
     let v = representations::project(&facts, &query).unwrap();
     assert_eq!(
@@ -279,6 +280,7 @@ fn comparison_ignores_line_shifts_and_exposes_new_construction_and_preparation()
         }],
         apis: vec![],
         preparation_files: vec![],
+        preparation_functions: vec![],
     };
     let v = representations::project(&b, &query).unwrap();
     let p = &v.producers[0];
@@ -358,6 +360,7 @@ fn error_type_returners_keep_their_err_position_in_the_producer_view() {
         }],
         apis: vec![],
         preparation_files: vec![],
+        preparation_functions: vec![],
     };
     let v = representations::project(&facts, &query).unwrap();
     let artifact = representations::pele(&v, representations::Panel::Producers).unwrap();

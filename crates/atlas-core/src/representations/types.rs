@@ -10,6 +10,18 @@ pub struct Type {
     pub file: String,
     pub line: usize,
     pub fields: Vec<(String, String)>,
+    /// Written RHS of a named alias; never expanded or treated as retained fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
+}
+impl Type {
+    /// Declaration label preserves the distinction between an alias and a nominal type.
+    pub fn declaration(&self) -> String {
+        self.alias.as_ref().map_or_else(
+            || self.name.clone(),
+            |rhs| format!("type {} = {rhs}", self.name),
+        )
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Function {
@@ -40,6 +52,8 @@ pub enum Role {
     Input,
     Output,
     Field,
+    /// A named type mentioned in an alias RHS, not a retained field.
+    AliasTarget,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Reference {

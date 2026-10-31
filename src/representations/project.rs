@@ -39,6 +39,22 @@ pub struct Views {
 fn matches(s: &Selector, name: &str, file: &str) -> bool {
     s.file.as_deref().is_none_or(|f| f == file) && s.name == name
 }
+fn function<'a>(facts: &'a Facts, selector: &Selector) -> Result<&'a Function> {
+    let candidates: Vec<_> = facts
+        .functions
+        .iter()
+        .filter(|f| matches(selector, &f.name, &f.file))
+        .collect();
+    let [function] = candidates.as_slice() else {
+        return Err(format!(
+            "function {}: found {} functions; use exact name and file",
+            selector.name,
+            candidates.len()
+        )
+        .into());
+    };
+    Ok(function)
+}
 /// Resolve every selected name uniquely; an ambiguous name is an error, not a guess.
 pub fn project(facts: &Facts, query: &Query) -> Result<Views> {
     if query.types.is_empty() || query.types.len() > 12 {
@@ -89,19 +105,7 @@ pub fn project(facts: &Facts, query: &Query) -> Result<Views> {
         );
     } else {
         for s in &query.apis {
-            let candidates: Vec<_> = facts
-                .functions
-                .iter()
-                .filter(|f| matches(s, &f.name, &f.file))
-                .collect();
-            let [f] = candidates.as_slice() else {
-                return Err(format!(
-                    "API {}: found {} functions; use exact name and file",
-                    s.name,
-                    candidates.len()
-                )
-                .into());
-            };
+            let f = function(facts, s)?;
             operations.insert(f.id.clone());
         }
     }
@@ -169,11 +173,17 @@ pub fn project(facts: &Facts, query: &Query) -> Result<Views> {
             additional_constructor: additional.contains(id),
         })
         .collect();
+    for selector in &query.preparation_functions {
+        let function = function(facts, selector)?;
+        if !returners.contains(function.id.as_str()) || !query.prepares(function) {
+            return Err(format!("preparation function {} must return a selected type and belong to the selected preparation files", selector.name).into());
+        }
+    }
     let mut preparation = Vec::new();
     for f in facts
         .functions
         .iter()
-        .filter(|f| query.preparation_files.contains(&f.file) && returners.contains(f.id.as_str()))
+        .filter(|f| query.prepares(f) && returners.contains(f.id.as_str()))
     {
         let mut calls: Vec<_> = facts
             .calls

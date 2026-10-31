@@ -2,6 +2,7 @@
 //!
 //! These diagrams describe Rust syntax, not a resolved call graph. Calls are not
 //! expanded; macros, closures and unsupported constructs remain visible and opaque.
+mod compact;
 pub(crate) mod facts;
 mod parse;
 mod projection;
@@ -44,12 +45,27 @@ impl Site {
     }
 }
 
+/// Display detail changes projection only; raw workflow facts are retained.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
+pub enum Detail {
+    #[default]
+    Expressions,
+    Control,
+}
+
 /// One syntactic step. Branch arms and loop bodies keep their own ordered steps.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Step {
+    /// Explicit borrowing, including its independently ordered operand steps.
+    Borrow { label: String, site: Site },
     Action {
         label: String,
+        /// Local pattern bound to this final initializer step, when written.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        binding: Option<String>,
         fallible: bool,
         site: Site,
     },
@@ -112,7 +128,8 @@ pub struct Arm {
 impl Step {
     pub fn site(&self) -> &Site {
         match self {
-            Self::Action { site, .. }
+            Self::Borrow { site, .. }
+            | Self::Action { site, .. }
             | Self::Branch { site, .. }
             | Self::Match { site, .. }
             | Self::Loop { site, .. }
@@ -212,6 +229,9 @@ impl Workflow {
     pub fn diagram(&self) -> Diagram {
         projection::diagram(self)
     }
+    pub fn diagram_with_detail(&self, detail: Detail) -> Result<Diagram> {
+        projection::with_detail(self, detail)
+    }
     /// Structured terminal view: indentation is control nesting, arrows are source order.
     pub fn ascii(&self) -> String {
         let mut out = format!("{} ({})\n\n", self.function, self.site.link());
@@ -235,7 +255,8 @@ fn write_steps(out: &mut String, steps: &[Step], depth: usize) {
             Step::Action {
                 label, fallible, ..
             } => (label.as_str(), if *fallible { " ?" } else { "" }),
-            Step::Branch { label, .. }
+            Step::Borrow { label, .. }
+            | Step::Branch { label, .. }
             | Step::Match { label, .. }
             | Step::Loop { label, .. }
             | Step::Exit { label, .. } => (label.as_str(), ""),
@@ -317,9 +338,19 @@ pub fn expand(
     function: &str,
     depth: u8,
 ) -> Result<(Workflow, Diagram)> {
+    expand_with_detail(index, path, function, depth, Detail::Expressions)
+}
+/// Use the same source-control builder with explicit display detail.
+pub fn expand_with_detail(
+    index: &crate::source_index::Index,
+    path: &str,
+    function: &str,
+    depth: u8,
+    detail: Detail,
+) -> Result<(Workflow, Diagram)> {
     check_depth(depth)?;
     let entry = index.select(path, function)?;
-    let diagram = projection::expanded(index, entry, depth)?;
+    let diagram = projection::expanded(index, entry, depth, detail)?;
     Ok((index.functions[entry].flow.clone(), diagram))
 }
 

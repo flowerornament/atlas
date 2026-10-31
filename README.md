@@ -46,6 +46,7 @@ populations. Run `atlas COMMAND --help` for each question, selection and limit.
 atlas dependencies --scope src --relation calls --backend pele
 atlas representations --type MyType --panel producers --backend pele
 atlas compare --before HEAD~1 --backend pele
+atlas flow --path src/main.rs --function main --detail control --backend pele --format svg
 ```
 
 ASCII is the default. Pele produces a standalone SVG with JSON evidence and a
@@ -53,6 +54,9 @@ Mermaid companion under `target/atlas/`; use `--out PATH.svg` to choose a path.
 These are generated artifacts, not a website or a source file to maintain.
 
 For a reusable question, save a JSON selection of types and entry functions.
+Named aliases stay visible as handoffs. Select `preparation_functions` in a saved
+question to see which passes share producer implementations; `--detail control`
+folds expression mechanics while retaining branches, loops and early exits.
 Try `examples/queries/atlas.json` on Atlas itself. `overview` can instead read
 explicit project declarations through an adapter; its bundled Girard adapter
 understands `MODULES` and `SURFACES`. Atlas does not invent a project's stages.

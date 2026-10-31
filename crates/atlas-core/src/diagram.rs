@@ -110,6 +110,9 @@ impl Edge {
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Coverage {
+    /// Source-control nodes contracted for display; IDs, labels and witnesses remain auditable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub summarized_nodes: Vec<Node>,
     pub source_relationships: usize,
     pub represented_files: Vec<String>,
     pub hidden_relationships: BTreeMap<String, Vec<String>>,
