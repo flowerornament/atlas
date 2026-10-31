@@ -5,37 +5,8 @@ use atlas_core::{
     population::{FileSelection, TestSelection},
     queries, review,
 };
-use std::{
-    fs,
-    path::PathBuf,
-    sync::atomic::{AtomicUsize, Ordering},
-};
-static NEXT: AtomicUsize = AtomicUsize::new(0);
-struct Fixture(PathBuf);
-impl Fixture {
-    fn new(files: &[(&str, &str)]) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "atlas-context-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        for (path, text) in files {
-            let path = root.join(path);
-            fs::create_dir_all(path.parent().expect("fixture file parent"))
-                .expect("fixture directories");
-            fs::write(path, text).expect("fixture source");
-        }
-        Self(root)
-    }
-    fn capture(&self) -> discovery::Snapshot {
-        discovery::snapshot_workspace(&self.0).expect("fixture snapshot")
-    }
-}
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
+mod support;
+use support::Fixture;
 
 #[test]
 fn shared_package_roots_keep_contexts_and_one_physical_report() {
@@ -57,7 +28,7 @@ fn shared_package_roots_keep_contexts_and_one_physical_report() {
             "pub struct Token {}\npub fn make() -> Token { Token {} }\npub fn caller() -> Token { make() }\n",
         ),
     ]);
-    let snapshot = fixture.capture();
+    let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
     assert_eq!(snapshot.graph().files.len(), 2);
     assert_eq!(snapshot.graph().physical_files().count(), 1);
     assert_eq!(snapshot.files(FileSelection::SourceTree).count(), 0);
@@ -124,7 +95,7 @@ fn targets_sharing_one_root_do_not_overwrite_each_other() {
         ),
         ("src/shared.rs", "pub fn make() {}\nfn main() { make(); }\n"),
     ]);
-    let snapshot = fixture.capture();
+    let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
     let architecture = atlas_core::architecture::Architecture {
         schema: 1,
         provenance: vec![],
@@ -134,11 +105,11 @@ fn targets_sharing_one_root_do_not_overwrite_each_other() {
     let analysis = Analysis::new(&snapshot).unwrap();
     let index = analysis.index(&architecture).unwrap();
     assert_eq!(
-        index.functions.len(),
+        index.functions().len(),
         4,
         "library and binary each retain their functions"
     );
-    assert_eq!(index.roots.len(), 1);
+    assert_eq!(index.roots().len(), 1);
     assert!(
         index.select("src/shared.rs", "main").is_err(),
         "a physical selector cannot choose a target"
@@ -148,7 +119,7 @@ fn targets_sharing_one_root_do_not_overwrite_each_other() {
             .with_tests(TestSelection::All)
             .index(&architecture)
             .unwrap()
-            .functions
+            .functions()
             .len(),
         6
     );
@@ -178,7 +149,7 @@ fn differing_module_contexts_never_become_unique_physical_arrows() {
             "pub fn pass(value: super::Token) -> super::Token { value }\npub fn call() { super::other(); }\n",
         ),
     ]);
-    let snapshot = fixture.capture();
+    let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
     let facts = Analysis::new(&snapshot).unwrap().representations().unwrap();
     let pass = facts
         .functions
@@ -227,7 +198,7 @@ fn population_selects_imports_and_items_from_the_same_test_evidence() {
         ("src/live.rs", "pub struct Token;\n"),
         ("src/test_version.rs", "pub struct Token;\n"),
     ]);
-    let snapshot = fixture.capture();
+    let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
     let analysis = Analysis::new(&snapshot).unwrap();
     let production = analysis.representations().unwrap();
     let pass = production
@@ -299,11 +270,11 @@ fn symlink_and_parent_escape_mounts_are_excluded_without_aliasing_workspace_file
     ]);
     #[cfg(unix)]
     std::os::unix::fs::symlink(
-        fixture.0.join("outside.rs"),
-        fixture.0.join("src/linked.rs"),
+        fixture.path().join("outside.rs"),
+        fixture.path().join("src/linked.rs"),
     )
     .unwrap();
-    let snapshot = fixture.capture();
+    let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
     assert!(
         !snapshot
             .graph()
@@ -344,7 +315,7 @@ fn production_analysis_does_not_parse_excluded_test_targets() {
         ("src/lib.rs", "pub struct Live;\n"),
         ("tests/broken.rs", "fn invalid Rust\n"),
     ]);
-    let snapshot = fixture.capture();
+    let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
     let analysis = Analysis::new(&snapshot).unwrap();
     assert_eq!(analysis.representations().unwrap().types.len(), 1);
     assert!(
@@ -373,7 +344,7 @@ fn package_queries_do_not_inherit_another_packages_mount_diagnostics() {
         ("left/src/shared.rs", "mod child;\n"),
         ("left/src/child.rs", "pub struct Child;\n"),
     ]);
-    let snapshot = fixture.capture();
+    let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
     assert_eq!(
         queries::census(snapshot.graph(), Some("left"))
             .unwrap()
@@ -409,7 +380,7 @@ fn lexical_and_ast_populations_agree_on_commented_stacked_and_multiline_gates() 
         ),
         ("src/hidden.rs", "pub struct Hidden;\n"),
     ]);
-    let snapshot = fixture.capture();
+    let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
     let file = snapshot.physical_file("src/lib.rs").unwrap();
     let source = snapshot.source_facts("src/lib.rs").unwrap();
     let population = atlas_core::population::Population {
@@ -450,10 +421,11 @@ fn explicit_file_workflows_can_still_select_test_bodies() {
             "#[cfg(test)]\nmod tests {\n    fn witness() { observe(); }\n}\n",
         ),
     ]);
-    let workflow = atlas_core::workflow::read(&fixture.0, "src/lib.rs", "tests::witness").unwrap();
+    let workflow =
+        atlas_core::workflow::read(fixture.path(), "src/lib.rs", "tests::witness").unwrap();
     assert_eq!(workflow.calls[0].spelling, "observe");
     assert_eq!(
-        atlas_core::workflow::read_file(&fixture.0, "src/lib.rs")
+        atlas_core::workflow::read_file(fixture.path(), "src/lib.rs")
             .unwrap()
             .functions
             .len(),
@@ -476,7 +448,7 @@ fn native_mount_population_follows_support_children_without_expanding_src_budget
         ("tests/support.rs", "mod nested;\n"),
         ("tests/support/nested.rs", "pub fn witness() {}\n"),
     ]);
-    let snapshot = fixture.capture();
+    let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
     assert_eq!(snapshot.files(FileSelection::SourceTree).count(), 2);
     let mounted = snapshot
         .mounted_sources("fixture")
@@ -523,7 +495,7 @@ fn mounted_source_keeps_multiple_locations_and_missing_evidence_visible() {
         ),
         ("tests/common.rs", "#[path=\"../src/lib.rs\"]\nmod cycle;\n"),
     ]);
-    let snapshot = fixture.capture();
+    let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
     assert!(
         snapshot
             .mounted_sources("fixture")
@@ -581,7 +553,7 @@ fn repeated_relationship_readings_deduplicate_witnesses_without_merging_packages
             "pub struct Shared;\nimpl Shared {\n    pub fn make() -> Self { Self }\n}\n",
         ),
     ]);
-    let snapshot = fixture.capture();
+    let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
     let mut graph = snapshot.graph().clone();
     for _ in 0..2 {
         let witnesses = graph
@@ -601,5 +573,40 @@ fn repeated_relationship_readings_deduplicate_witnesses_without_merging_packages
                 .any(|d| d.package.as_deref() == Some("right"))
         );
         atlas_core::relationships::derive(&mut graph);
+    }
+}
+
+#[test]
+fn indexed_call_positions_are_local_and_out_of_range_is_explicit() {
+    use atlas_core::{architecture::Architecture, source_index::Target};
+    let fixture = Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[package]\nname='fixture'\nversion='0.0.0'\nedition='2024'\n[workspace]\n",
+        ),
+        (
+            "src/lib.rs",
+            "pub fn target() {}\npub fn caller() { target(); }\n",
+        ),
+    ]);
+    let snapshot = discovery::snapshot_workspace(fixture.path()).unwrap();
+    let analysis = Analysis::new(&snapshot).unwrap();
+    let architecture = Architecture {
+        schema: 1,
+        provenance: vec![],
+        modules: vec![],
+        workflows: vec![],
+    };
+    let index = analysis.index(&architecture).unwrap();
+    let caller = index.select("src/lib.rs", "caller").unwrap();
+    let call = &index.functions()[caller].flow.calls[0];
+    let Target::Function(target) = index.resolve(caller, call) else {
+        panic!("the valid source call must resolve");
+    };
+    assert_eq!(index.functions()[target].flow.function, "target");
+    for position in [index.functions().len(), usize::MAX] {
+        assert!(
+            matches!(index.resolve(position, call), Target::InvalidFunction(i) if i == position)
+        );
     }
 }

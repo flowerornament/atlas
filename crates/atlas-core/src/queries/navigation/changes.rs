@@ -243,7 +243,7 @@ impl Navigation<'_> {
                             .entry((
                                 package.name.clone(),
                                 file.rel.clone(),
-                                format!("{:?}", item.kind),
+                                item.kind.tag().to_owned(),
                                 item.name.clone(),
                                 owner.clone(),
                             ))
@@ -330,7 +330,7 @@ fn owner(
                     .clone(),
             );
         } else {
-            parts.push(format!("{:?}:{}", parent.kind, parent.name));
+            parts.push(format!("{}:{}", parent.kind.tag(), parent.name));
         }
     }
     Ok(parts.join("::"))

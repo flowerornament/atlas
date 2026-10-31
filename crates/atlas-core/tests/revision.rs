@@ -1,6 +1,8 @@
 //! Cleanup follows the owned extraction even if a legacy reader changes its path.
+mod support;
 use atlas_core::revision::Revision;
 use std::{fs, path::Path, process::Command};
+use support::Fixture;
 fn git(root: &Path, args: &[&str]) -> String {
     let result = Command::new("git")
         .current_dir(root)
@@ -17,8 +19,8 @@ fn git(root: &Path, args: &[&str]) -> String {
         .trim()
         .into()
 }
-fn repository() -> tempfile::TempDir {
-    let root = tempfile::tempdir().expect("revision fixture prerequisite must succeed");
+fn repository() -> Fixture {
+    let root = Fixture::new(&[]);
     fs::write(
         root.path().join("Cargo.toml"),
         "[package]\nname='fixture'\nversion='0.0.0'\nedition='2024'\n",
@@ -46,7 +48,7 @@ fn repository() -> tempfile::TempDir {
 #[test]
 fn redirected_public_root_cannot_redirect_cleanup() {
     let repository = repository();
-    let decoy = tempfile::tempdir().unwrap();
+    let decoy = Fixture::new(&[]);
     let sentinel = decoy.path().join("must-survive");
     fs::write(&sentinel, "owned by another caller").unwrap();
     let mut revision = Revision::read(repository.path(), "HEAD").unwrap();
@@ -137,7 +139,7 @@ fn compatibility_fields_cannot_relabel_the_owned_extraction() {
 #[test]
 fn revision_files_refuse_symlink_custody() {
     let root = repository();
-    let outside = tempfile::tempdir().unwrap();
+    let outside = Fixture::new(&[]);
     fs::write(outside.path().join("policy"), "external").unwrap();
     std::os::unix::fs::symlink(outside.path().join("policy"), root.path().join("policy")).unwrap();
     git(root.path(), &["add", "policy"]);

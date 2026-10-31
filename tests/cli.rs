@@ -9,7 +9,7 @@ fn run(f: &Fixture, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_atlas"))
         .current_dir("/")
         .arg(args[0])
-        .arg(&f.0)
+        .arg(f.path())
         .args(&args[1..])
         .output()
         .expect("test fixture prerequisite must succeed")
@@ -78,7 +78,7 @@ fn workflows_preserve_independent_bodies_and_raw_source_evidence() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let text = fs::read_to_string(f.0.join("docs/flows.txt")).unwrap();
+    let text = fs::read_to_string(f.path().join("docs/flows.txt")).unwrap();
     assert!(
         text.contains("first\nfirst (src/lib.rs:2)")
             && text.contains("second\nsecond (src/lib.rs:3)")
@@ -89,7 +89,7 @@ fn workflows_preserve_independent_bodies_and_raw_source_evidence() {
             && text.contains("not a resolved call graph")
     );
     let diagram: atlas::diagram::Diagram = serde_json::from_str(
-        &fs::read_to_string(f.0.join("target/atlas/flows.diagram.json")).unwrap(),
+        &fs::read_to_string(f.path().join("target/atlas/flows.diagram.json")).unwrap(),
     )
     .unwrap();
     diagram.validate().unwrap();
@@ -99,9 +99,9 @@ fn workflows_preserve_independent_bodies_and_raw_source_evidence() {
             .iter()
             .all(|e| e.from.split('_').next() == e.to.split('_').next())
     );
-    let raw = fs::read_to_string(f.0.join("target/atlas/flows.workflow.json")).unwrap();
+    let raw = fs::read_to_string(f.path().join("target/atlas/flows.workflow.json")).unwrap();
     assert!(raw.contains("fallible") && raw.contains("src/lib.rs"));
-    assert!(!raw.contains(f.0.to_str().unwrap()));
+    assert!(!raw.contains(f.path().to_str().unwrap()));
     let direct = run(&f, &["flow", "--path", "src/lib.rs", "--function", "first"]);
     assert!(direct.status.success());
     assert!(!String::from_utf8_lossy(&direct.stdout).contains("second\nsecond ("));
@@ -128,7 +128,7 @@ fn member_invocations_resolve_workflows_and_outputs_at_workspace_root() {
     let output = Command::new(env!("CARGO_BIN_EXE_atlas"))
         .current_dir("/")
         .arg("flow")
-        .arg(f.0.join("member"))
+        .arg(f.path().join("member"))
         .args([
             "--path",
             "src/lib.rs",
@@ -144,8 +144,8 @@ fn member_invocations_resolve_workflows_and_outputs_at_workspace_root() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(f.0.join("docs/root.txt").is_file());
-    assert!(!f.0.join("member/docs/root.txt").exists());
+    assert!(f.path().join("docs/root.txt").is_file());
+    assert!(!f.path().join("member/docs/root.txt").exists());
 }
 
 #[test]
@@ -160,7 +160,7 @@ fn representation_query_outputs_are_explicit_and_cannot_overwrite_inputs() {
     let run = |args: &[&str]| {
         std::process::Command::new(exe)
             .arg("representations")
-            .arg(&f.0)
+            .arg(f.path())
             .args(args)
             .output()
             .unwrap()
@@ -171,10 +171,10 @@ fn representation_query_outputs_are_explicit_and_cannot_overwrite_inputs() {
     let denied = run(&["--query", "query.json", "--out", "query.txt"]);
     assert!(!denied.status.success());
     assert_eq!(
-        std::fs::read_to_string(f.0.join("query.json")).unwrap(),
+        std::fs::read_to_string(f.path().join("query.json")).unwrap(),
         query
     );
-    assert!(!f.0.join("query.txt").exists());
+    assert!(!f.path().join("query.txt").exists());
     let missing = run(&["--query", "query.json", "--backend", "pele"]);
     assert!(missing.status.success());
     let pele = run(&[
@@ -191,10 +191,10 @@ fn representation_query_outputs_are_explicit_and_cannot_overwrite_inputs() {
         String::from_utf8_lossy(&pele.stderr)
     );
     for name in ["figure.svg", "figure.mmd", "figure.json"] {
-        assert!(f.0.join("target/views").join(name).exists());
+        assert!(f.path().join("target/views").join(name).exists());
     }
     assert_eq!(
-        std::fs::read_to_string(f.0.join("src/lib.rs")).unwrap(),
+        std::fs::read_to_string(f.path().join("src/lib.rs")).unwrap(),
         "pub struct Input;\npub struct Output;\npub fn make(_: Input)->Output {Output}\n"
     );
 }
@@ -235,7 +235,7 @@ fn canonical_root_and_current_directory_preserve_existing_queries() {
         let new = Command::new(env!("CARGO_BIN_EXE_atlas"))
             .current_dir("/")
             .arg("--root")
-            .arg(&f.0)
+            .arg(f.path())
             .args(&named)
             .output()
             .expect("canonical invocation");
@@ -255,7 +255,7 @@ fn canonical_root_and_current_directory_preserve_existing_queries() {
     }
     for command in ["spans", "nontest-loc", "concentration"] {
         let positional = Command::new(env!("CARGO_BIN_EXE_atlas"))
-            .current_dir(&f.0)
+            .current_dir(f.path())
             .args([command, "src", "--json"])
             .output()
             .expect("positional scope");
@@ -263,7 +263,7 @@ fn canonical_root_and_current_directory_preserve_existing_queries() {
             .current_dir("/")
             .arg(command)
             .arg("--root")
-            .arg(&f.0)
+            .arg(f.path())
             .args(["--scope", "src", "--json"])
             .output()
             .expect("named scope");
@@ -280,7 +280,7 @@ fn canonical_root_and_current_directory_preserve_existing_queries() {
         assert_eq!(positional.stdout, named.stdout, "{command}");
     }
     let default_root = Command::new(env!("CARGO_BIN_EXE_atlas"))
-        .current_dir(&f.0)
+        .current_dir(f.path())
         .args(["census", "--json"])
         .output()
         .expect("current directory invocation");
@@ -289,7 +289,7 @@ fn canonical_root_and_current_directory_preserve_existing_queries() {
     let conflict = Command::new(env!("CARGO_BIN_EXE_atlas"))
         .current_dir("/")
         .args(["census", "/", "--root"])
-        .arg(&f.0)
+        .arg(f.path())
         .output()
         .expect("root conflict");
     assert!(!conflict.status.success());
@@ -298,9 +298,9 @@ fn canonical_root_and_current_directory_preserve_existing_queries() {
     let same = Command::new(env!("CARGO_BIN_EXE_atlas"))
         .current_dir("/")
         .arg("census")
-        .arg(&f.0)
+        .arg(f.path())
         .arg("--root")
-        .arg(&f.0)
+        .arg(f.path())
         .arg("--json")
         .output()
         .expect("same root aliases");
@@ -318,7 +318,7 @@ fn named_and_positional_workflows_use_the_same_output_identity() {
         String::from_utf8_lossy(&legacy.stderr)
     );
     let files = || {
-        let mut names: Vec<_> = fs::read_dir(f.0.join("target/atlas"))
+        let mut names: Vec<_> = fs::read_dir(f.path().join("target/atlas"))
             .expect("evidence directory")
             .map(|entry| entry.expect("evidence file").file_name())
             .collect();
@@ -331,12 +331,12 @@ fn named_and_positional_workflows_use_the_same_output_identity() {
             .expect("evidence filename")
             .starts_with("selected-")
     }));
-    fs::remove_dir_all(f.0.join("target/atlas")).expect("clear owned fixture artifacts");
+    fs::remove_dir_all(f.path().join("target/atlas")).expect("clear owned fixture artifacts");
     let named = Command::new(env!("CARGO_BIN_EXE_atlas"))
         .current_dir("/")
         .arg("flow")
         .arg("--root")
-        .arg(&f.0)
+        .arg(f.path())
         .args(["--anchor", "selected", "--architecture", "profile.json"])
         .output()
         .expect("canonical workflow");

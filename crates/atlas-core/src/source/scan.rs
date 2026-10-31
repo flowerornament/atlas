@@ -42,6 +42,48 @@ pub enum ItemKind {
 }
 
 impl ItemKind {
+    /// Stable schema-1 tag, independent of diagnostic Debug formatting.
+    pub const fn tag(self) -> &'static str {
+        match self {
+            Self::Struct => "Struct",
+            Self::Enum => "Enum",
+            Self::Union => "Union",
+            Self::Trait => "Trait",
+            Self::TypeAlias => "TypeAlias",
+            Self::Fn => "Fn",
+            Self::Mod => "Mod",
+            Self::MacroRules => "MacroRules",
+            Self::PubUse => "PubUse",
+            Self::Const => "Const",
+            Self::Static => "Static",
+            Self::Impl => "Impl",
+            Self::Use => "Use",
+            Self::MacroCall => "MacroCall",
+            Self::Extern => "Extern",
+        }
+    }
+    /// Decode a supported schema-1 tag. Unknown wire tags remain unknown.
+    pub fn from_tag(tag: &str) -> Option<Self> {
+        match tag {
+            "Struct" => Some(Self::Struct),
+            "Enum" => Some(Self::Enum),
+            "Union" => Some(Self::Union),
+            "Trait" => Some(Self::Trait),
+            "TypeAlias" => Some(Self::TypeAlias),
+            "Fn" => Some(Self::Fn),
+            "Mod" => Some(Self::Mod),
+            "MacroRules" => Some(Self::MacroRules),
+            "PubUse" => Some(Self::PubUse),
+            "Const" => Some(Self::Const),
+            "Static" => Some(Self::Static),
+            "Impl" => Some(Self::Impl),
+            "Use" => Some(Self::Use),
+            "MacroCall" => Some(Self::MacroCall),
+            "Extern" => Some(Self::Extern),
+            _ => None,
+        }
+    }
+
     /// Whether the kind declares a name the census, graph and policy count.
     /// The outline-only kinds are items to Rust but declare nothing.
     pub const fn declares(self) -> bool {
@@ -62,6 +104,28 @@ pub enum Visibility {
 }
 
 impl Visibility {
+    /// Stable schema-1 tag, independent of diagnostic Debug formatting.
+    pub const fn tag(self) -> &'static str {
+        match self {
+            Self::Pub => "Pub",
+            Self::PubCrate => "PubCrate",
+            Self::PubIn => "PubIn",
+            Self::PubSuper => "PubSuper",
+            Self::Private => "Private",
+        }
+    }
+    /// Decode a supported schema-1 tag. Unknown wire tags remain unknown.
+    pub fn from_tag(tag: &str) -> Option<Self> {
+        match tag {
+            "Pub" => Some(Self::Pub),
+            "PubCrate" => Some(Self::PubCrate),
+            "PubIn" => Some(Self::PubIn),
+            "PubSuper" => Some(Self::PubSuper),
+            "Private" => Some(Self::Private),
+            _ => None,
+        }
+    }
+
     /// Native written-visibility ladder; this is not Rust effective visibility.
     pub const fn rank(self) -> u8 {
         match self {
@@ -1851,5 +1915,49 @@ mod tests {
         assert_eq!(non_test_loc(source), 7);
         // No boundary: the whole file counts.
         assert_eq!(non_test_loc("fn a() {}\nfn b() {}\n"), 2);
+    }
+}
+
+#[cfg(test)]
+mod wire_tags {
+    use super::{ItemKind, Visibility};
+    #[test]
+    fn all_supported_tags_round_trip_and_unknowns_stay_unknown() {
+        for (kind, tag) in [
+            (ItemKind::Struct, "Struct"),
+            (ItemKind::Enum, "Enum"),
+            (ItemKind::Union, "Union"),
+            (ItemKind::Trait, "Trait"),
+            (ItemKind::TypeAlias, "TypeAlias"),
+            (ItemKind::Fn, "Fn"),
+            (ItemKind::Mod, "Mod"),
+            (ItemKind::MacroRules, "MacroRules"),
+            (ItemKind::PubUse, "PubUse"),
+            (ItemKind::Const, "Const"),
+            (ItemKind::Static, "Static"),
+            (ItemKind::Impl, "Impl"),
+            (ItemKind::Use, "Use"),
+            (ItemKind::MacroCall, "MacroCall"),
+            (ItemKind::Extern, "Extern"),
+        ] {
+            assert_eq!(kind.tag(), tag);
+            assert_eq!(ItemKind::from_tag(tag), Some(kind));
+        }
+        for unknown in ["", "FutureTag", "pub", "struct"] {
+            assert_eq!(ItemKind::from_tag(unknown), None);
+        }
+        for (kind, tag) in [
+            (Visibility::Pub, "Pub"),
+            (Visibility::PubCrate, "PubCrate"),
+            (Visibility::PubIn, "PubIn"),
+            (Visibility::PubSuper, "PubSuper"),
+            (Visibility::Private, "Private"),
+        ] {
+            assert_eq!(kind.tag(), tag);
+            assert_eq!(Visibility::from_tag(tag), Some(kind));
+        }
+        for unknown in ["", "FutureTag", "pub", "struct"] {
+            assert_eq!(Visibility::from_tag(unknown), None);
+        }
     }
 }

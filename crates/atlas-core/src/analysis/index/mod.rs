@@ -23,11 +23,25 @@ pub struct Boundary {
     pub module: Module,
     pub path: Vec<String>,
 }
+/// Immutable correlated name tables. Function and boundary positions are local
+/// to this index; borrowing accessors cannot reorder or replace their contents.
+///
+/// ```compile_fail
+/// fn reorder(index: &mut atlas_core::source_index::Index) {
+///     index.functions.reverse();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// fn reorder(index: &mut atlas_core::source_index::Index) {
+///     index.functions().reverse();
+/// }
+/// ```
 pub struct Index {
-    pub functions: Vec<Function>,
-    pub boundaries: Vec<Boundary>,
-    pub roots: Vec<usize>,
-    pub inventory: Vec<String>,
+    functions: Vec<Function>,
+    boundaries: Vec<Boundary>,
+    roots: Vec<usize>,
+    inventory: Vec<String>,
     scopes: BTreeMap<String, Vec<Vec<String>>>,
     names: BTreeMap<Vec<String>, Vec<usize>>,
     crates: BTreeSet<String>,
@@ -38,6 +52,9 @@ pub enum Target {
     Function(usize),
     Boundary(usize, Option<String>),
     Summarized(String),
+    /// The caller supplied a position outside this index, not an unresolved
+    /// source call. Consumers must refuse rather than publish a partial view.
+    InvalidFunction(usize),
 }
 fn path(text: &str) -> Option<Vec<String>> {
     let path = syn::parse_str::<syn::Path>(text).ok()?;
@@ -60,6 +77,23 @@ fn ty(text: &str) -> Option<Vec<String>> {
     inner(&syn::parse_str(text).ok()?)
 }
 impl Index {
+    /// Functions in the stable order used by this index's positions.
+    pub fn functions(&self) -> &[Function] {
+        &self.functions
+    }
+    /// Authored boundaries in the stable order used by Target::Boundary.
+    pub fn boundaries(&self) -> &[Boundary] {
+        &self.boundaries
+    }
+    /// Cargo binary entry positions in functions().
+    pub fn roots(&self) -> &[usize] {
+        &self.roots
+    }
+    /// Captured file paths represented by this index.
+    pub fn inventory(&self) -> &[String] {
+        &self.inventory
+    }
+
     pub fn new(
         root: &Path,
         metadata: &Metadata,
@@ -311,7 +345,7 @@ impl Index {
         self.exported(&normalize(scope, &p, &self.crates))
     }
     pub(crate) fn canonical(&self, function: usize, p: &[String]) -> Option<Vec<String>> {
-        let f = &self.functions[function];
+        let f = self.functions.get(function)?;
         let mut p = p.to_vec();
         if p.first()
             .is_some_and(|name| f.flow.type_parameters.contains(name))
@@ -394,8 +428,13 @@ impl Index {
             None => Target::Summarized(format!("unresolved or external path {}", p.join("::"))),
         }
     }
+    /// Resolve a call in a function selected from this index. Positions from
+    /// another index have no identity here, even when numerically in range.
+    /// An out-of-range position returns Target::InvalidFunction.
     pub fn resolve(&self, function: usize, call: &Call) -> Target {
-        let f = &self.functions[function];
+        let Some(f) = self.functions.get(function) else {
+            return Target::InvalidFunction(function);
+        };
         if let Some(receiver) = &call.receiver {
             if receiver == "self" {
                 return self

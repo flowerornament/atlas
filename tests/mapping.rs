@@ -32,7 +32,7 @@ fn all_files_survive_disconnected_and_empty_projection() {
         ("src/empty.rs", ""),
         ("src/disconnected.rs", "pub struct Alone;\n"),
     ]);
-    let graph = discovery::scan_workspace(&f.0).unwrap();
+    let graph = discovery::scan_workspace(f.path()).unwrap();
     let diagram = project(&graph, "src", Detail::Files).unwrap();
     assert_eq!(diagram.inventory.len(), 3);
     assert_eq!(diagram.nodes.len(), 3);
@@ -66,7 +66,7 @@ fn params_returns_and_type_bodies_keep_evidence_and_direction() {
         "src/lib.rs",
         "pub struct Input;\npub struct Output;\npub struct Engine {\n  code: Output,\n}\npub fn emit(x: Input) -> Output { unreachable!() }\n",
     )]);
-    let g = discovery::scan_workspace(&f.0).unwrap();
+    let g = discovery::scan_workspace(f.path()).unwrap();
     for (name, kind, target) in [
         ("emit", Evidence::ParameterMention, "Input"),
         ("emit", Evidence::ReturnMention, "Output"),
@@ -99,7 +99,7 @@ fn duplicate_spelling_stays_ambiguous_and_external_binding_unresolved() {
         ("src/a.rs", "pub struct Shared;\n"),
         ("src/b.rs", "pub struct Shared;\n"),
     ]);
-    let g = discovery::scan_workspace(&f.0).unwrap();
+    let g = discovery::scan_workspace(f.path()).unwrap();
     assert!(
         g.relationships
             .iter()
@@ -111,7 +111,7 @@ fn duplicate_spelling_stays_ambiguous_and_external_binding_unresolved() {
         "src/lib.rs",
         "use foreign::Shared;\npub mod a;\npub mod b;\npub fn build(x: Shared) {}\n",
     );
-    let g = discovery::scan_workspace(&f.0).unwrap();
+    let g = discovery::scan_workspace(f.path()).unwrap();
     assert!(
         g.relationships
             .iter()
@@ -131,7 +131,7 @@ fn test_path_mounts_and_helpers_do_not_pollute_production_mentions() {
         ),
         ("src/nested.rs", "pub fn also_test(x: Value) {}\n"),
     ]);
-    let g = discovery::scan_workspace(&f.0).unwrap();
+    let g = discovery::scan_workspace(f.path()).unwrap();
     assert!(
         g.files
             .iter()
@@ -150,7 +150,7 @@ fn test_path_mounts_and_helpers_do_not_pollute_production_mentions() {
     assert!(g.relationships[0].source.ends_with(":real"));
     // A production mount takes precedence over a test mount of the same file.
     f.write("src/lib.rs","pub struct Value;\n#[cfg(test)]\n#[path = \"special.rs\"]\nmod testing;\n#[path = \"special.rs\"]\nmod production;\n");
-    let g = discovery::scan_workspace(&f.0).unwrap();
+    let g = discovery::scan_workspace(f.path()).unwrap();
     assert!(
         !g.files
             .iter()
@@ -165,7 +165,7 @@ fn source_shaped_strings_comments_and_bounds_do_not_become_runtime_edges() {
         "src/lib.rs",
         "pub struct Value;\npub struct Out;\nconst TEXT: &str = r#\"\npub struct Phantom;\n\"#;\n// pub struct Ghost;\npub fn map<F: Fn(Value) -> Value>(x: F) -> Out {}\n",
     )]);
-    let g = discovery::scan_workspace(&f.0).unwrap();
+    let g = discovery::scan_workspace(f.path()).unwrap();
     assert!(
         !g.files[0]
             .declarations
@@ -195,7 +195,7 @@ fn scopes_fail_explicitly_and_scoped_targets_remain_context() {
         ("src/a.rs", "pub fn run(x: Input) {}\n"),
         ("src/b.rs", "pub struct Input;\n"),
     ]);
-    let g = discovery::scan_workspace(&f.0).unwrap();
+    let g = discovery::scan_workspace(f.path()).unwrap();
     assert!(project(&g, "missing", Detail::Files).is_err());
     let d = project(&g, "src/a.rs", Detail::Declarations).unwrap();
     assert_eq!(d.inventory, vec!["src/a.rs"]);
@@ -220,7 +220,7 @@ fn cycle_diamond_and_ambiguous_edges_are_conserved_by_projection() {
         "src/lib.rs",
         "pub struct A {\n  b: B,\n  c: C,\n}\npub struct B {\n  d: D,\n}\npub struct C {\n  d: D,\n}\npub struct D {\n  a: A,\n}\n",
     )]);
-    let g = discovery::scan_workspace(&f.0).unwrap();
+    let g = discovery::scan_workspace(f.path()).unwrap();
     let d = project(&g, "src", Detail::Declarations).unwrap();
     assert_eq!(g.relationships.len(), 5);
     assert_eq!(d.edges.len(), 5);
@@ -262,7 +262,7 @@ fn mermaid_labels_escape_quotes_html_and_directives() {
 fn embedded_pele_renders_without_checkout_adapter() {
     use atlas::render::Pele;
     let f = Fixture::new(&[("src/lib.rs", "pub struct Value;")]);
-    let g = discovery::scan_workspace(&f.0).unwrap();
+    let g = discovery::scan_workspace(f.path()).unwrap();
     let d = project(&g, "src", Detail::Files).unwrap();
     let artifact = Pele { html: false }.render(&d).unwrap();
     let svg = String::from_utf8(artifact.primary.bytes).unwrap();
@@ -276,12 +276,12 @@ fn utf8_source_is_inventoried_without_byte_boundary_panics() {
         "src/lib.rs",
         "pub struct Café;\nimpl Café {\n fn hello(&self) {}\n}\n",
     )]);
-    let g = discovery::scan_workspace(&f.0).unwrap();
+    let g = discovery::scan_workspace(f.path()).unwrap();
     assert_eq!(g.files.len(), 1);
     assert!(g.files[0].content_fingerprint.starts_with("fnv1a64:"));
     let first = g.files[0].content_fingerprint.clone();
     f.write("src/lib.rs", "pub struct Other;\n");
-    let g = discovery::scan_workspace(&f.0).unwrap();
+    let g = discovery::scan_workspace(f.path()).unwrap();
     assert_ne!(first, g.files[0].content_fingerprint);
 }
 
@@ -331,7 +331,7 @@ fn library_names_and_workspace_dependency_aliases_stay_internal() {
         "Cargo.toml",
         "[workspace]\nmembers=['library','consumer']\nresolver='3'\n",
     );
-    let g = discovery::scan_workspace(&f.0).unwrap();
+    let g = discovery::scan_workspace(f.path()).unwrap();
     assert!(g.import_roots["consumer"].contains(&"local_alias".into()));
     assert!(g.import_roots["consumer"].contains(&"actual_lib".into()));
     let edge = g
@@ -344,7 +344,7 @@ fn library_names_and_workspace_dependency_aliases_stay_internal() {
         "consumer/src/lib.rs",
         "use actual_lib::Shared;\npub fn build(x: Shared) {}\n",
     );
-    let g = discovery::scan_workspace(&f.0).unwrap();
+    let g = discovery::scan_workspace(f.path()).unwrap();
     assert!(
         g.relationships
             .iter()
@@ -362,11 +362,11 @@ fn cli_retains_evidence_when_external_render_fails_and_refuses_collisions() {
             "long".repeat(15000)
         ),
     )]);
-    let output = f.0.join("failed.html");
+    let output = f.path().join("failed.html");
     let result = Command::new(env!("CARGO_BIN_EXE_atlas"))
         .args([
             "map",
-            f.0.to_str().unwrap(),
+            f.path().to_str().unwrap(),
             "--level",
             "declarations",
             "--backend",
@@ -374,7 +374,7 @@ fn cli_retains_evidence_when_external_render_fails_and_refuses_collisions() {
             "--out",
             output.to_str().unwrap(),
             "--evidence-dir",
-            f.0.to_str().unwrap(),
+            f.path().to_str().unwrap(),
         ])
         .output()
         .unwrap();
@@ -386,11 +386,11 @@ fn cli_retains_evidence_when_external_render_fails_and_refuses_collisions() {
             "missing {extension}"
         );
     }
-    let collision = f.0.join("collision.mmd");
+    let collision = f.path().join("collision.mmd");
     let result = Command::new(env!("CARGO_BIN_EXE_atlas"))
         .args([
             "map",
-            f.0.to_str().unwrap(),
+            f.path().to_str().unwrap(),
             "--out",
             collision.to_str().unwrap(),
             "--backend",

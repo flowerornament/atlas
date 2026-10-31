@@ -43,6 +43,19 @@ pub struct Declaration {
     pub(crate) block: std::sync::Arc<str>,
 }
 
+impl Declaration {
+    /// Recognized kind at the legacy wire boundary. Unknown tags stay available
+    /// verbatim in `kind`; consumers must not infer a supported item kind.
+    pub fn item_kind(&self) -> Option<crate::source::ItemKind> {
+        crate::source::ItemKind::from_tag(&self.kind)
+    }
+    /// Recognized written visibility, distinct from Rust effective visibility.
+    /// Unknown serialized tags are retained verbatim in `visibility`.
+    pub fn item_visibility(&self) -> Option<crate::source::Visibility> {
+        crate::source::Visibility::from_tag(&self.visibility)
+    }
+}
+
 /// The syntactic observation behind a relationship.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -116,5 +129,22 @@ impl SourceGraph {
                 .or_insert(file);
         }
         paths.into_values()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Declaration;
+    #[test]
+    fn unknown_declaration_tags_round_trip_without_acquiring_meaning() {
+        let wire = serde_json::json!({
+            "id": "source:1:Future", "name": "Future", "kind": "FutureKind",
+            "visibility": "FutureVisibility", "line": 1, "end_line": 1,
+            "summary": null, "test_only": false, "block": "future Future;"
+        });
+        let declaration: Declaration = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(declaration.item_kind(), None);
+        assert_eq!(declaration.item_visibility(), None);
+        assert_eq!(serde_json::to_value(declaration).unwrap(), wire);
     }
 }

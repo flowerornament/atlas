@@ -20,7 +20,7 @@ fn run_question(fixture: &Fixture, question: &str, args: &[&str]) -> Output {
         .current_dir("/")
         .arg(question)
         .arg("--root")
-        .arg(&fixture.0)
+        .arg(fixture.path())
         .args(args)
         .output()
         .expect("run stage command")

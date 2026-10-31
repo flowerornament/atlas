@@ -821,17 +821,10 @@ pub fn moved(before: &Snapshot, after: &Snapshot, scope: Option<&str>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{
-        fs,
-        sync::atomic::{AtomicUsize, Ordering},
-    };
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    use std::fs;
     fn workspace(files: &[(&str, &str)]) -> Snapshot {
-        let root = std::env::temp_dir().join(format!(
-            "atlas-move-fixture-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
+        let fixture = crate::test_support::Fixture::new(&[]);
+        let root = fixture.path();
         fs::create_dir_all(root.join("crates/murail-fix/src")).expect("fixture directories");
         fs::write(
             root.join("Cargo.toml"),
@@ -850,13 +843,11 @@ mod tests {
             fs::write(path, text).expect("fixture source");
         }
         let metadata = cargo_metadata::MetadataCommand::new()
-            .current_dir(&root)
+            .current_dir(root)
             .no_deps()
             .exec()
             .expect("fixture metadata");
-        let snapshot = crate::discovery::snapshot_metadata(&metadata).expect("fixture snapshot");
-        fs::remove_dir_all(root).expect("clean fixture");
-        snapshot
+        crate::discovery::snapshot_metadata(&metadata).expect("fixture snapshot")
     }
 
     fn all(_: &str) -> bool {
@@ -1341,7 +1332,8 @@ fn helper() {}
     fn excluded_source_diagnostics_survive_the_comparison_basis() {
         let before = workspace(&[("item.rs", "fn f() {}\n")]);
         // Snapshot diagnostics are sealed; obtain this case through real discovery.
-        let root = std::env::temp_dir().join(format!("atlas-move-symlink-{}", std::process::id()));
+        let fixture = crate::test_support::Fixture::new(&[]);
+        let root = fixture.path();
         fs::create_dir_all(root.join("src")).expect("fixture");
         fs::write(
             root.join("Cargo.toml"),
@@ -1352,12 +1344,11 @@ fn helper() {}
         std::os::unix::fs::symlink(root.join("src/lib.rs"), root.join("src/excluded.rs"))
             .expect("symlink");
         let metadata = cargo_metadata::MetadataCommand::new()
-            .current_dir(&root)
+            .current_dir(root)
             .no_deps()
             .exec()
             .expect("metadata");
         let after = crate::discovery::snapshot_metadata(&metadata).expect("snapshot");
-        fs::remove_dir_all(root).expect("cleanup");
         let report = moved(&before, &after, None).expect("report");
         assert!(!report.basis.after.sources.contains_key("src/excluded.rs"));
         assert!(

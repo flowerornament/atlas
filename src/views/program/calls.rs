@@ -19,7 +19,7 @@ pub(super) fn build(
     let roots = if let Some((path, function)) = entry {
         vec![index.select(path, function)?]
     } else {
-        index.roots.clone()
+        index.roots().to_vec()
     };
     if roots.is_empty() {
         return Err(
@@ -33,7 +33,7 @@ pub(super) fn build(
         .map(|a| {
             index
                 .select(&a.path, &a.function)
-                .map(|i| index.functions[i].id.clone())
+                .map(|i| index.functions()[i].id.clone())
         })
         .collect::<Result<_>>()?;
     let mut pending = roots.clone();
@@ -46,7 +46,7 @@ pub(super) fn build(
         if !seen.insert(i) {
             continue;
         }
-        let f = &index.functions[i];
+        let f = &index.functions()[i];
         files.insert(f.flow.site.path.clone());
         nodes.insert(
             f.id.clone(),
@@ -69,10 +69,10 @@ pub(super) fn build(
             let target = match index.resolve(i, call) {
                 Target::Function(target) => {
                     pending.push(target);
-                    index.functions[target].id.clone()
+                    index.functions()[target].id.clone()
                 }
                 Target::Boundary(boundary, member) => {
-                    let b = &index.boundaries[boundary];
+                    let b = &index.boundaries()[boundary];
                     let module = &b.module;
                     let id = member.as_ref().map_or_else(
                         || module.name.clone(),
@@ -102,12 +102,15 @@ pub(super) fn build(
                     if !node.source_sites.contains(&site) {
                         node.source_sites.push(site);
                     }
-                    for file in &index.inventory {
+                    for file in index.inventory() {
                         if architecture::contains(&module.path, file) {
                             files.insert(file.clone());
                         }
                     }
                     id
+                }
+                Target::InvalidFunction(position) => {
+                    return Err(format!("invalid indexed function position {position}").into());
                 }
                 Target::Summarized(reason) => {
                     observations.push(Observation {
@@ -130,7 +133,7 @@ pub(super) fn build(
         }
     }
     if entry.is_none() {
-        for b in &index.boundaries {
+        for b in index.boundaries() {
             let module = &b.module;
             if module.kind == Kind::Stage
                 && !nodes.values().any(|n| {
@@ -158,7 +161,7 @@ pub(super) fn build(
     }
     let roots = roots
         .iter()
-        .map(|&i| index.functions[i].id.clone())
+        .map(|&i| index.functions()[i].id.clone())
         .collect();
     let connections = connections
         .into_iter()
@@ -171,9 +174,9 @@ pub(super) fn build(
         connections,
         observations,
         represented_files: files.iter().cloned().collect(),
-        inventory: index.inventory.clone(),
+        inventory: index.inventory().to_vec(),
         outside_view_files: index
-            .inventory
+            .inventory()
             .iter()
             .filter(|f| !files.contains(*f))
             .cloned()

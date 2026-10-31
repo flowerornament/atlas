@@ -1,4 +1,5 @@
 //! Whole paired-capture judgment, without host-specific Git or bead interpretation.
+mod support;
 use atlas_core::{
     checks::{
         concentration,
@@ -8,9 +9,10 @@ use atlas_core::{
     discovery::{Snapshot, snapshot_workspace},
 };
 use std::{collections::BTreeMap, fs};
+use support::Fixture;
 const POLICY: &str = "schema=1\nprovenance='authored'\nsurface={fix=1}\nauthority=[{fact='home',home='src/lib.rs::Home'}]\ntyped_errors=['fix']\n[population]\ncore=['fix']\n[size]\ncore_token_lines=100\ncrate={fix=100}\n[crate_graph]\nrule=[{name='fix',allowed=[],law='leaf'}]\n[concentration]\npopulation=['fix']\nentry_lines=300\nfile_lines=1000\nconventional_names=[]\n";
-fn fixture() -> tempfile::TempDir {
-    let root = tempfile::tempdir().expect("fixture root");
+fn fixture() -> Fixture {
+    let root = Fixture::new(&[]);
     fs::create_dir(root.path().join("src")).expect("source directory");
     fs::write(
         root.path().join("Cargo.toml"),

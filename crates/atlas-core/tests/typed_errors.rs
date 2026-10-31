@@ -5,39 +5,22 @@ use atlas_core::{
     discovery::snapshot_workspace,
     population::TestSelection,
 };
-use std::{
-    fs,
-    path::PathBuf,
-    sync::atomic::{AtomicUsize, Ordering},
-};
-static NEXT: AtomicUsize = AtomicUsize::new(0);
-struct Fixture(PathBuf);
-impl Fixture {
-    fn new(source: &str) -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "atlas-type-errors-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&path).expect("create exclusive fixture root");
-        fs::create_dir(path.join("src")).expect("create fixture source directory");
-        fs::write(
-            path.join("Cargo.toml"),
+mod support;
+use std::fs;
+use support::Fixture;
+fn fixture(source: &str) -> Fixture {
+    Fixture::new(&[
+        (
+            "Cargo.toml",
             "[package]\nname='fixture'\nversion='0.0.0'\nedition='2024'\n[workspace]\n",
-        )
-        .expect("write fixture manifest");
-        fs::write(path.join("src/lib.rs"), source).expect("write fixture source");
-        Self(path)
-    }
+        ),
+        ("src/lib.rs", source),
+    ])
 }
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
+
 fn read(source: &str) -> Reading {
-    let fixture = Fixture::new(source);
-    let snapshot = snapshot_workspace(&fixture.0).expect("capture fixture source");
+    let fixture = fixture(source);
+    let snapshot = snapshot_workspace(fixture.path()).expect("capture fixture source");
     let analysis = Analysis::new(&snapshot).expect("create retained analysis");
     typed_errors::read(&analysis, &["fixture".into()])
         .expect("read native type rule")
@@ -123,9 +106,9 @@ fn unavailable_syntax_cannot_become_zero_and_checks_never_reopen_source() {
         bad.unavailable.as_slice(),
         [Unavailable::Syntax { .. }]
     ));
-    let fixture = Fixture::new("pub fn load()->Result<(),String> { todo!() }\n");
-    let snapshot = snapshot_workspace(&fixture.0).unwrap();
-    fs::remove_file(fixture.0.join("src/lib.rs")).unwrap();
+    let fixture = fixture("pub fn load()->Result<(),String> { todo!() }\n");
+    let snapshot = snapshot_workspace(fixture.path()).unwrap();
+    fs::remove_file(fixture.path().join("src/lib.rs")).unwrap();
     let analysis = Analysis::new(&snapshot)
         .unwrap()
         .with_tests(TestSelection::All);
@@ -140,12 +123,12 @@ fn unavailable_syntax_cannot_become_zero_and_checks_never_reopen_source() {
 #[cfg(unix)]
 #[test]
 fn an_excluded_source_directory_is_unavailable_not_an_empty_census() {
-    let fixture = Fixture::new("pub fn clean() {}\n");
-    let outside = fixture.0.join("outside");
+    let fixture = fixture("pub fn clean() {}\n");
+    let outside = fixture.path().join("outside");
     fs::create_dir(&outside).unwrap();
     fs::write(outside.join("hidden.rs"), "type Hidden=Result<(),String>;").unwrap();
-    std::os::unix::fs::symlink(outside, fixture.0.join("src/hidden")).unwrap();
-    let snapshot = snapshot_workspace(&fixture.0).unwrap();
+    std::os::unix::fs::symlink(outside, fixture.path().join("src/hidden")).unwrap();
+    let snapshot = snapshot_workspace(fixture.path()).unwrap();
     let analysis = Analysis::new(&snapshot).unwrap();
     let reports = typed_errors::read(&analysis, &["fixture".into()]).unwrap();
     assert!(reports["fixture"].boundaries.is_empty());

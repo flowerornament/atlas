@@ -7,7 +7,7 @@ use support::Fixture;
 const POLICY: &str = "schema=1\nprovenance='authored'\nsurface={fixture=1}\nauthority=[{fact='home',home='src/lib.rs::Home'}]\n[population]\ncore=['fixture']\n[size]\ncore_token_lines=100\ncrate={fixture=100}\n[crate_graph]\nrule=[{name='fixture',allowed=[],law='leaf'}]\n[concentration]\npopulation=['fixture']\nentry_lines=300\nfile_lines=1000\nconventional_names=[]\n";
 fn git(fixture: &Fixture, args: &[&str]) -> String {
     let result = Command::new("git")
-        .current_dir(&fixture.0)
+        .current_dir(fixture.path())
         .args(args)
         .output()
         .expect("git fixture");
@@ -51,7 +51,7 @@ fn run(fixture: &Fixture, before: &str, candidate: &str, markers: bool) -> Outpu
     command
         .current_dir("/")
         .args(["delta", before, "--root"])
-        .arg(&fixture.0)
+        .arg(fixture.path())
         .args([
             "--candidate",
             candidate,
@@ -194,7 +194,7 @@ fn forbidden_path_observations_read_the_real_project_root() {
                 .contains("forbidden path `legacy` exists"))
     );
     assert_eq!(
-        std::fs::read_to_string(fixture.0.join("legacy/old.txt")).unwrap(),
+        std::fs::read_to_string(fixture.path().join("legacy/old.txt")).unwrap(),
         "ignored but forbidden"
     );
 }

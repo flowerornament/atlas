@@ -1,4 +1,5 @@
 //! Complete generic policy validation, helper custody and failure outcomes.
+mod support;
 use atlas_core::{
     analysis::Analysis,
     checks::policy::{
@@ -8,9 +9,10 @@ use atlas_core::{
     discovery::snapshot_workspace,
 };
 use std::{collections::BTreeMap, fs};
+use support::Fixture;
 const POLICY: &str = "schema=1\nprovenance='authored'\nsurface={fixture=10}\nauthority=[{fact='one home',home='src/lib.rs::Home'}]\ntyped_errors=['fixture']\n[population]\ncore=['fixture']\n[size]\ncore_token_lines=100\ncrate={fixture=100}\n[crate_graph]\nrule=[{name='fixture',allowed=[],law='leaf'}]\n[concentration]\npopulation=['fixture']\nentry_lines=300\nfile_lines=2000\nconventional_names=[]\n";
-fn fixture(source: &str) -> tempfile::TempDir {
-    let root = tempfile::tempdir().expect("fixture root");
+fn fixture(source: &str) -> Fixture {
+    let root = Fixture::new(&[]);
     fs::create_dir(root.path().join("src")).expect("source directory");
     fs::write(
         root.path().join("Cargo.toml"),
@@ -410,7 +412,7 @@ fn source_scopes_exclude_siblings_and_forbidden_paths_stop_at_intermediate_symli
     fs::create_dir(root.path().join("src/old")).unwrap();
     fs::write(root.path().join("src/old/kept.rs"), "pub struct Kept;\n").unwrap();
     fs::write(root.path().join("src/older.rs"), "pub struct Old;\n").unwrap();
-    let outside = tempfile::tempdir().unwrap();
+    let outside = Fixture::new(&[]);
     fs::write(outside.path().join("hidden.rs"), "pub struct Hidden;\n").unwrap();
     std::os::unix::fs::symlink(outside.path(), root.path().join("src/older")).unwrap();
     let snapshot = snapshot_workspace(root.path()).unwrap();

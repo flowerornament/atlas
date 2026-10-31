@@ -10,13 +10,13 @@ use cargo_metadata::MetadataCommand;
 use support::Fixture;
 fn scan(f: &Fixture) -> (cargo_metadata::Metadata, atlas::model::SourceGraph, Facts) {
     let m = MetadataCommand::new()
-        .current_dir(&f.0)
+        .current_dir(f.path())
         .no_deps()
         .exec()
         .expect("test fixture prerequisite must succeed");
     let g = discovery::scan_metadata(&m).expect("test fixture prerequisite must succeed");
     let facts =
-        representations::extract(&f.0, &m, &g).expect("test fixture prerequisite must succeed");
+        representations::extract(f.path(), &m, &g).expect("test fixture prerequisite must succeed");
     (m, g, facts)
 }
 #[test]
@@ -61,9 +61,9 @@ fn body_call_is_seen_but_same_spelled_variant_and_generic_parameter_are_not_type
             .any(|u| u.call.spelling == "Instruction::new")
     );
     for w in &v.witnesses {
-        assert!(f.0.join(&w.file).is_file());
+        assert!(f.path().join(&w.file).is_file());
         assert!(
-            std::fs::read_to_string(f.0.join(&w.file))
+            std::fs::read_to_string(f.path().join(&w.file))
                 .unwrap()
                 .lines()
                 .nth(w.line - 1)
@@ -198,7 +198,7 @@ fn source_declarations_choose_apis_but_not_edges_and_instruments_survive() {
     .unwrap();
     let reply = adapter::invoke(
         std::path::Path::new(env!("CARGO_BIN_EXE_atlas-girard")),
-        &f.0,
+        f.path(),
         &input,
     )
     .unwrap();
@@ -207,7 +207,7 @@ fn source_declarations_choose_apis_but_not_edges_and_instruments_survive() {
         .architecture()
         .unwrap()
         .clone()
-        .bind(&f.0)
+        .bind(f.path())
         .unwrap();
     let v = overview::project(&facts, &a).unwrap();
     assert!(v.views.types.iter().any(|t| t.name == "Graph"));
@@ -299,7 +299,7 @@ fn comparison_reads_exact_git_source_without_switching_working_tree() {
     let f = Fixture::new(&[("src/lib.rs", "pub struct Before;\n")]);
     let git = |args: &[&str]| {
         let o = Command::new("git")
-            .current_dir(&f.0)
+            .current_dir(f.path())
             .args(args)
             .output()
             .unwrap();
@@ -319,13 +319,13 @@ fn comparison_reads_exact_git_source_without_switching_working_tree() {
     ]);
     let id = git(&["rev-parse", "HEAD"]);
     f.write("src/lib.rs", "pub struct After;\n");
-    let snapshot = atlas::revision::Revision::read(&f.0, &id).unwrap();
+    let snapshot = atlas::revision::Revision::read(f.path(), &id).unwrap();
     assert_eq!(
         std::fs::read_to_string(snapshot.root.join("src/lib.rs")).unwrap(),
         "pub struct Before;\n"
     );
     assert_eq!(
-        std::fs::read_to_string(f.0.join("src/lib.rs")).unwrap(),
+        std::fs::read_to_string(f.path().join("src/lib.rs")).unwrap(),
         "pub struct After;\n"
     );
 }

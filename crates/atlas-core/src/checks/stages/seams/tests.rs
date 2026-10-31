@@ -12,14 +12,8 @@ const STAGES: [&str; 4] = ["vocabulary", "front", "middle", "back"];
 /// The fixture crate. An entry under `../` is a file outside `src`, found
 /// only if a `#[path]` declaration mounts it.
 fn snapshot(files: &[(&str, String)]) -> crate::discovery::Snapshot {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let root = std::env::temp_dir().join(format!(
-        "atlas-seams-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    std::fs::create_dir(&root).unwrap();
+    let fixture = crate::test_support::Fixture::new(&[]);
+    let root = fixture.path();
     std::fs::create_dir_all(root.join("crates/fix/src")).unwrap();
     std::fs::write(
         root.join("Cargo.toml"),
@@ -41,9 +35,7 @@ fn snapshot(files: &[(&str, String)]) -> crate::discovery::Snapshot {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, text).unwrap();
     }
-    let snapshot = crate::discovery::snapshot_workspace(&root).unwrap();
-    std::fs::remove_dir_all(root).unwrap();
-    snapshot
+    crate::discovery::snapshot_workspace(root).unwrap()
 }
 fn crate_map(files: &[(&str, String)]) -> CrateMap {
     Workspace::of(&snapshot(files)).unwrap().crates.remove(0)

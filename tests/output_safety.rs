@@ -8,11 +8,11 @@ fn fixture() -> Fixture {
     f
 }
 fn refuses(f: &Fixture, args: &[&str], protected: &str) {
-    let before = fs::read(f.0.join(protected)).expect("output fixture operation");
+    let before = fs::read(f.path().join(protected)).expect("output fixture operation");
     let result = Command::new(env!("CARGO_BIN_EXE_atlas"))
         .args(args)
         .arg("--root")
-        .arg(&f.0)
+        .arg(f.path())
         .output()
         .expect("output fixture operation");
     assert!(!result.status.success(), "unexpected success: {args:?}");
@@ -22,11 +22,14 @@ fn refuses(f: &Fixture, args: &[&str], protected: &str) {
         String::from_utf8_lossy(&result.stderr)
     );
     assert_eq!(
-        fs::read(f.0.join(protected)).expect("output fixture operation"),
+        fs::read(f.path().join(protected)).expect("output fixture operation"),
         before,
         "input was changed"
     );
-    assert!(!f.0.join("target/atlas").exists(), "refusal wrote evidence");
+    assert!(
+        !f.path().join("target/atlas").exists(),
+        "refusal wrote evidence"
+    );
 }
 #[test]
 fn map_and_workflow_refuse_primary_source_and_profile_destinations() {
@@ -103,7 +106,8 @@ fn map_and_workflow_refuse_primary_source_and_profile_destinations() {
 #[test]
 fn evidence_cannot_replace_an_architecture_input() {
     let f = fixture();
-    let profile = fs::read_to_string(f.0.join("profile.json")).expect("output fixture operation");
+    let profile =
+        fs::read_to_string(f.path().join("profile.json")).expect("output fixture operation");
     f.write("view.diagram.json", &profile);
     refuses(
         &f,
@@ -118,14 +122,14 @@ fn evidence_cannot_replace_an_architecture_input() {
         ],
         "view.diagram.json",
     );
-    assert!(!f.0.join("view.txt").exists());
-    assert!(!f.0.join("view.source.json").exists());
+    assert!(!f.path().join("view.txt").exists());
+    assert!(!f.path().join("view.source.json").exists());
 }
 #[cfg(unix)]
 #[test]
 fn output_alias_to_source_is_refused() {
     let f = fixture();
-    std::os::unix::fs::symlink(f.0.join("src/lib.rs"), f.0.join("alias.txt"))
+    std::os::unix::fs::symlink(f.path().join("src/lib.rs"), f.path().join("alias.txt"))
         .expect("output fixture operation");
     refuses(&f, &["map", "--out", "alias.txt"], "src/lib.rs");
 }
@@ -134,7 +138,7 @@ fn ordinary_artifacts_still_write_with_their_evidence() {
     let f = fixture();
     let result = Command::new(env!("CARGO_BIN_EXE_atlas"))
         .args(["map", "--out", "docs/view.txt", "--root"])
-        .arg(&f.0)
+        .arg(f.path())
         .output()
         .expect("output fixture operation");
     assert!(
@@ -142,15 +146,15 @@ fn ordinary_artifacts_still_write_with_their_evidence() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    assert!(f.0.join("docs/view.txt").is_file());
-    assert!(f.0.join("target/atlas/view.diagram.json").is_file());
+    assert!(f.path().join("docs/view.txt").is_file());
+    assert!(f.path().join("target/atlas/view.diagram.json").is_file());
 }
 
 #[test]
 fn nonexistent_parent_traversal_cannot_alias_source() {
     let f = fixture();
     refuses(&f, &["map", "--out", "missing/../src/lib.rs"], "src/lib.rs");
-    assert!(!f.0.join("missing").exists());
+    assert!(!f.path().join("missing").exists());
 }
 #[test]
 fn cargo_manifest_is_an_input_not_an_output() {
@@ -160,11 +164,11 @@ fn cargo_manifest_is_an_input_not_an_output() {
 #[test]
 fn writing_an_uninspected_hardlink_alias_cannot_change_source_bytes() {
     let f = fixture();
-    let before = fs::read(f.0.join("src/lib.rs")).expect("source");
-    fs::hard_link(f.0.join("src/lib.rs"), f.0.join("alias.txt")).expect("hardlink");
+    let before = fs::read(f.path().join("src/lib.rs")).expect("source");
+    fs::hard_link(f.path().join("src/lib.rs"), f.path().join("alias.txt")).expect("hardlink");
     let result = Command::new(env!("CARGO_BIN_EXE_atlas"))
         .args(["map", "--out", "alias.txt", "--root"])
-        .arg(&f.0)
+        .arg(f.path())
         .output()
         .expect("Atlas");
     assert!(
@@ -172,7 +176,10 @@ fn writing_an_uninspected_hardlink_alias_cannot_change_source_bytes() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    assert_eq!(fs::read(f.0.join("src/lib.rs")).expect("source"), before);
+    assert_eq!(
+        fs::read(f.path().join("src/lib.rs")).expect("source"),
+        before
+    );
 }
 
 #[test]
@@ -211,25 +218,25 @@ fn output_and_evidence_directory_cannot_be_the_same_path() {
             "artifact.txt",
             "--root",
         ])
-        .arg(&f.0)
+        .arg(f.path())
         .output()
         .expect("Atlas");
     assert!(!result.status.success());
     assert!(String::from_utf8_lossy(&result.stderr).contains("collision"));
-    assert!(!f.0.join("artifact.txt").exists());
+    assert!(!f.path().join("artifact.txt").exists());
 }
 #[test]
 fn existing_directory_destination_refuses_before_evidence() {
     let f = fixture();
-    fs::create_dir(f.0.join("view.txt")).expect("directory");
+    fs::create_dir(f.path().join("view.txt")).expect("directory");
     let result = Command::new(env!("CARGO_BIN_EXE_atlas"))
         .args(["map", "--out", "view.txt", "--root"])
-        .arg(&f.0)
+        .arg(f.path())
         .output()
         .expect("Atlas");
     assert!(!result.status.success());
     assert!(String::from_utf8_lossy(&result.stderr).contains("not a regular file"));
-    assert!(!f.0.join("target/atlas").exists());
+    assert!(!f.path().join("target/atlas").exists());
 }
 #[cfg(unix)]
 #[test]
@@ -240,20 +247,21 @@ fn artifact_permissions_follow_create_defaults_and_preserve_existing_mode() {
     let invoke = || {
         Command::new(env!("CARGO_BIN_EXE_atlas"))
             .args(["map", "--out", "view.txt", "--root"])
-            .arg(&f.0)
+            .arg(f.path())
             .output()
             .expect("Atlas")
     };
     assert!(invoke().status.success());
     let mode = |path: &str| {
-        fs::metadata(f.0.join(path))
+        fs::metadata(f.path().join(path))
             .expect("metadata")
             .permissions()
             .mode()
             & 0o777
     };
     assert_eq!(mode("view.txt"), mode("control.txt"));
-    fs::set_permissions(f.0.join("view.txt"), fs::Permissions::from_mode(0o640)).expect("mode");
+    fs::set_permissions(f.path().join("view.txt"), fs::Permissions::from_mode(0o640))
+        .expect("mode");
     assert!(invoke().status.success());
     assert_eq!(mode("view.txt"), 0o640);
 }
@@ -285,7 +293,7 @@ fn unexpanded_workflow_protects_other_project_sources_without_parsing_their_ast(
             "run",
             "--root",
         ])
-        .arg(&f.0)
+        .arg(f.path())
         .output()
         .expect("Atlas");
     assert!(

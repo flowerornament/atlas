@@ -25,13 +25,13 @@ fn project() -> Fixture {
 }
 fn input(f: &Fixture) -> (Request, representations::Facts) {
     let m = cargo_metadata::MetadataCommand::new()
-        .current_dir(&f.0)
+        .current_dir(f.path())
         .no_deps()
         .exec()
         .expect("test fixture prerequisite must succeed");
     let g = discovery::scan_metadata(&m).expect("test fixture prerequisite must succeed");
     let facts =
-        representations::extract(&f.0, &m, &g).expect("test fixture prerequisite must succeed");
+        representations::extract(f.path(), &m, &g).expect("test fixture prerequisite must succeed");
     (
         Request::new(
             Snapshot::from_facts(&g, &facts, "src/lib.rs")
@@ -50,19 +50,27 @@ fn plugin() -> &'static Path {
 fn official_adapter_preserves_custody_and_does_not_edit_inspected_source() {
     let f = project();
     let (request, _) = input(&f);
-    let reply = adapter::invoke(plugin(), &f.0, &request).unwrap().reply;
+    let reply = adapter::invoke(plugin(), f.path(), &request).unwrap().reply;
     assert_eq!(reply.producer.name, "atlas-girard");
     assert_eq!(reply.snapshot_id, request.snapshot.id);
-    let a = reply.architecture().unwrap().clone().bind(&f.0).unwrap();
+    let a = reply
+        .architecture()
+        .unwrap()
+        .clone()
+        .bind(f.path())
+        .unwrap();
     assert_eq!(a.modules.len(), 2);
     assert_eq!(
         a.provenance,
         ["src/lib.rs::MODULES", "src/lib.rs::SURFACES"]
     );
-    assert_eq!(fs::read_to_string(f.0.join("src/lib.rs")).unwrap(), SOURCE);
+    assert_eq!(
+        fs::read_to_string(f.path().join("src/lib.rs")).unwrap(),
+        SOURCE
+    );
     f.write("src/data.rs", "pub struct Graph{pub n:u64}");
     assert!(
-        adapter::invoke(plugin(), &f.0, &request)
+        adapter::invoke(plugin(), f.path(), &request)
             .unwrap_err()
             .to_string()
             .contains("source changed")
@@ -72,7 +80,7 @@ fn official_adapter_preserves_custody_and_does_not_edit_inspected_source() {
 fn protocol_and_source_reference_checks_are_not_the_adapters_semantic_authority() {
     let f = project();
     let (request, _) = input(&f);
-    let mut reply = adapter::invoke(plugin(), &f.0, &request).unwrap().reply;
+    let mut reply = adapter::invoke(plugin(), f.path(), &request).unwrap().reply;
     reply.protocol += 1;
     assert!(
         adapter::validate_reply(&request, &reply)
@@ -99,7 +107,7 @@ fn protocol_and_source_reference_checks_are_not_the_adapters_semantic_authority(
             .to_string()
             .contains("source witness")
     );
-    assert!(adapter::invoke(&f.0.join("missing-adapter"), &f.0, &request).is_err());
+    assert!(adapter::invoke(&f.path().join("missing-adapter"), f.path(), &request).is_err());
     let mut bad = request;
     bad.protocol += 1;
     let mut child = Command::new(plugin())
@@ -155,7 +163,7 @@ fn graph_and_table_families_share_backends_without_erasing_their_models() {
         preparation_functions: vec![],
     };
     let views = representations::project(&facts, &q).unwrap();
-    let graph = atlas::workflow::read(&f.0, "src/build.rs", "build")
+    let graph = atlas::workflow::read(f.path(), "src/build.rs", "build")
         .unwrap()
         .diagram();
     for view in [
@@ -207,7 +215,7 @@ fn independently_built_adapters_use_only_public_api_and_the_stock_cli() {
     let before = fs::read(cli).unwrap();
     let build = Command::new("cargo")
         .args(["build", "--offline", "--quiet"])
-        .current_dir(&consumer.0)
+        .current_dir(consumer.path())
         .env("CARGO_TARGET_DIR", root.join("target/adapter-consumer"))
         .output()
         .unwrap();
@@ -227,7 +235,7 @@ fn independently_built_adapters_use_only_public_api_and_the_stock_cli() {
         .with_extension(std::env::consts::EXE_EXTENSION);
     let run = Command::new(cli)
         .arg("overview")
-        .arg(&f.0)
+        .arg(f.path())
         .arg("--adapter")
         .arg(girard)
         .arg("--json")
@@ -246,7 +254,7 @@ fn independently_built_adapters_use_only_public_api_and_the_stock_cli() {
         .with_extension(std::env::consts::EXE_EXTENSION);
     let run = Command::new(cli)
         .arg("overview")
-        .arg(&f.0)
+        .arg(f.path())
         .arg("--adapter")
         .arg(foreign)
         .arg("--json")
@@ -269,7 +277,7 @@ fn independently_built_adapters_use_only_public_api_and_the_stock_cli() {
 #[cfg(unix)]
 fn executable(f: &Fixture, body: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
-    let path = f.0.join("target/mock-adapter");
+    let path = f.path().join("target/mock-adapter");
     f.write(
         "target/mock-adapter",
         &format!("#!/usr/bin/env node\n{body}\n"),
@@ -285,7 +293,7 @@ fn malformed_and_oversized_streams_refuse_without_partial_artifacts() {
     let (request, _) = input(&f);
     let malformed = executable(&f, "process.stdout.write('not JSON');");
     assert!(
-        adapter::invoke(&malformed, &f.0, &request)
+        adapter::invoke(&malformed, f.path(), &request)
             .unwrap_err()
             .to_string()
             .contains("JSON")
@@ -298,28 +306,28 @@ fn malformed_and_oversized_streams_refuse_without_partial_artifacts() {
         ),
     );
     assert!(
-        adapter::invoke(&large, &f.0, &request)
+        adapter::invoke(&large, f.path(), &request)
             .unwrap_err()
             .to_string()
             .contains("exceeds")
     );
-    assert!(!f.0.join("target/atlas/overview.svg").exists());
+    assert!(!f.path().join("target/atlas/overview.svg").exists());
 }
 #[cfg(unix)]
 #[test]
 fn source_changes_during_an_adapter_call_refuse_before_rendering() {
     let f = project();
     let (request, _) = input(&f);
-    let reply = adapter::invoke(plugin(), &f.0, &request).unwrap().reply;
+    let reply = adapter::invoke(plugin(), f.path(), &request).unwrap().reply;
     let body = format!(
         "const fs=require('node:fs');fs.readFileSync(0);fs.appendFileSync({},'\\n// changed during adapter\\n');process.stdout.write({});",
-        serde_json::to_string(&f.0.join("src/data.rs")).unwrap(),
+        serde_json::to_string(&f.path().join("src/data.rs")).unwrap(),
         serde_json::to_string(&serde_json::to_string(&reply).unwrap()).unwrap()
     );
     let mutator = executable(&f, &body);
     let output = Command::new(env!("CARGO_BIN_EXE_atlas"))
         .arg("overview")
-        .arg(&f.0)
+        .arg(f.path())
         .arg("--adapter")
         .arg(mutator)
         .args(["--backend", "pele", "--out", "target/denied.svg"])
@@ -327,8 +335,8 @@ fn source_changes_during_an_adapter_call_refuse_before_rendering() {
         .unwrap();
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("source changed"));
-    assert!(!f.0.join("target/denied.svg").exists());
-    assert!(!f.0.join("target/denied.json").exists());
+    assert!(!f.path().join("target/denied.svg").exists());
+    assert!(!f.path().join("target/denied.json").exists());
 }
 
 #[test]
@@ -364,13 +372,13 @@ fn module_selectors_distinguish_qualified_paths_unique_leaves_and_ambiguity() {
 fn successful_diagnostics_survive_the_process_boundary() {
     let f = project();
     let (request, _) = input(&f);
-    let reply = adapter::invoke(plugin(), &f.0, &request).unwrap().reply;
+    let reply = adapter::invoke(plugin(), f.path(), &request).unwrap().reply;
     let body = format!(
         "require('node:fs').readFileSync(0);process.stderr.write('example diagnostic\\n');process.stdout.write({});",
         serde_json::to_string(&serde_json::to_string(&reply).unwrap()).unwrap()
     );
     let program = executable(&f, &body);
-    let invocation = adapter::invoke(&program, &f.0, &request).unwrap();
+    let invocation = adapter::invoke(&program, f.path(), &request).unwrap();
     assert_eq!(invocation.diagnostics, "example diagnostic\n");
     assert!(invocation.reply.architecture().is_ok());
 }
@@ -378,13 +386,13 @@ fn successful_diagnostics_survive_the_process_boundary() {
 #[test]
 fn overview_cannot_replace_the_adapter_it_invoked() {
     let f = project();
-    let adapter = f.0.join("adapter.txt");
+    let adapter = f.path().join("adapter.txt");
     fs::copy(plugin(), &adapter).expect("copy adapter");
     let before = fs::read(&adapter).expect("adapter bytes");
     let result = Command::new(env!("CARGO_BIN_EXE_atlas"))
         .arg("overview")
         .arg("--root")
-        .arg(&f.0)
+        .arg(f.path())
         .arg("--adapter")
         .arg(&adapter)
         .args(["--out", "adapter.txt"])
@@ -397,21 +405,21 @@ fn overview_cannot_replace_the_adapter_it_invoked() {
         String::from_utf8_lossy(&result.stderr)
     );
     assert_eq!(fs::read(&adapter).expect("adapter bytes"), before);
-    assert!(!f.0.join("adapter.json").exists());
+    assert!(!f.path().join("adapter.json").exists());
 }
 
 #[test]
 fn overview_protects_a_relative_adapter_in_the_callers_directory() {
     let f = project();
     let launch = Fixture::new(&[("src/lib.rs", "")]);
-    let adapter = launch.0.join("adapter.txt");
+    let adapter = launch.path().join("adapter.txt");
     fs::copy(plugin(), &adapter).expect("copy adapter");
     let before = fs::read(&adapter).expect("adapter bytes");
     let result = Command::new(env!("CARGO_BIN_EXE_atlas"))
-        .current_dir(&launch.0)
+        .current_dir(launch.path())
         .arg("overview")
         .arg("--root")
-        .arg(&f.0)
+        .arg(f.path())
         .args(["--adapter", "adapter.txt", "--out"])
         .arg(&adapter)
         .output()
@@ -423,5 +431,5 @@ fn overview_protects_a_relative_adapter_in_the_callers_directory() {
         String::from_utf8_lossy(&result.stderr)
     );
     assert_eq!(fs::read(&adapter).expect("adapter bytes"), before);
-    assert!(!launch.0.join("adapter.json").exists());
+    assert!(!launch.path().join("adapter.json").exists());
 }

@@ -351,7 +351,7 @@ pub fn expand_with_detail(
     check_depth(depth)?;
     let entry = index.select(path, function)?;
     let diagram = projection::expanded(index, entry, depth, detail)?;
-    Ok((index.functions[entry].flow.clone(), diagram))
+    Ok((index.functions()[entry].flow.clone(), diagram))
 }
 
 /// Maximum supported source-call expansion depth; larger requests must narrow their question.

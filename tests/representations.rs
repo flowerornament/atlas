@@ -27,13 +27,13 @@ fn query() -> Query {
 fn inspect(source: &str) -> (Fixture, representations::Facts, representations::Views) {
     let f = Fixture::new(&[("src/lib.rs", source)]);
     let m = MetadataCommand::new()
-        .current_dir(&f.0)
+        .current_dir(f.path())
         .no_deps()
         .exec()
         .expect("test fixture prerequisite must succeed");
     let g = discovery::scan_metadata(&m).expect("test fixture prerequisite must succeed");
     let facts =
-        representations::extract(&f.0, &m, &g).expect("test fixture prerequisite must succeed");
+        representations::extract(f.path(), &m, &g).expect("test fixture prerequisite must succeed");
     let views =
         representations::project(&facts, &query()).expect("test fixture prerequisite must succeed");
     (f, facts, views)
@@ -56,7 +56,7 @@ fn changed_source_exposes_retention_bypass_and_duplicated_preparation() {
     let (changed_fixture, _, v) = inspect(&changed);
     let compile = std::process::Command::new("cargo")
         .args(["check", "--offline", "--quiet"])
-        .current_dir(&changed_fixture.0)
+        .current_dir(changed_fixture.path())
         .output()
         .unwrap();
     assert!(
@@ -141,12 +141,12 @@ fn type_only_files_and_cross_file_impl_owner_use_the_shared_index() {
         ),
     ]);
     let m = MetadataCommand::new()
-        .current_dir(&f.0)
+        .current_dir(f.path())
         .no_deps()
         .exec()
         .unwrap();
     let g = discovery::scan_metadata(&m).unwrap();
-    let facts = representations::extract(&f.0, &m, &g).unwrap();
+    let facts = representations::extract(f.path(), &m, &g).unwrap();
     let q = Query {
         title: "cross file".into(),
         types: ["Graph", "Checked"]
@@ -171,12 +171,12 @@ fn selection_does_not_change_extraction_and_ambiguity_refuses() {
         &(BASE.to_owned() + "\nmod other {pub struct Graph;}"),
     )]);
     let m = MetadataCommand::new()
-        .current_dir(&f.0)
+        .current_dir(f.path())
         .no_deps()
         .exec()
         .unwrap();
     let g = discovery::scan_metadata(&m).unwrap();
-    let facts = representations::extract(&f.0, &m, &g).unwrap();
+    let facts = representations::extract(f.path(), &m, &g).unwrap();
     assert_eq!(facts.types.iter().filter(|t| t.name == "Graph").count(), 2);
     assert!(representations::project(&facts, &query()).is_err());
 }
@@ -196,12 +196,12 @@ fn unknowns_and_no_preparation_remain_explicit_in_both_backends() {
         &(BASE.to_owned() + "\nfn opaque()->Graph { external::make() }"),
     )]);
     let m = MetadataCommand::new()
-        .current_dir(&f.0)
+        .current_dir(f.path())
         .no_deps()
         .exec()
         .unwrap();
     let g = discovery::scan_metadata(&m).unwrap();
-    let facts = representations::extract(&f.0, &m, &g).unwrap();
+    let facts = representations::extract(f.path(), &m, &g).unwrap();
     let v = representations::project(&facts, &q).unwrap();
     assert!(
         v.unknown_calls
@@ -221,12 +221,12 @@ fn expanding_reexport_cycles_terminate_as_unknown() {
     let source = "pub use inner::Graph;\nmod inner { pub use super::Graph; }\npub fn make(g: Graph)->Graph {g}";
     let f = Fixture::new(&[("src/lib.rs", source)]);
     let m = MetadataCommand::new()
-        .current_dir(&f.0)
+        .current_dir(f.path())
         .no_deps()
         .exec()
         .unwrap();
     let g = discovery::scan_metadata(&m).unwrap();
-    let facts = representations::extract(&f.0, &m, &g).unwrap();
+    let facts = representations::extract(f.path(), &m, &g).unwrap();
     assert!(facts.references.is_empty());
     assert!(!facts.unknown_types.is_empty());
 }
@@ -259,12 +259,12 @@ fn default_api_selection_includes_trait_implementation_methods() {
         "pub struct Graph {value:u32}\npub struct Builder;\ntrait Build { fn build()->Graph; }\nimpl Build for Builder {fn build()->Graph {Graph {value:1}}}",
     )]);
     let m = MetadataCommand::new()
-        .current_dir(&f.0)
+        .current_dir(f.path())
         .no_deps()
         .exec()
         .unwrap();
     let g = discovery::scan_metadata(&m).unwrap();
-    let facts = representations::extract(&f.0, &m, &g).unwrap();
+    let facts = representations::extract(f.path(), &m, &g).unwrap();
     let q = Query {
         title: "trait impl".into(),
         types: vec![Selector {
@@ -289,14 +289,14 @@ fn default_api_selection_includes_trait_implementation_methods() {
 fn changed_source_cannot_be_reported_under_the_old_fingerprint() {
     let f = Fixture::new(&[("src/lib.rs", BASE)]);
     let m = MetadataCommand::new()
-        .current_dir(&f.0)
+        .current_dir(f.path())
         .no_deps()
         .exec()
         .unwrap();
     let g = discovery::scan_metadata(&m).unwrap();
     f.write("src/lib.rs", &(BASE.to_owned() + "\npub fn new_route() {}"));
     assert!(
-        representations::extract(&f.0, &m, &g)
+        representations::extract(f.path(), &m, &g)
             .unwrap_err()
             .to_string()
             .contains("source changed after discovery")

@@ -1,27 +1,21 @@
 //! The native library works without the application, CLI trait feature or a renderer.
+mod support;
 use std::{fs, process::Command};
+use support::Fixture;
 
 #[test]
 fn independent_default_consumer_reads_source_and_neutral_control() {
-    let fixture = std::env::temp_dir().join(format!("atlas-core-consumer-{}", std::process::id()));
-    fs::create_dir(&fixture).expect("exclusive consumer fixture");
-    struct Cleanup(std::path::PathBuf);
-    impl Drop for Cleanup {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-    let _cleanup = Cleanup(fixture.clone());
+    let fixture = Fixture::new(&[]);
     let core = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    fs::create_dir(fixture.join("src")).expect("consumer source directory");
-    fs::write(fixture.join("Cargo.toml"), format!("[package]\nname='native-core-consumer'\nversion='0.0.0'\nedition='2024'\n[workspace]\n[dependencies]\natlas-core={{path={:?},default-features=false}}\n", core.to_str().expect("core path"))).expect("consumer manifest");
+    fs::create_dir(fixture.path().join("src")).expect("consumer source directory");
+    fs::write(fixture.path().join("Cargo.toml"), format!("[package]\nname='native-core-consumer'\nversion='0.0.0'\nedition='2024'\n[workspace]\n[dependencies]\natlas-core={{path={:?},default-features=false}}\n", core.to_str().expect("core path"))).expect("consumer manifest");
     fs::write(
-        fixture.join("src/lib.rs"),
+        fixture.path().join("src/lib.rs"),
         "pub struct Graph;\npub fn build() -> Graph { Graph }\n",
     )
     .expect("inspected source");
     fs::write(
-        fixture.join("src/main.rs"),
+        fixture.path().join("src/main.rs"),
         r#"
 fn main() -> atlas_core::Result<()> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -42,7 +36,7 @@ fn main() -> atlas_core::Result<()> {
     .expect("consumer program");
     let target = core.join("../../target/core-consumer");
     let run = Command::new("cargo")
-        .current_dir(&fixture)
+        .current_dir(fixture.path())
         .env("CARGO_TARGET_DIR", &target)
         .args(["run", "--offline", "--quiet"])
         .output()
@@ -53,7 +47,7 @@ fn main() -> atlas_core::Result<()> {
         String::from_utf8_lossy(&run.stderr)
     );
     let tree = Command::new("cargo")
-        .current_dir(&fixture)
+        .current_dir(fixture.path())
         .args(["tree", "--offline", "--edges", "normal", "--prefix", "none"])
         .output()
         .expect("consumer dependencies");

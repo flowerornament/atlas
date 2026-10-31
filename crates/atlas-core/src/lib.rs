@@ -16,3 +16,7 @@ pub mod revision;
 
 /// Errors from source, revision and analysis boundaries.
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+#[cfg(test)]
+#[path = "../tests/support/mod.rs"]
+mod test_support;

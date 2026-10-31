@@ -1,15 +1,13 @@
 //! Crate-root inventories and the existing textual binding reader.
-//! Construction owns root facts; this file keeps their lookup behavior together.
+//! RootTable holds immutable facts; each Reading owns its own cycle state.
+//! This native textual grammar is distinct from qualified call resolution.
 use super::paths::{
     PathForm, SourceLine, crate_paths, identifier_paths, inline_paths, logical_lines, read_path,
     root_aliases,
 };
 use super::{CrateMap, Edge, FileMap, ItemKind, Unjudged, UnjudgedPath};
 use crate::{discovery::module_path_of, population::TestSelection};
-use std::{
-    cell::RefCell,
-    collections::{BTreeMap, BTreeSet},
-};
+use std::collections::{BTreeMap, BTreeSet};
 /// Bound of the native textual alias reading; beyond it, the path is unjudged.
 const ALIAS_DEPTH: usize = 16;
 /// The crate root as lib.rs presents it: the top-level modules, the names
@@ -18,6 +16,7 @@ const ALIAS_DEPTH: usize = 16;
 /// static and type-alias items name, the `#[macro_export]` macros with their
 /// defining modules, and its production inline modules, whose code the
 /// reading does not see.
+#[derive(Default)]
 pub(in crate::checks) struct RootTable {
     pub(super) modules: BTreeSet<String>,
     pub(super) bindings: BTreeMap<String, BTreeSet<String>>,
@@ -25,9 +24,6 @@ pub(in crate::checks) struct RootTable {
     pub(super) globs: Vec<String>,
     pub(super) items: BTreeSet<String>,
     pub(super) item_paths: BTreeMap<String, Vec<String>>,
-    /// The lib.rs items being read, so mutually naming items end the walk
-    /// instead of exhausting [`ALIAS_DEPTH`].
-    pub(super) reading: RefCell<BTreeSet<String>>,
     pub(super) exported_macros: BTreeMap<String, String>,
     pub(super) inline_modules: BTreeSet<String>,
     /// `extern crate self as NAME;`: NAME is the crate root in every file.
@@ -40,20 +36,30 @@ pub(in crate::checks) struct RootTable {
 
 impl RootTable {
     pub(in crate::checks) fn of(crate_map: &CrateMap, selection: TestSelection) -> Self {
-        let mut table = Self {
-            modules: BTreeSet::new(),
-            bindings: BTreeMap::new(),
-            unreadable_imports: Vec::new(),
-            globs: Vec::new(),
-            items: BTreeSet::new(),
-            item_paths: BTreeMap::new(),
-            reading: RefCell::new(BTreeSet::new()),
-            exported_macros: BTreeMap::new(),
-            inline_modules: BTreeSet::new(),
-            self_names: BTreeSet::new(),
-            module_paths: BTreeSet::new(),
-            value_paths: BTreeSet::new(),
+        let mut table = Self::default();
+        table.inventory(crate_map, selection);
+        let lib_rel = format!("{}/lib.rs", crate_map.src_rel);
+        let Some(lib) = crate_map.files.iter().find(|file| file.rel == lib_rel) else {
+            return table;
         };
+        table.index_values(&[], lib, selection);
+        let glob_sources = table.imports(lib, selection);
+        table.declared_items(lib, selection);
+        table.item_references(lib, selection);
+        // A glob over another crate supplies no crate-internal name.
+        table.globs = glob_sources
+            .into_iter()
+            .filter(|source| {
+                table
+                    .rooted(source.trim_end_matches("::*"))
+                    .is_some_and(|segments| !segments.is_empty())
+            })
+            .collect();
+        table
+    }
+
+    /// File and mount declarations establish the textual namespaces.
+    fn inventory(&mut self, crate_map: &CrateMap, selection: TestSelection) {
         for file in &crate_map.files {
             if !selection.admits_file(file.test_file) {
                 continue;
@@ -61,12 +67,11 @@ impl RootTable {
             let Some(module) = module_path_of(&crate_map.src_rel, &file.rel) else {
                 continue;
             };
-            table
-                .module_paths
+            self.module_paths
                 .insert(module.split("::").map(str::to_owned).collect());
             let head = module.split("::").next().unwrap_or_default().to_owned();
-            table.modules.insert(head.clone());
-            table.index_values(
+            self.modules.insert(head.clone());
+            self.index_values(
                 &module.split("::").map(str::to_owned).collect::<Vec<_>>(),
                 file,
                 selection,
@@ -81,21 +86,18 @@ impl RootTable {
                     && exported
                     && selection.admits_line(&file.source, item.line)
                 {
-                    table
-                        .exported_macros
-                        .insert(item.name.clone(), head.clone());
+                    self.exported_macros.insert(item.name.clone(), head.clone());
                 }
             }
         }
-        let lib_rel = format!("{}/lib.rs", crate_map.src_rel);
         if matches!(selection, TestSelection::All) {
             for mount in &crate_map.mounted {
                 let path: Vec<String> = mount.module.split("::").map(str::to_owned).collect();
                 if let Some(head) = path.first() {
-                    table.modules.insert(head.clone());
+                    self.modules.insert(head.clone());
                 }
-                table.module_paths.insert(path);
-                table.index_values(
+                self.module_paths.insert(path);
+                self.index_values(
                     &mount
                         .module
                         .split("::")
@@ -106,10 +108,10 @@ impl RootTable {
                 );
             }
         }
-        let Some(lib) = crate_map.files.iter().find(|file| file.rel == lib_rel) else {
-            return table;
-        };
-        table.index_values(&[], lib, selection);
+    }
+
+    /// Preserve competing bindings; no last insertion chooses an import.
+    fn imports(&mut self, lib: &FileMap, selection: TestSelection) -> Vec<String> {
         let mut glob_sources = Vec::new();
         for source_line in logical_lines(lib, lib.code_lines(selection)) {
             match source_line {
@@ -122,8 +124,7 @@ impl RootTable {
                         if binding.local_name == "*" {
                             glob_sources.push(binding.source_path.clone());
                         } else {
-                            table
-                                .bindings
+                            self.bindings
                                 .entry(binding.local_name.clone())
                                 .or_default()
                                 .insert(binding.source_path.clone());
@@ -136,29 +137,32 @@ impl RootTable {
                         .strip_prefix("extern crate self as ")
                         .and_then(|rest| rest.strip_suffix(';'))
                     {
-                        table.self_names.insert(name.trim().to_owned());
+                        self.self_names.insert(name.trim().to_owned());
                     }
                 }
                 SourceLine::UnreadableUse { line, text } => {
-                    table.unreadable_imports.push((line, text.to_owned()));
+                    self.unreadable_imports.push((line, text.to_owned()));
                 }
                 SourceLine::Use { .. } => {}
             }
         }
-        for name in &table.self_names {
-            table
-                .bindings
+        for name in &self.self_names {
+            self.bindings
                 .entry(name.clone())
                 .or_default()
                 .insert("crate".to_owned());
         }
+        glob_sources
+    }
+
+    fn declared_items(&mut self, lib: &FileMap, selection: TestSelection) {
         for item in lib.items(selection).filter(|item| item.top_level) {
             match item.kind {
-                ItemKind::Mod if !table.modules.contains(&item.name) => {
+                ItemKind::Mod if !self.modules.contains(&item.name) => {
                     if !item.declaration_block.trim_end().ends_with(';') {
-                        table.inline_modules.insert(item.name.clone());
+                        self.inline_modules.insert(item.name.clone());
                     }
-                    table.items.insert(item.name.clone());
+                    self.items.insert(item.name.clone());
                 }
                 ItemKind::Struct
                 | ItemKind::Enum
@@ -169,11 +173,14 @@ impl RootTable {
                 | ItemKind::MacroRules
                 | ItemKind::Const
                 | ItemKind::Static => {
-                    table.items.insert(item.name.clone());
+                    self.items.insert(item.name.clone());
                 }
                 _ => {}
             }
         }
+    }
+
+    fn item_references(&mut self, lib: &FileMap, selection: TestSelection) {
         // Every lib.rs item's text, impl blocks under their type's name: what
         // it names is what a reader of the root name reaches.
         let code: BTreeMap<usize, &str> = lib.code_lines(selection).collect();
@@ -201,30 +208,19 @@ impl RootTable {
                     let head = path.split("::").next().unwrap_or_default();
                     // A bare name counts only when lib.rs binds or defines it.
                     let named = if path.contains("::") {
-                        matches!(head, "crate" | "self") || table.is_internal(head)
+                        matches!(head, "crate" | "self") || self.is_internal(head)
                     } else {
-                        table.bindings.contains_key(head) || table.items.contains(head)
+                        self.bindings.contains_key(head) || self.items.contains(head)
                     };
                     head != item.name && named
                 })
                 .map(str::to_owned)
                 .collect();
-            table
-                .item_paths
+            self.item_paths
                 .entry(item.name.clone())
                 .or_default()
                 .extend(paths);
         }
-        // A glob over another crate supplies no crate-internal name.
-        table.globs = glob_sources
-            .into_iter()
-            .filter(|source| {
-                table
-                    .rooted(source.trim_end_matches("::*"))
-                    .is_some_and(|segments| !segments.is_empty())
-            })
-            .collect();
-        table
     }
 
     fn is_internal(&self, name: &str) -> bool {
@@ -284,15 +280,57 @@ impl RootTable {
         }
     }
 
-    /// The crate paths a path from the crate root resolves to, each starting
-    /// at its top-level module: none for the root itself, lib.rs's own items
-    /// and other crates.
+    /// Start an independent textual reading. Cycle state never outlives it.
     pub(super) fn read(
         &self,
         segments: &[&str],
         form: PathForm,
         depth: usize,
     ) -> std::result::Result<Vec<Vec<String>>, Unjudged> {
+        Reading {
+            root: self,
+            active: BTreeSet::new(),
+        }
+        .read(segments, form, depth)
+    }
+
+    /// Whether a path from the crate root names the root itself, through
+    /// any chain of lib.rs aliases (`pub(crate) use crate as c;`).
+    pub(super) fn names_root(&self, segments: &[&str], depth: usize) -> bool {
+        let Some((&name, rest)) = segments.split_first() else {
+            return true;
+        };
+        if depth > ALIAS_DEPTH || self.modules.contains(name) {
+            return false;
+        }
+        self.bindings
+            .get(name)
+            .filter(|sources| sources.len() == 1)
+            .and_then(|sources| sources.first())
+            .and_then(|source| self.rooted(source))
+            .is_some_and(|mut segments| {
+                segments.extend_from_slice(rest);
+                self.names_root(&segments, depth + 1)
+            })
+    }
+}
+
+/// One recursive reading owns its cycle state. RootTable remains immutable facts.
+struct Reading<'a> {
+    root: &'a RootTable,
+    active: BTreeSet<String>,
+}
+impl Reading<'_> {
+    /// The crate paths a path from the crate root resolves to, each starting
+    /// at its top-level module: none for the root itself, lib.rs's own items
+    /// and other crates.
+    fn read(
+        &mut self,
+        segments: &[&str],
+        form: PathForm,
+        depth: usize,
+    ) -> std::result::Result<Vec<Vec<String>>, Unjudged> {
+        let root = self.root;
         let Some((&name, rest)) = segments.split_first() else {
             return Ok(Vec::new());
         };
@@ -308,11 +346,11 @@ impl RootTable {
                 .map(|segment| (*segment).to_owned())
                 .collect()
         };
-        let module = self.modules.contains(name);
-        let candidates = self.bindings.get(name);
+        let module = root.modules.contains(name);
+        let candidates = root.bindings.get(name);
         if !module
             && let Some((module_source, value_source)) =
-                candidates.and_then(|sources| self.namespace_pair(sources))
+                candidates.and_then(|sources| root.namespace_pair(sources))
         {
             if !rest.is_empty() || form == PathForm::Module {
                 return self.follow(module_source, rest, form, depth);
@@ -350,32 +388,33 @@ impl RootTable {
     /// through the paths its text names), an exported macro (its defining
     /// module), or a name the reading cannot place.
     fn read_unbound(
-        &self,
+        &mut self,
         name: &str,
         depth: usize,
     ) -> std::result::Result<Vec<Vec<String>>, Unjudged> {
-        if let Some(paths) = self.item_paths.get(name) {
-            if !self.reading.borrow_mut().insert(name.to_owned()) {
+        let root = self.root;
+        if let Some(paths) = root.item_paths.get(name) {
+            if !self.active.insert(name.to_owned()) {
                 return Ok(Vec::new());
             }
             let mut heads = BTreeSet::new();
             let mut read = Ok(());
-            for segments in paths.iter().filter_map(|path| self.rooted(path)) {
+            for segments in paths.iter().filter_map(|path| root.rooted(path)) {
                 match self.read(&segments, PathForm::Inline, depth + 1) {
                     Ok(found) => heads.extend(found),
                     Err(why) => read = Err(why),
                 }
             }
-            self.reading.borrow_mut().remove(name);
+            self.active.remove(name);
             read?;
             return Ok(heads.into_iter().collect());
         }
-        if let Some(module) = self.exported_macros.get(name) {
+        if let Some(module) = root.exported_macros.get(name) {
             return Ok(vec![vec![module.clone(), name.to_owned()]]);
         }
-        if self.items.contains(name) {
+        if root.items.contains(name) {
             Ok(Vec::new())
-        } else if self.globs.is_empty() {
+        } else if root.globs.is_empty() {
             Err(Unjudged::UnknownRootName)
         } else {
             Err(Unjudged::GlobbedRootName)
@@ -384,37 +423,18 @@ impl RootTable {
 
     /// Continue a root path through one lib.rs binding.
     fn follow(
-        &self,
+        &mut self,
         source: &str,
         rest: &[&str],
         form: PathForm,
         depth: usize,
     ) -> std::result::Result<Vec<Vec<String>>, Unjudged> {
-        let Some(mut segments) = self.rooted(source) else {
+        let root = self.root;
+        let Some(mut segments) = root.rooted(source) else {
             return Ok(Vec::new());
         };
         segments.extend_from_slice(rest);
         self.read(&segments, form, depth + 1)
-    }
-
-    /// Whether a path from the crate root names the root itself, through
-    /// any chain of lib.rs aliases (`pub(crate) use crate as c;`).
-    pub(super) fn names_root(&self, segments: &[&str], depth: usize) -> bool {
-        let Some((&name, rest)) = segments.split_first() else {
-            return true;
-        };
-        if depth > ALIAS_DEPTH || self.modules.contains(name) {
-            return false;
-        }
-        self.bindings
-            .get(name)
-            .filter(|sources| sources.len() == 1)
-            .and_then(|sources| sources.first())
-            .and_then(|source| self.rooted(source))
-            .is_some_and(|mut segments| {
-                segments.extend_from_slice(rest);
-                self.names_root(&segments, depth + 1)
-            })
     }
 }
 

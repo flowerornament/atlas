@@ -1,4 +1,5 @@
 //! Native navigation claims exercised through real immutable Cargo snapshots.
+mod support;
 use atlas_core::{
     discovery::snapshot_workspace,
     model::Evidence,
@@ -6,13 +7,14 @@ use atlas_core::{
     queries::navigation::{Census, Navigation, Tally},
 };
 use std::fs;
+use support::Fixture;
 
 const ADMIT: &str = "//! Admission for fixture tiles — realization kernel §5.\n\nuse crate::grade::Cost;\nuse std::fmt;\n\n/// An admitted fixture tile.\npub struct Tile {\n    cost: Cost,\n}\n\n/// Refusal for the tile family.\npub(crate) enum Refusal {\n    CrossLane,\n}\n\npub fn admit(cost: Cost) -> Tile {\n    Tile { cost }\n}\n\nfn private_helper() {}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n}\n";
 const GRADE: &str = "pub struct Cost;\n\npub use self::Cost as PublicCost;\n\nmacro_rules! grade_table {\n    () => {};\n}\n";
 const LIB: &str =
     "//! Fixture crate root.\n\npub mod admit;\npub mod grade;\n\npub use crate::admit::Tile;\n";
-fn fixture(extra: &str) -> (tempfile::TempDir, atlas_core::discovery::Snapshot) {
-    let root = tempfile::tempdir().expect("navigation fixture prerequisite must succeed");
+fn fixture(extra: &str) -> (Fixture, atlas_core::discovery::Snapshot) {
+    let root = Fixture::new(&[]);
     let dir = root.path().join("crates/murail-fix/src");
     fs::create_dir_all(&dir).expect("navigation fixture prerequisite must succeed");
     fs::write(
@@ -189,8 +191,12 @@ fn native_subject_visibility_does_not_drop_private_or_gated_source_bodies() {
 #[test]
 fn navigation_never_reopens_captured_source() {
     let (root, snapshot) = fixture("");
-    root.close()
-        .expect("navigation fixture prerequisite must succeed");
+    let removed = root.path().to_owned();
+    drop(root);
+    assert!(
+        !removed.exists(),
+        "fixture directory must be removed before reading"
+    );
     let nav = Navigation::new(&snapshot, VisibilitySelection::Public)
         .expect("navigation fixture prerequisite must succeed");
     assert_eq!(
@@ -237,7 +243,7 @@ fn external_import_shadowing_remains_explicitly_unresolved() {
 }
 #[test]
 fn shared_physical_modules_keep_every_package_and_its_own_edges() {
-    let root = tempfile::tempdir().expect("fixture");
+    let root = Fixture::new(&[]);
     fs::create_dir_all(root.path().join("src/inner/src")).expect("directories");
     fs::write(root.path().join("Cargo.toml"), "[package]\nname='outer'\nversion='0.0.0'\nedition='2024'\n[workspace]\nmembers=['src/inner']\n").expect("manifest");
     fs::write(root.path().join("src/lib.rs"), "pub struct Outer;\n").expect("root source");
@@ -263,7 +269,7 @@ fn shared_physical_modules_keep_every_package_and_its_own_edges() {
 }
 #[test]
 fn unmentioned_names_keep_the_native_workspace_spelling_unit() {
-    let root = tempfile::tempdir().expect("fixture");
+    let root = Fixture::new(&[]);
     fs::write(
         root.path().join("Cargo.toml"),
         "[workspace]\nmembers=['a','b']\nresolver='3'\n",
@@ -546,7 +552,7 @@ fn export_candidates_preserve_qualified_and_name_preference_evidence() {
 #[test]
 fn exports_keep_global_ambiguity_qualified_priority_and_package_context() {
     use atlas_core::{model::Resolution, queries::navigation::BindingEvidence};
-    let root = tempfile::tempdir().expect("fixture");
+    let root = Fixture::new(&[]);
     fs::write(
         root.path().join("Cargo.toml"),
         "[workspace]\nmembers=['a','b','c']\nresolver='3'\n",
@@ -627,7 +633,7 @@ fn exports_keep_global_ambiguity_qualified_priority_and_package_context() {
 #[test]
 fn shared_export_sites_keep_distinct_occurrence_and_declaration_ids() {
     use atlas_core::{model::Resolution, queries::navigation::ExportKind};
-    let root = tempfile::tempdir().expect("fixture");
+    let root = Fixture::new(&[]);
     fs::create_dir_all(root.path().join("src/inner/src")).expect("directories");
     fs::write(root.path().join("Cargo.toml"), "[package]\nname='outer'\nversion='0.0.0'\nedition='2024'\n[workspace]\nmembers=['src/inner']\n").expect("manifest");
     fs::write(root.path().join("src/lib.rs"), "pub struct Outer;\n").expect("root source");

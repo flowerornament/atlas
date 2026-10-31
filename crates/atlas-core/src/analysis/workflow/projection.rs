@@ -23,7 +23,11 @@ pub(super) fn with_detail(flow: &Workflow, detail: Detail) -> Result<Diagram> {
     b.checked(flow)
 }
 pub(super) fn expanded(index: &Index, entry: usize, depth: u8, detail: Detail) -> Result<Diagram> {
-    let flow = &index.functions[entry].flow;
+    let flow = &index
+        .functions()
+        .get(entry)
+        .ok_or_else(|| format!("invalid indexed function position {entry}"))?
+        .flow;
     let mut b = Builder::new(Some(index), 600, detail);
     b.function(flow, Some(entry), depth);
     b.checked(flow)
@@ -67,6 +71,12 @@ impl<'a> Builder<'a> {
         }
     }
     fn checked(self, flow: &Workflow) -> Result<Diagram> {
+        if let Some(position) = self.targets.values().find_map(|target| match target {
+            Target::InvalidFunction(position) => Some(position),
+            _ => None,
+        }) {
+            return Err(format!("invalid indexed function position {position}").into());
+        }
         if self.exhausted {
             return Err("flow exceeds 600 source-control nodes; lower --depth or select a smaller function (nothing emitted)".into());
         }
@@ -183,6 +193,9 @@ impl<'a> Builder<'a> {
             Target::Function(j) => (Some(j), String::new()),
             Target::Summarized(s) => (None, s),
             Target::Boundary(..) => (None, "declared boundary".into()),
+            Target::InvalidFunction(position) => {
+                (None, format!("invalid function position {position}"))
+            }
         };
         let Some(j) = target else {
             if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
@@ -197,11 +210,13 @@ impl<'a> Builder<'a> {
         let continuation = self.node(
             &format!(
                 "after {} @ {}:{} (if returned)",
-                index.functions[j].flow.function, site.line, site.column
+                index.functions()[j].flow.function,
+                site.line,
+                site.column
             ),
             site,
         );
-        let flow = index.functions[j].flow.clone();
+        let flow = index.functions()[j].flow.clone();
         let (entry, exit) = self.function(&flow, Some(j), self.depth - 1);
         self.edge(id, &entry, Some("call"));
         self.edge(

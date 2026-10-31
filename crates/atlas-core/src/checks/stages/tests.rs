@@ -799,3 +799,32 @@ fn an_import_that_already_names_both_namespaces_cannot_prove_a_pair() {
         Unjudged::AmbiguousRootName
     );
 }
+
+#[test]
+fn root_reading_cycles_and_failures_do_not_belong_to_captured_facts() {
+    fn require_sync<T: Sync>(_: &T) {}
+    let root = root_of(&[
+        (
+            "lib.rs",
+            "pub mod data;\npub use crate::absent as Missing;\npub fn left() { right(); data::Thing; }\npub fn right() { left(); }\npub fn broken() -> Missing {}\n",
+        ),
+        ("data.rs", "pub struct Thing;\n"),
+    ]);
+    require_sync(&root);
+    std::thread::scope(|threads| {
+        for _ in 0..2 {
+            threads.spawn(|| {
+                for _ in 0..3 {
+                    assert_eq!(
+                        root.read(&["broken"], PathForm::Inline, 0),
+                        Err(Unjudged::UnknownRootName)
+                    );
+                    assert_eq!(
+                        root.read(&["left"], PathForm::Inline, 0),
+                        Ok(vec![vec!["data".to_owned(), "Thing".to_owned()]])
+                    );
+                }
+            });
+        }
+    });
+}

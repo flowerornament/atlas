@@ -315,8 +315,8 @@ fn read_metadata(
                 .map(|item| Declaration {
                     id: format!("{}:{}:{}", file.rel, item.line, item.name),
                     name: item.name.clone(),
-                    kind: format!("{:?}", item.kind),
-                    visibility: format!("{:?}", item.visibility),
+                    kind: item.kind.tag().to_owned(),
+                    visibility: item.visibility.tag().to_owned(),
                     line: item.line,
                     end_line: *item.span.end(),
                     summary: item.doc.clone(),

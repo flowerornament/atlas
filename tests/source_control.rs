@@ -7,12 +7,12 @@ use support::Fixture;
 fn inspect(files: &[(&str, &str)], function: &str, depth: u8) -> (Fixture, Diagram) {
     let f = Fixture::new(files);
     let m = cargo_metadata::MetadataCommand::new()
-        .current_dir(&f.0)
+        .current_dir(f.path())
         .no_deps()
         .exec()
         .expect("test fixture prerequisite must succeed");
     let graph = discovery::scan_metadata(&m).expect("test fixture prerequisite must succeed");
-    let (_, d) = workflow::expanded(&f.0, &m, &graph, "src/lib.rs", function, depth)
+    let (_, d) = workflow::expanded(f.path(), &m, &graph, "src/lib.rs", function, depth)
         .expect("test fixture prerequisite must succeed");
     d.validate()
         .expect("test fixture prerequisite must succeed");
@@ -45,10 +45,10 @@ fn main(){assert_eq!(nested(),Err(()));assert_eq!(guarded(None),0);assert_eq!(GU
 #[test]
 fn nested_residual_and_pattern_failure_skip_their_following_work() {
     let (f, d) = inspect(&[("src/lib.rs", CONTROL)], "nested", 1);
-    let binary = f.0.join("control");
+    let binary = f.path().join("control");
     let compile = std::process::Command::new("rustc")
         .args(["--edition=2024"])
-        .arg(f.0.join("src/lib.rs"))
+        .arg(f.path().join("src/lib.rs"))
         .arg("-o")
         .arg(&binary)
         .output()
@@ -229,12 +229,12 @@ fn large_empty_match_arms_refuse_the_node_budget_instead_of_evading_it() {
     let source = format!("pub fn run(x:u16){{match x{{{arms}_=>{{}}}}}}");
     let f = Fixture::new(&[("src/lib.rs", &source)]);
     let m = cargo_metadata::MetadataCommand::new()
-        .current_dir(&f.0)
+        .current_dir(f.path())
         .no_deps()
         .exec()
         .unwrap();
     let graph = discovery::scan_metadata(&m).unwrap();
-    let error = workflow::expanded(&f.0, &m, &graph, "src/lib.rs", "run", 1).unwrap_err();
+    let error = workflow::expanded(f.path(), &m, &graph, "src/lib.rs", "run", 1).unwrap_err();
     assert!(error.to_string().contains("600"));
 }
 
@@ -252,7 +252,7 @@ fn compact_control_preserves_retained_paths_and_every_folded_observation() {
         let function = if source == CONTROL { "nested" } else { "run" };
         let fixture = Fixture::new(&[("src/lib.rs", source)]);
         let metadata = cargo_metadata::MetadataCommand::new()
-            .current_dir(&fixture.0)
+            .current_dir(fixture.path())
             .no_deps()
             .exec()
             .unwrap();
@@ -264,7 +264,7 @@ fn compact_control_preserves_retained_paths_and_every_folded_observation() {
             workflows: vec![],
         };
         let index =
-            atlas_core::source_index::Index::new(&fixture.0, &metadata, &graph, &architecture)
+            atlas_core::source_index::Index::new(fixture.path(), &metadata, &graph, &architecture)
                 .unwrap();
         for depth in [0, 1] {
             let (_, raw) = workflow::expand(&index, "src/lib.rs", function, depth).unwrap();
@@ -329,7 +329,7 @@ fn control_cli_folds_mechanics_and_retains_summary_custody() {
     fixture.write("profile.json", r#"{"schema":1,"source":["src/lib.rs"],"modules":[],"workflows":[{"name":"run","path":"src/lib.rs","function":"run"},{"name":"other","path":"src/lib.rs","function":"other"}]}"#);
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_atlas"))
         .args(["flow", "--root"])
-        .arg(&fixture.0)
+        .arg(fixture.path())
         .args([
             "--architecture",
             "profile.json",
@@ -345,7 +345,7 @@ fn control_cli_folds_mechanics_and_retains_summary_custody() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let directory = fixture.0.join("target/atlas");
+    let directory = fixture.path().join("target/atlas");
     let diagram: serde_json::Value =
         serde_json::from_slice(&std::fs::read(directory.join("run.diagram.json")).unwrap())
             .unwrap();
@@ -378,7 +378,7 @@ fn compact_unexpanded_control_refuses_oversize_before_folding() {
         "src/lib.rs",
         &format!("pub fn run() {{ {} }}", "external();".repeat(601)),
     )]);
-    let flow = workflow::read(&fixture.0, "src/lib.rs", "run").unwrap();
+    let flow = workflow::read(fixture.path(), "src/lib.rs", "run").unwrap();
     assert!(
         flow.diagram().nodes.len() > 600,
         "detailed view keeps its existing behavior"

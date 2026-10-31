@@ -20,7 +20,7 @@ fn run(fixture: &Fixture, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_atlas"))
         .current_dir("/")
         .args(["--root"])
-        .arg(&fixture.0)
+        .arg(fixture.path())
         .args(args)
         .output()
         .expect("Atlas query process")
@@ -149,7 +149,7 @@ fn diff_items_and_incidents_keep_shape_only_compatibility() {
     let fixture = fixture();
     let git = |args: &[&str]| {
         let output = Command::new("git")
-            .current_dir(&fixture.0)
+            .current_dir(fixture.path())
             .args(args)
             .output()
             .expect("Git fixture");

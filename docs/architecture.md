@@ -67,6 +67,26 @@ Policy refusal and unavailable evidence retain their distinct structured status.
   `bin/atlas-girard.rs` supplies Girard's declaration convention. Core does not
   import a project's FM/bead interpretation or execute discovered configuration.
 
+## Invariants at the library boundary
+
+`source_index::Index` owns correlated names, functions, boundaries and entry
+positions. Its borrowing `functions()`, `boundaries()`, `roots()` and `inventory()`
+accessors preserve their allocation and order. Positions belong to that index;
+`resolve` reports an out-of-range caller as `Target::InvalidFunction`, and views
+refuse it. A numerically valid position from another index has no portable identity.
+
+Stage `RootTable` holds source facts only. Its constructor inventories modules,
+reads imports, inventories root items, then records their textual references.
+Each recursive read owns its active-item set, so cycles and failed reads cannot
+leave state in the capture. This remains the native textual reading, separately
+contracted from qualified call resolution.
+
+`Declaration` retains schema-1 string tags at its serialization boundary,
+including unsupported tags. `item_kind()` and `item_visibility()` decode supported
+values to scanner enums; unknown tags return `None`. Stable `tag()`/`from_tag()`
+conversions define wire spellings explicitly. Diagnostic Debug formatting is not
+an encoding or a decision rule.
+
 The root library modules remain public compatibility paths. For example,
 `atlas_core::discovery::Snapshot` and `atlas::representations::Views` reexport the
 same definitions from their physical owners; the compatibility surface is not a

@@ -1,4 +1,5 @@
 //! Debt judgment at the captured-source boundary, including unavailable project evidence.
+mod support;
 use atlas_core::{
     checks::{
         concentration::{self, Citations, Inputs},
@@ -7,8 +8,9 @@ use atlas_core::{
     discovery::snapshot_workspace,
 };
 use std::{collections::BTreeSet, fs};
-fn fixture(source: &str) -> tempfile::TempDir {
-    let root = tempfile::tempdir().expect("fixture root");
+use support::Fixture;
+fn fixture(source: &str) -> Fixture {
+    let root = Fixture::new(&[]);
     fs::create_dir(root.path().join("src")).expect("fixture source root");
     fs::write(
         root.path().join("Cargo.toml"),

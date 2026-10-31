@@ -1,46 +1,30 @@
 use atlas_core::{discovery, review};
 use cargo_metadata::MetadataCommand;
-use std::{
-    fs,
-    path::PathBuf,
-    sync::atomic::{AtomicUsize, Ordering},
-};
-static NEXT: AtomicUsize = AtomicUsize::new(0);
-struct Fixture(PathBuf);
-impl Fixture {
-    fn new() -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "atlas-core-snapshot-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir_all(root.join("xtask")).expect("create snapshot fixture");
-        fs::create_dir_all(root.join("scripts")).expect("create snapshot fixture");
-        fs::write(
-            root.join("Cargo.toml"),
+mod support;
+use std::fs;
+use support::Fixture;
+fn fixture() -> Fixture {
+    Fixture::new(&[
+        (
+            "Cargo.toml",
             "[workspace]\nmembers=[\"xtask\"]\nresolver=\"3\"\n",
-        )
-        .expect("create snapshot fixture");
-        fs::write(root.join("xtask/Cargo.toml"), "[package]\nname=\"snapshot-fixture\"\nversion=\"0.0.0\"\nedition=\"2024\"\n[lib]\npath=\"../scripts/model.rs\"\n").expect("create snapshot fixture");
-        fs::write(
-            root.join("scripts/model.rs"),
+        ),
+        (
+            "xtask/Cargo.toml",
+            "[package]\nname=\"snapshot-fixture\"\nversion=\"0.0.0\"\nedition=\"2024\"\n[lib]\npath=\"../scripts/model.rs\"\n",
+        ),
+        (
+            "scripts/model.rs",
             "/// Published type.\npub struct Token;\n",
-        )
-        .expect("create snapshot fixture");
-        Self(root)
-    }
-}
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
+        ),
+    ])
 }
 
 #[test]
 fn snapshot_normalizes_external_target_mount_and_keeps_original_outline_bytes() {
-    let f = Fixture::new();
+    let f = fixture();
     let metadata = MetadataCommand::new()
-        .current_dir(&f.0)
+        .current_dir(f.path())
         .no_deps()
         .exec()
         .unwrap();
@@ -48,7 +32,7 @@ fn snapshot_normalizes_external_target_mount_and_keeps_original_outline_bytes() 
     assert_eq!(snapshot.graph().files.len(), 1);
     assert_eq!(snapshot.graph().files[0].path, "scripts/model.rs");
     assert!(!snapshot.graph().files[0].mounts.is_empty());
-    fs::write(f.0.join("scripts/model.rs"), "pub struct Replaced;\n").unwrap();
+    fs::write(f.path().join("scripts/model.rs"), "pub struct Replaced;\n").unwrap();
     let report = review::outline(&snapshot, "scripts").unwrap();
     assert_eq!(report.files[0].items[0].name, "Token");
     assert_eq!(report.files[0].items[0].first, 1);
@@ -71,14 +55,14 @@ fn snapshot_normalizes_external_target_mount_and_keeps_original_outline_bytes() 
 
 #[test]
 fn captured_facts_keep_item_gates_distinct_from_native_line_population() {
-    let fixture = Fixture::new();
+    let fixture = fixture();
     fs::write(
-        fixture.0.join("scripts/model.rs"),
+        fixture.path().join("scripts/model.rs"),
         "#[cfg(test)]\nfn helper() {}\n\npub fn live() {}\n",
     )
     .expect("write gated fixture");
     let metadata = MetadataCommand::new()
-        .current_dir(&fixture.0)
+        .current_dir(fixture.path())
         .no_deps()
         .exec()
         .expect("fixture metadata");
@@ -98,15 +82,18 @@ fn captured_facts_keep_item_gates_distinct_from_native_line_population() {
             .expect("helper declaration")
             .test_only
     );
-    fs::write(fixture.0.join("scripts/model.rs"), "pub struct Later;\n")
-        .expect("replace live file");
+    fs::write(
+        fixture.path().join("scripts/model.rs"),
+        "pub struct Later;\n",
+    )
+    .expect("replace live file");
     assert_eq!(source.projection().line_comment_lines().count(), 0);
     assert_eq!(source.outline()[0].name, "helper");
 }
 
 fn capture(fixture: &Fixture) -> discovery::Snapshot {
     let metadata = MetadataCommand::new()
-        .current_dir(&fixture.0)
+        .current_dir(fixture.path())
         .no_deps()
         .exec()
         .expect("fixture metadata");
@@ -115,8 +102,8 @@ fn capture(fixture: &Fixture) -> discovery::Snapshot {
 
 #[test]
 fn shape_diff_ignores_test_body_edits_and_reports_production_depth() {
-    let fixture = Fixture::new();
-    let path = fixture.0.join("scripts/model.rs");
+    let fixture = fixture();
+    let path = fixture.path().join("scripts/model.rs");
     fs::write(
         &path,
         "pub fn live() {}\n#[cfg(test)]\nmod tests {\n    fn old() {}\n}\n",
@@ -157,10 +144,14 @@ fn shape_diff_ignores_test_body_edits_and_reports_production_depth() {
 
 #[test]
 fn shape_diff_can_select_a_scope_removed_from_the_after_tree() {
-    let fixture = Fixture::new();
+    let fixture = fixture();
     let before = capture(&fixture);
-    fs::write(fixture.0.join("scripts/after.rs"), "pub struct After;\n").unwrap();
-    fs::write(fixture.0.join("xtask/Cargo.toml"), "[package]\nname=\"snapshot-fixture\"\nversion=\"0.0.0\"\nedition=\"2024\"\n[lib]\npath=\"../scripts/after.rs\"\n").unwrap();
+    fs::write(
+        fixture.path().join("scripts/after.rs"),
+        "pub struct After;\n",
+    )
+    .unwrap();
+    fs::write(fixture.path().join("xtask/Cargo.toml"), "[package]\nname=\"snapshot-fixture\"\nversion=\"0.0.0\"\nedition=\"2024\"\n[lib]\npath=\"../scripts/after.rs\"\n").unwrap();
     let after = capture(&fixture);
     let diff = review::diff(&before, &after, "scripts/model.rs").unwrap();
     assert_eq!(diff.changes.len(), 1);
@@ -176,8 +167,8 @@ fn documentation_uses_supplied_citations_and_explicit_test_population() {
         population::{Population, TestSelection, VisibilitySelection},
         source::ItemKind,
     };
-    let fixture = Fixture::new();
-    fs::write(fixture.0.join("scripts/model.rs"), "//! CR-D1\n/// Public contract.\npub struct Documented;\npub struct Missing;\n#[cfg(test)]\npub fn gated() {}\n").unwrap();
+    let fixture = fixture();
+    fs::write(fixture.path().join("scripts/model.rs"), "//! CR-D1\n/// Public contract.\npub struct Documented;\npub struct Missing;\n#[cfg(test)]\npub fn gated() {}\n").unwrap();
     let snapshot = capture(&fixture);
     let kinds = [ItemKind::Struct, ItemKind::Fn];
     let markers = ["CR-"];
@@ -227,29 +218,37 @@ fn documentation_uses_supplied_citations_and_explicit_test_population() {
 
 #[test]
 fn shape_diff_refuses_a_scope_that_became_ambiguous() {
-    let fixture = Fixture::new();
-    fs::create_dir_all(fixture.0.join("pkg-a/src")).unwrap();
+    let fixture = fixture();
+    fs::create_dir_all(fixture.path().join("pkg-a/src")).unwrap();
     fs::write(
-        fixture.0.join("pkg-a/Cargo.toml"),
+        fixture.path().join("pkg-a/Cargo.toml"),
         "[package]\nname=\"pkg-a\"\nversion=\"0.0.0\"\nedition=\"2024\"\n",
     )
     .unwrap();
-    fs::write(fixture.0.join("pkg-a/src/lib.rs"), "pub struct Before;\n").unwrap();
     fs::write(
-        fixture.0.join("Cargo.toml"),
+        fixture.path().join("pkg-a/src/lib.rs"),
+        "pub struct Before;\n",
+    )
+    .unwrap();
+    fs::write(
+        fixture.path().join("Cargo.toml"),
         "[workspace]\nmembers=[\"pkg-a\"]\nresolver=\"3\"\n",
     )
     .unwrap();
     let before = capture(&fixture);
-    fs::create_dir_all(fixture.0.join("pkg-b/src")).unwrap();
+    fs::create_dir_all(fixture.path().join("pkg-b/src")).unwrap();
     fs::write(
-        fixture.0.join("pkg-b/Cargo.toml"),
+        fixture.path().join("pkg-b/Cargo.toml"),
         "[package]\nname=\"pkg-b\"\nversion=\"0.0.0\"\nedition=\"2024\"\n",
     )
     .unwrap();
-    fs::write(fixture.0.join("pkg-b/src/lib.rs"), "pub struct Added;\n").unwrap();
     fs::write(
-        fixture.0.join("Cargo.toml"),
+        fixture.path().join("pkg-b/src/lib.rs"),
+        "pub struct Added;\n",
+    )
+    .unwrap();
+    fs::write(
+        fixture.path().join("Cargo.toml"),
         "[workspace]\nmembers=[\"pkg-a\",\"pkg-b\"]\nresolver=\"3\"\n",
     )
     .unwrap();
@@ -268,8 +267,8 @@ fn documentation_distinguishes_nested_coverage_and_rustdoc_attribute_limits() {
         population::{Population, TestSelection, VisibilitySelection},
         source::ItemKind,
     };
-    let fixture = Fixture::new();
-    fs::write(fixture.0.join("scripts/model.rs"), "pub mod inner {\n    //! CR-D1\n}\n#[doc = \"Attribute documentation\"]\npub struct AttributeDoc;\n").unwrap();
+    let fixture = fixture();
+    fs::write(fixture.path().join("scripts/model.rs"), "pub mod inner {\n    //! CR-D1\n}\n#[doc = \"Attribute documentation\"]\npub struct AttributeDoc;\n").unwrap();
     let snapshot = capture(&fixture);
     let kinds = [ItemKind::Struct];
     let markers = ["CR-"];
@@ -308,16 +307,17 @@ fn documentation_distinguishes_nested_coverage_and_rustdoc_attribute_limits() {
 #[test]
 fn qualified_capture_keeps_bytes_and_cargo_context_after_external_changes() {
     use atlas_core::analysis::Analysis;
-    let fixture = Fixture::new();
-    fs::write(fixture.0.join("scripts/model.rs"), "pub struct Token;\npub fn make() -> Token { Token }\npub fn caller() -> Token { make() }\n").expect("qualified source");
+    let fixture = fixture();
+    fs::write(fixture.path().join("scripts/model.rs"), "pub struct Token;\npub fn make() -> Token { Token }\npub fn caller() -> Token { make() }\n").expect("qualified source");
     let mut metadata = MetadataCommand::new()
-        .current_dir(&fixture.0)
+        .current_dir(fixture.path())
         .no_deps()
         .exec()
         .expect("Cargo context");
     let snapshot = discovery::snapshot_metadata(&metadata).expect("capture source and context");
     metadata.workspace_members.clear();
-    fs::remove_file(fixture.0.join("scripts/model.rs")).expect("remove disk source after capture");
+    fs::remove_file(fixture.path().join("scripts/model.rs"))
+        .expect("remove disk source after capture");
     let analysis = Analysis::new(&snapshot).expect("parse captured bytes");
     let facts = analysis
         .representations()

@@ -364,7 +364,7 @@ pub(crate) fn from_selected_sources(
         BTreeSet<String>,
         BTreeSet<String>,
     )>::new();
-    for (i, f) in index.functions.iter().enumerate() {
+    for (i, f) in index.functions().iter().enumerate() {
         let Some(from) = sites.get(&(
             f.flow.site.path.as_str(),
             f.flow.site.line,
@@ -405,13 +405,16 @@ pub(crate) fn from_selected_sources(
             let (_, _, targets, unknowns) = &mut observed[position];
             match index.resolve(i, call) {
                 Target::Function(j) => {
-                    let site = &index.functions[j].flow.site;
+                    let site = &index.functions()[j].flow.site;
                     if let Some(to) = sites.get(&(site.path.as_str(), site.line, site.column)) {
                         targets.insert(to.clone());
                     } else {
                         unknowns
                             .insert("resolved body lacks a selected representation site".into());
                     }
+                }
+                Target::InvalidFunction(position) => {
+                    return Err(format!("invalid indexed function position {position}").into());
                 }
                 Target::Summarized(reason) => {
                     unknowns.insert(reason);

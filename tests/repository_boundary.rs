@@ -6,7 +6,7 @@ use support::Fixture;
 fn commit(fixture: &Fixture) -> String {
     let git = |args: &[&str]| {
         let output = Command::new("git")
-            .current_dir(&fixture.0)
+            .current_dir(fixture.path())
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE")
             .env_remove("GIT_INDEX_FILE")
@@ -48,12 +48,12 @@ fn inherited_git_environment_cannot_redirect_revision_identity() {
     let output = Command::new(env!("CARGO_BIN_EXE_atlas"))
         .current_dir("/")
         .args(["diff", "HEAD", "--root"])
-        .arg(&intended.0)
+        .arg(intended.path())
         .arg("--json")
-        .env("GIT_DIR", foreign.0.join(".git"))
-        .env("GIT_WORK_TREE", &foreign.0)
-        .env("GIT_COMMON_DIR", foreign.0.join(".git"))
-        .env("GIT_INDEX_FILE", foreign.0.join(".git/index"))
+        .env("GIT_DIR", foreign.path().join(".git"))
+        .env("GIT_WORK_TREE", foreign.path())
+        .env("GIT_COMMON_DIR", foreign.path().join(".git"))
+        .env("GIT_INDEX_FILE", foreign.path().join(".git/index"))
         .output()
         .expect("Atlas process");
     assert!(

@@ -26,7 +26,7 @@ fn policy_command_distinguishes_pass_refusal_and_unavailable() {
         let output = Command::new(env!("CARGO_BIN_EXE_atlas"))
             .current_dir("/")
             .args(["policy", "--root"])
-            .arg(&fixture.0)
+            .arg(fixture.path())
             .args(["--policy", "policy.toml", "--json"])
             .output()
             .unwrap();

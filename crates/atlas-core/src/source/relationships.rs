@@ -1,7 +1,7 @@
 //! Atlas-derived declaration co-mentions, deliberately approximate by name.
 use crate::{
     model::{Diagnostic, Evidence, Relationship, Resolution, SourceGraph},
-    scan,
+    scan::{self, ItemKind},
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -77,7 +77,10 @@ fn derive_with_bindings(
     for file in &graph.files {
         for item in file.declarations.iter().filter(|d| {
             !d.test_only
-                && matches!(d.kind.as_str(), "Struct" | "Enum" | "Trait")
+                && matches!(
+                    d.item_kind(),
+                    Some(ItemKind::Struct | ItemKind::Enum | ItemKind::Trait)
+                )
                 && registry_ids.is_none_or(|ids| ids.contains(&d.id))
         }) {
             registry
@@ -117,15 +120,18 @@ fn derive_with_bindings(
             });
         }
         for item in file.declarations.iter().filter(|d| !d.test_only) {
-            let classified = matches!(item.kind.as_str(), "Fn" | "Struct" | "Enum");
-            if item.kind == "PubUse"
+            let classified = matches!(
+                item.item_kind(),
+                Some(ItemKind::Fn | ItemKind::Struct | ItemKind::Enum)
+            );
+            if item.item_kind() == Some(ItemKind::PubUse)
                 || (!classified && matches!(mentions, MentionScope::Classified))
             {
                 continue;
             }
             let projection = scan::RustSourceProjection::of(item.block.to_string());
             let code = projection.code_lines().collect::<Vec<_>>().join("\n");
-            let regions = if item.kind == "Fn" {
+            let regions = if item.item_kind() == Some(ItemKind::Fn) {
                 let (a, b) = split_signature(&code);
                 vec![
                     (a, Evidence::ParameterMention),

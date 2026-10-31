@@ -10,7 +10,7 @@ fn census_and_module_queries_share_the_source_population() {
         ("src/b.rs", "pub struct Other;\n"),
         ("src/empty.rs", ""),
     ]);
-    let graph = discovery::scan_workspace(&f.0).unwrap();
+    let graph = discovery::scan_workspace(f.path()).unwrap();
     let census = queries::census(&graph, None).unwrap();
     assert_eq!(census.files, 4);
     assert_eq!(census.kinds["Struct"], 2);
@@ -31,7 +31,7 @@ fn name_and_related_keep_ambiguous_matches_and_candidate_references() {
         ("src/a.rs", "pub struct Shared;\n"),
         ("src/b.rs", "pub struct Shared;\n"),
     ]);
-    let graph = discovery::scan_workspace(&f.0).unwrap();
+    let graph = discovery::scan_workspace(f.path()).unwrap();
     let names = queries::name(&graph, "Shared").unwrap();
     assert!(names.ambiguous);
     assert_eq!(names.matches.len(), 2);

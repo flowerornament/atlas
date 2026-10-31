@@ -336,3 +336,13 @@ checks are separate private modules; original regression examples remain intact.
 The move map and execution contracts are documented in docs/architecture.md.
 Older extraction accounts retain historical filenames where they describe the
 migration at that date. No additional Murail/Anneal source was copied in this move.
+
+
+Invariant repairs (girard-xqe.9) seal the standalone index's correlated allocation
+order, give invalid caller positions an explicit result, and keep root-reader
+cycle state per invocation. They retain the existing qualified and native textual
+readings as distinct contracts. Declaration tags now have explicit stable wire
+conversions rather than depending on diagnostic formatting; unknown schema-1
+values remain verbatim. Existing fixture examples/assertions use tempfile-owned
+lifetimes, including the earlier native seam and move fixtures. No additional
+native source, dependency, policy or grammar was introduced by this repair.

@@ -9,13 +9,13 @@ use support::Fixture;
 fn facts(source: &str) -> (Fixture, representations::Facts) {
     let fixture = Fixture::new(&[("src/lib.rs", source)]);
     let metadata = cargo_metadata::MetadataCommand::new()
-        .current_dir(&fixture.0)
+        .current_dir(fixture.path())
         .no_deps()
         .exec()
         .expect("alias fixture metadata");
     let graph = discovery::scan_metadata(&metadata).expect("alias fixture capture");
     let facts =
-        representations::extract(&fixture.0, &metadata, &graph).expect("alias fixture facts");
+        representations::extract(fixture.path(), &metadata, &graph).expect("alias fixture facts");
     (fixture, facts)
 }
 fn query(names: &[&str]) -> Query {
@@ -65,7 +65,7 @@ fn alias_is_selectable_in_public_contracts_producers_preparation_and_comparison(
     assert_eq!(preparation.calls[0].1.name, "infer");
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_atlas"))
         .args(["representations", "--root"])
-        .arg(&fixture.0)
+        .arg(fixture.path())
         .args(["--type", "Forms", "--panel", "contracts", "--json"])
         .output()
         .unwrap();

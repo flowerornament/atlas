@@ -88,7 +88,7 @@ pub fn outline(snapshot: &Snapshot, scope: &str) -> Result<Outline> {
             }
             items.push(ItemSpan {
                 name: item.name.clone(),
-                kind: format!("{:?}", item.kind),
+                kind: item.kind.tag().to_owned(),
                 declaration: item.line,
                 first: *item.span.start(),
                 last: *item.span.end(),

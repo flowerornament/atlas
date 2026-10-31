@@ -6,16 +6,19 @@ use support::Fixture;
 fn profile(f: &Fixture, modules: serde_json::Value) -> Architecture {
     let mut declaration = serde_json::json!({"schema":1,"source":[],"workflows":[]});
     declaration["modules"] = modules;
-    Architecture::parse(&declaration.to_string(), &f.0)
+    Architecture::parse(&declaration.to_string(), f.path())
         .expect("test fixture prerequisite must succeed")
 }
 fn stage(name: &str, path: &str, entry: &str) -> serde_json::Value {
     serde_json::json!({"name":name,"kind":"stage","path":path,"entry":entry,"types":[],"dependencies":[]})
 }
 fn build(f: &Fixture, profile: &Architecture) -> atlas::Result<program::Program> {
-    let metadata = MetadataCommand::new().current_dir(&f.0).no_deps().exec()?;
+    let metadata = MetadataCommand::new()
+        .current_dir(f.path())
+        .no_deps()
+        .exec()?;
     let graph = discovery::scan_metadata(&metadata)?;
-    program::build(&f.0, &metadata, &graph, profile, None)
+    program::build(f.path(), &metadata, &graph, profile, None)
 }
 #[test]
 fn calls_and_contracted_wrappers_retain_order_arguments_and_branches() {
@@ -366,7 +369,7 @@ fn invalid_workflow_anchors_are_refused_instead_of_silently_folded() {
         ("src/stage.rs", "pub fn run(){}"),
         ("src/main.rs", "fn main(){fixture::stage::run();}"),
     ]);
-    let a=Architecture::parse(&serde_json::json!({"schema":1,"source":[],"modules":[stage("stage","src/stage.rs","run")],"workflows":[{"name":"bad","path":"src/main.rs","function":"missing"}]}).to_string(),&f.0).unwrap();
+    let a=Architecture::parse(&serde_json::json!({"schema":1,"source":[],"modules":[stage("stage","src/stage.rs","run")],"workflows":[{"name":"bad","path":"src/main.rs","function":"missing"}]}).to_string(),f.path()).unwrap();
     assert!(
         build(&f, &a)
             .unwrap_err()

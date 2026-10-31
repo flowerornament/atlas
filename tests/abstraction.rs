@@ -104,8 +104,8 @@ fn conserved(graph: &atlas::model::SourceGraph, d: &diagram::Diagram) {
 #[test]
 fn stages_are_bounded_and_dependency_arrows_are_declared_not_source_mentions() {
     let f = fixture();
-    let profile = Architecture::parse(PROFILE, &f.0).unwrap();
-    let graph = discovery::scan_workspace(&f.0).unwrap();
+    let profile = Architecture::parse(PROFILE, f.path()).unwrap();
+    let graph = discovery::scan_workspace(f.path()).unwrap();
     let d = diagram::project(
         &graph,
         Some(&profile),
@@ -125,8 +125,8 @@ fn stages_are_bounded_and_dependency_arrows_are_declared_not_source_mentions() {
 #[test]
 fn quotient_collapses_internal_edges_and_summarizes_ambiguity_without_question_nodes() {
     let f = fixture();
-    let profile = Architecture::parse(PROFILE, &f.0).unwrap();
-    let graph = discovery::scan_workspace(&f.0).unwrap();
+    let profile = Architecture::parse(PROFILE, f.path()).unwrap();
+    let graph = discovery::scan_workspace(f.path()).unwrap();
     let d = diagram::project(
         &graph,
         Some(&profile),
@@ -168,8 +168,8 @@ fn quotient_collapses_internal_edges_and_summarizes_ambiguity_without_question_n
 #[test]
 fn focused_children_preserve_only_selected_source_relationships_and_context() {
     let f = fixture();
-    let profile = Architecture::parse(PROFILE, &f.0).unwrap();
-    let graph = discovery::scan_workspace(&f.0).unwrap();
+    let profile = Architecture::parse(PROFILE, f.path()).unwrap();
+    let graph = discovery::scan_workspace(f.path()).unwrap();
     let d = diagram::project(
         &graph,
         Some(&profile),
@@ -250,11 +250,11 @@ fn profile_refuses_duplicates_overlaps_unknown_deps_and_missing_paths() {
     cases.push(changed);
     for profile in cases {
         assert!(
-            Architecture::parse(&profile.to_string(), &f.0).is_err(),
+            Architecture::parse(&profile.to_string(), f.path()).is_err(),
             "accepted {profile:?}"
         );
     }
-    assert!(Architecture::parse("atlas-architecture-v1", &f.0).is_err());
+    assert!(Architecture::parse("atlas-architecture-v1", f.path()).is_err());
 }
 #[test]
 fn cli_paths_are_workspace_relative_with_spaces_and_docs_exclude_source_payloads() {
@@ -265,7 +265,7 @@ fn cli_paths_are_workspace_relative_with_spaces_and_docs_exclude_source_payloads
             .current_dir("/")
             .args([
                 "map",
-                f.0.to_str().unwrap(),
+                f.path().to_str().unwrap(),
                 "--architecture",
                 "architecture.json",
                 "--out",
@@ -282,21 +282,22 @@ fn cli_paths_are_workspace_relative_with_spaces_and_docs_exclude_source_payloads
         "{}",
         String::from_utf8_lossy(&first.stderr)
     );
-    let path = f.0.join("docs/a map.txt");
+    let path = f.path().join("docs/a map.txt");
     let bytes = fs::read(&path).unwrap();
-    assert!(!String::from_utf8_lossy(&bytes).contains(f.0.to_str().unwrap()));
+    assert!(!String::from_utf8_lossy(&bytes).contains(f.path().to_str().unwrap()));
     assert!(String::from_utf8_lossy(&bytes).contains("evidence%20with%20spaces"));
     assert!(
-        f.0.join("target/evidence with spaces/a map.source.json")
+        f.path()
+            .join("target/evidence with spaces/a map.source.json")
             .exists()
     );
-    assert!(!f.0.join("docs/a map.source.json").exists());
+    assert!(!f.path().join("docs/a map.source.json").exists());
     assert!(run().status.success());
     assert_eq!(bytes, fs::read(path).unwrap());
     let result = Command::new(binary)
         .args([
             "map",
-            f.0.to_str().unwrap(),
+            f.path().to_str().unwrap(),
             "--architecture",
             "architecture.json",
             "--backend",
@@ -309,9 +310,9 @@ fn cli_paths_are_workspace_relative_with_spaces_and_docs_exclude_source_payloads
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    let docs = f.0.join("target/atlas");
+    let docs = f.path().join("target/atlas");
     let html = fs::read_to_string(docs.join("overview-stages-dependencies.html")).unwrap();
-    assert!(!html.contains(f.0.to_str().unwrap()));
+    assert!(!html.contains(f.path().to_str().unwrap()));
     assert!(html.contains("architecture profile"));
     assert!(html.contains("<a href=\"overview-stages-dependencies."));
     assert!(html.contains("<details><summary>"));
@@ -322,7 +323,7 @@ fn cli_paths_are_workspace_relative_with_spaces_and_docs_exclude_source_payloads
         docs.join("overview-stages-dependencies.source.json")
             .exists()
     );
-    assert!(!f.0.join("docs/atlas").exists());
+    assert!(!f.path().join("docs/atlas").exists());
 }
 
 #[test]
@@ -332,17 +333,20 @@ fn profile_refuses_non_normalized_spellings_and_symlink_boundaries() {
         let mut value: serde_json::Value = serde_json::from_str(PROFILE).unwrap();
         value["modules"][0]["path"] = path.into();
         let text = value.to_string();
-        assert!(Architecture::parse(&text, &f.0).is_err(), "accepted {path}");
+        assert!(
+            Architecture::parse(&text, f.path()).is_err(),
+            "accepted {path}"
+        );
     }
     #[cfg(unix)]
     {
-        std::os::unix::fs::symlink(f.0.join("src/a"), f.0.join("src/alias")).unwrap();
+        std::os::unix::fs::symlink(f.path().join("src/a"), f.path().join("src/alias")).unwrap();
         for path in ["src/alias", "src/alias/mod.rs"] {
             let mut value: serde_json::Value = serde_json::from_str(PROFILE).unwrap();
             value["modules"][0]["path"] = path.into();
             let text = value.to_string();
             assert!(
-                Architecture::parse(&text, &f.0).is_err(),
+                Architecture::parse(&text, f.path()).is_err(),
                 "accepted symlink {path}"
             );
         }
@@ -352,8 +356,8 @@ fn profile_refuses_non_normalized_spellings_and_symlink_boundaries() {
 fn html_links_refuse_active_or_absolute_urls_and_escape_local_evidence() {
     use atlas::render::{Pele, Renderer};
     let f = fixture();
-    let profile = Architecture::parse(PROFILE, &f.0).unwrap();
-    let graph = discovery::scan_workspace(&f.0).unwrap();
+    let profile = Architecture::parse(PROFILE, f.path()).unwrap();
+    let graph = discovery::scan_workspace(f.path()).unwrap();
     let mut d = diagram::project(
         &graph,
         Some(&profile),
@@ -383,7 +387,7 @@ fn html_primary_cannot_overwrite_its_svg_companion() {
     let result = Command::new(env!("CARGO_BIN_EXE_atlas"))
         .args([
             "map",
-            f.0.to_str().unwrap(),
+            f.path().to_str().unwrap(),
             "--backend",
             "pele",
             "--out",
@@ -393,5 +397,5 @@ fn html_primary_cannot_overwrite_its_svg_companion() {
         .unwrap();
     assert!(!result.status.success());
     assert!(String::from_utf8_lossy(&result.stderr).contains("collides"));
-    assert!(!f.0.join("docs/view.svg").exists());
+    assert!(!f.path().join("docs/view.svg").exists());
 }
