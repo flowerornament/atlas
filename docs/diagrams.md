@@ -67,8 +67,8 @@ A saved question selects source symbols, never arrows:
 {
   "title": "From source model to rendered artifact",
   "types": [
-    { "name": "SourceGraph", "file": "crates/atlas-core/src/model.rs" },
-    { "name": "Diagram", "file": "crates/atlas-core/src/diagram.rs" },
+    { "name": "SourceGraph", "file": "crates/atlas-core/src/source/model.rs" },
+    { "name": "Diagram", "file": "crates/atlas-core/src/diagram/mod.rs" },
     { "name": "Artifact", "file": "src/render/mod.rs" }
   ],
   "preparation_files": ["crates/atlas-core/src/diagram/projection.rs", "src/main.rs"]

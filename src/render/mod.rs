@@ -1,6 +1,9 @@
 //! Interchangeable backends consume exactly the same source-linked diagram.
 mod ascii;
+pub(crate) mod comparison;
+pub(crate) mod overview;
 pub(crate) mod pele;
+pub(crate) mod representations;
 use crate::{Result, diagram::Diagram};
 pub use ascii::Ascii;
 pub use pele::{Pele, mermaid};

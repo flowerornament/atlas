@@ -1,23 +1,14 @@
-//! Source-backed Rust relationship diagrams with interchangeable renderers.
-//! Calls, signature types, fields, literals and lexical co-mentions retain distinct evidence.
-//! None establishes runtime value identity, complete execution or ownership.
+//! Read-only Rust analysis and evidence-bearing views with interchangeable renderers.
+//! Core owns capture and analysis; this facade preserves existing public paths.
+//! Application views select observations and renderers present them without reading source.
+pub(crate) use atlas_core::source_index;
+pub use atlas_core::{
+    analysis, architecture, diagram, discovery, model, queries, relationships, revision, workflow,
+};
 pub mod adapter;
-pub use atlas_core::analysis;
-pub mod architecture;
-pub mod comparison;
-pub mod dependencies;
-pub mod diagram;
-pub mod discovery;
-pub mod model;
-pub mod overview;
-pub mod program;
-pub mod queries;
-pub mod relationships;
 pub mod render;
-pub mod representations;
-pub mod revision;
-mod source_index;
-pub mod workflow;
+mod views;
+pub use views::{comparison, dependencies, overview, program, representations};
 
 /// Errors at I/O, source discovery and rendering boundaries.
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;

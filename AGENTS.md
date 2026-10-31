@@ -4,7 +4,7 @@ A read-only Rust source intelligence library and CLI. One source model supports 
 
 ## Work
 
-Read PROVENANCE.md before changing extracted code and `peat <path|topic>` before changing existing work. One writer per desk; create isolated desks with `~/.nix-config/scripts/desk spawn <purpose>`. Run checks before publishing. Never change an inspected project's source as a side effect of scanning or rendering it.
+Read docs/architecture.md for code ownership and execution flow. Read PROVENANCE.md before changing extracted code and `peat <path|topic>` before changing existing work. One writer per desk; create isolated desks with `~/.nix-config/scripts/desk spawn <purpose>`. Run checks before publishing. Never change an inspected project's source as a side effect of scanning or rendering it.
 
 ## Build
 
@@ -23,3 +23,20 @@ source measurements and fixed rule mechanisms; project wrappers own authored
 legislation and local authority resolution. Report-only observations, violations
 and unavailable required evidence are distinct. A partial reading never claims
 the project's complete PASS.
+
+
+## Organization
+
+Keep each representation beside the operations that protect its invariants. Core
+capture, qualified analysis, developer queries, checks and revision custody have
+different contracts; preserve those meanings across their interfaces. Commands
+own their options and orchestration under cli/. Views select existing observations;
+renderers present them without reopening source. Artifact publication owns shared
+input protection and keeps the two output routes' declared defaults explicit.
+
+A module header states its responsibility and the important limits of its result.
+Public API docs state caller obligations that the type cannot enforce. Read the
+entry workflow before its helpers; keep ordinary sequencing and failure visible.
+Use explicit compatibility reexports rather than duplicate implementations. Name
+each split by the decision it separates, never by a line-count target. Manually
+format dense macro bodies; a passing rustfmt check is not a readability judgment.

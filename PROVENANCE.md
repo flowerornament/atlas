@@ -6,18 +6,18 @@ at commit `9463652fa8969b2e41201e529942307348a3cf8a` in the
 
 - Original `crates/murail-atlas/src/scan.rs` SHA256:
   `bce594e1489479add0054c7679bf8943cb4d86ba7a3482062f2fb3fbda7b3f6f`.
-- `crates/atlas-core/src/scan.rs` retains the RustSourceProjection lexical mask, item grammar,
+- `crates/atlas-core/src/source/scan.rs` retains the RustSourceProjection lexical mask, item grammar,
   declaration capture, test-region predicates, module declarations, visibility
   classification and import-binding grammar. It removes the non-test LOC CLI,
   closed-basis parsing and its four tests, citation surfaces, visibility-diff and
   field-diff helpers. LOC helpers remain test-only where original boundary tests
   use them. Sixteen original scanner tests are preserved by name and assertion.
-- `src/discovery.rs` adapts `FileMap::of`, physical `.rs` walking,
+- `crates/atlas-core/src/source/discovery/mod.rs` adapts `FileMap::of`, physical `.rs` walking,
   `child_directory`, `resolve_module_path`, `ModuleMount` and `mark_test_files`
   from `crates/murail-atlas/src/atlas.rs`. It uses Cargo metadata for membership,
   includes extra target roots, classifies integration-test/benchmark roots, marks
   individually gated helpers, and diagnoses the outside-src and symlink limits.
-- `src/relationships.rs` adapts `build_graph`, `split_signature`, local-candidate
+- `crates/atlas-core/src/source/relationships.rs` adapts `build_graph`, `split_signature`, local-candidate
   preference and external import suppression. Its named evidence corresponds to
   Atlas's consumes/produces/composes classes. It preserves all candidate IDs and
   unresolved external bindings rather than reducing these to booleans. Captured
@@ -64,7 +64,7 @@ runtime order. No Murail call-graph or policy engine was copied.
 Representation views (girard-96b) promote the Girard ignored contract/field/call
 experiment into query-independent source facts and three native projections. No new
 Murail source is copied. The existing program name/call index moves to
-`src/source_index.rs`, shared by program and representation queries. File/module
+`crates/atlas-core/src/analysis/index/mod.rs`, shared by program and representation queries. File/module
 namespaces now also support functionless type files, imported impl owners and
 finite refusal of expanding reexport cycles. Existing program boundary semantics
 remain at their existing classifier. Extraction preserves written type expressions,
@@ -324,3 +324,15 @@ prefix and attributes, preserving raw payload blank lines. A same-population
 precondition protects public API callers. Existing impl-header token syntax,
 source IDs and relationship derivation are reused. The inherited inline-function
 capture boundary is explicitly pinned as a limitation, not normalized away.
+
+
+Responsibility-based organization (girard-xqe.8) changes physical homes, not donor
+semantics. Capture/lexical evidence live under core source/, qualified observations
+under analysis/, and navigation/review/audits under queries/. Existing root public
+paths are reexports of those same definitions. The application groups private
+commands/output under cli/, selected models under views/, and all native
+presentations under render/. Stage path syntax, root inventories and interface
+checks are separate private modules; original regression examples remain intact.
+The move map and execution contracts are documented in docs/architecture.md.
+Older extraction accounts retain historical filenames where they describe the
+migration at that date. No additional Murail/Anneal source was copied in this move.

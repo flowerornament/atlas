@@ -102,6 +102,7 @@ just check-install  # installed tools outside the checkout
 just verify-vendor  # embedded Pele bytes and license
 ```
 
-See [provenance](PROVENANCE.md) for the scanner's origins and evidence boundaries,
+See [architecture and execution flow](docs/architecture.md),
+[provenance](PROVENANCE.md) for the scanner's origins and evidence boundaries,
 and [diagram lessons](docs/diagram-lessons.md) for the design choices.
 Atlas is MIT OR Apache-2.0. Its bundled Pele renderer is MIT.

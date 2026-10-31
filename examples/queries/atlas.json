@@ -3,11 +3,11 @@
   "types": [
     {
       "name": "SourceGraph",
-      "file": "crates/atlas-core/src/model.rs"
+      "file": "crates/atlas-core/src/source/model.rs"
     },
     {
       "name": "Diagram",
-      "file": "crates/atlas-core/src/diagram.rs"
+      "file": "crates/atlas-core/src/diagram/mod.rs"
     },
     {
       "name": "Artifact",
@@ -15,9 +15,12 @@
     }
   ],
   "preparation_files": [
-    "src/main.rs",
+    "src/cli/map.rs",
+    "src/cli/flow.rs",
+    "src/cli/program.rs",
     "crates/atlas-core/src/diagram/projection.rs",
     "src/render/pele.rs",
-    "src/render/ascii.rs", "src/representations/render.rs"
+    "src/render/ascii.rs",
+    "src/render/representations/mod.rs"
   ]
 }
