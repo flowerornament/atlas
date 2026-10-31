@@ -6,6 +6,7 @@ pub use atlas_core::{
     analysis, architecture, diagram, discovery, model, queries, relationships, revision, workflow,
 };
 pub mod adapter;
+mod process;
 pub mod render;
 mod views;
 pub use views::{comparison, dependencies, overview, program, representations};

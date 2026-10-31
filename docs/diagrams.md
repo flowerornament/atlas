@@ -231,3 +231,27 @@ Each selector must resolve uniquely and return a selected representation.
 `preparation_files`, when also present, limits those selections to those files.
 Omit function selection to retain all producer-returning rows in the chosen files.
 All source facts remain in JSON; the query selects a view, not an asserted architecture.
+
+## Renderer resource boundaries
+
+Each embedded Pele invocation accepts at most 16 MiB of serialized JSON request
+(including the bundled renderer), 32 MiB of SVG stdout and 64 KiB of diagnostic
+stderr. Escaped JSON bytes count toward the request limit; serialization refuses
+before starting Node when it exceeds the cap. A composed figure can contain more
+than one independently bounded panel. The pinned renderer also retains its own
+50,000-character diagram-source limit; the host I/O caps do not raise it.
+
+The host concurrently writes the request and reads both output streams. Overflow
+refuses instead of truncating success, and an I/O failure stops and reaps the
+owned child. Startup diagnostics and the observed exit status survive a failed
+request write. An otherwise successful child cannot supply an artifact after
+incomplete input delivery. Non-UTF-8 output or output without an SVG root/closing
+tag refuses; this protocol check is not a complete XML validator.
+
+These are byte/resource boundaries, not a total execution-time or CPU budget.
+Invoked processes must close their pipes and must not leave descendants retaining
+them. Atlas owns the direct child; it does not manage a process tree. The embedded
+bundle creates no child processes. Existing destination protection still applies
+before publication. Native view failures publish no completed artifact; the map/
+flow route retains captured source/diagram evidence and Mermaid after a failed
+render, with an unsuccessful exit and no finished SVG/HTML.

@@ -1,11 +1,8 @@
 //! Mermaid emission and a self-contained pinned Pele bundle, evaluated by Node.
 use super::{Artifact, Document, Renderer, visible};
 use crate::{Result, diagram::Diagram};
-use std::{
-    collections::BTreeMap,
-    fmt::Write as _,
-    process::{Command, Stdio},
-};
+use std::{collections::BTreeMap, fmt::Write as _};
+mod process;
 
 pub struct Pele {
     pub html: bool,
@@ -177,44 +174,7 @@ pub(crate) fn render_source(source: &str) -> Result<String> {
 }
 
 pub(crate) fn render_source_named(source: &str, prefix: &str) -> Result<String> {
-    let mut child = Command::new("node")
-        .args([
-            "--input-type=module",
-            "--eval",
-            include_str!("../../renderer/pele.mjs"),
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| {
-            format!("start Pele renderer: {error}; install Node >=20, or use --backend ascii")
-        })?;
-    // Send the bundle through stdin, not argv: installed binaries need no
-    // source checkout, temporary adapter, npm install or argument-size allowance.
-    let request = serde_json::json!({
-        "bundle": include_str!("../../vendor/pele/pele.js"),
-        "source": source,
-        "prefix": prefix,
-    });
-    let mut stdin = child.stdin.take().ok_or("Pele stdin unavailable")?;
-    let write_result = serde_json::to_writer(&mut stdin, &request);
-    drop(stdin);
-    // Reap the subprocess even if it rejects the request before it is written.
-    let output = child.wait_with_output()?;
-    if !output.status.success() {
-        return Err(format!(
-            "Pele render failed: {}; narrow the view for renderer size limits",
-            String::from_utf8_lossy(&output.stderr).trim()
-        )
-        .into());
-    }
-    write_result?;
-    let svg = String::from_utf8(output.stdout)?;
-    if !svg.contains("<svg") {
-        return Err("Pele returned no SVG".into());
-    }
-    Ok(svg)
+    process::render(source, prefix)
 }
 
 /// Read native Pele geometry before composing independent panels.

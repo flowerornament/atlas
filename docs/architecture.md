@@ -63,7 +63,10 @@ Policy refusal and unavailable evidence retain their distinct structured status.
 - **`cli/output/`** owns destination/default policy, evidence and artifact writes.
   Its artifact and diagram routes retain different documented formats/defaults;
   `files.rs` owns their shared collision policy and publication primitives.
-- **`adapter/`** owns the explicit declaration protocol and child transport;
+- **`process.rs`** owns concurrent, bounded pipes and direct-child cleanup for
+  both renderer and declaration protocols. It observes process status and input
+  delivery separately; protocol code decides how to report them.
+- **`adapter/`** owns the explicit declaration protocol and executable selection;
   `bin/atlas-girard.rs` supplies Girard's declaration convention. Core does not
   import a project's FM/bead interpretation or execute discovered configuration.
 

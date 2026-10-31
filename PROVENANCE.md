@@ -346,3 +346,12 @@ conversions rather than depending on diagnostic formatting; unknown schema-1
 values remain verbatim. Existing fixture examples/assertions use tempfile-owned
 lifetimes, including the earlier native seam and move fixtures. No additional
 native source, dependency, policy or grammar was introduced by this repair.
+
+
+Bounded renderer exchange (girard-xqe.10) reuses the adapter's concurrent pipe
+mechanism as one private application module, adding bounded capture and cleanup
+on I/O failure for both callers. Renderer requests are bounded while serializing;
+protocol code retains Node/bundle/SVG interpretation and adapter code retains
+explicit executable/custody/declaration interpretation. Early-child diagnostics
+survive incomplete input delivery. This changes overflow and failure handling,
+not source discovery, native policy or renderer/vendor bytes.

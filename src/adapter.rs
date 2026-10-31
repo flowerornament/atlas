@@ -137,14 +137,21 @@ pub fn invoke(program: &Path, root: &Path, input: &Request) -> Result<Invocation
     if request.len() > MAX_REQUEST_BYTES {
         return Err("adapter request exceeds 16 MiB; narrow declaration input".into());
     }
-    let output = process::exchange(program, &request)?;
+    let exchange = process::exchange(program, &request)?;
+    let output = exchange.output;
     if !output.status.success() {
         return Err(format!(
-            "adapter {} failed: {}",
+            "adapter {} failed: {}{}",
             program.display(),
-            String::from_utf8_lossy(&output.stderr).trim()
+            String::from_utf8_lossy(&output.stderr).trim(),
+            exchange
+                .input_error
+                .map_or_else(String::new, |e| format!("; request write: {e}"))
         )
         .into());
+    }
+    if let Some(error) = exchange.input_error {
+        return Err(format!("adapter request write: {error}").into());
     }
     let reply: Reply =
         serde_json::from_slice(&output.stdout).map_err(|e| format!("adapter reply JSON: {e}"))?;
