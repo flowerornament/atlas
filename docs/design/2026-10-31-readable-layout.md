@@ -52,7 +52,7 @@ protocols, wire formats and crate versions are unchanged.
 
 ## Clarity and review
 
-The shipped [architecture guide](../architecture.md) explains each owner and two
+The shipped [architecture guide](../../ARCHITECTURE.md) explains each owner and two
 execution stories, including publication/failure and unavailable evidence. Module
 headers and the self-inspection query follow the new physical homes. Provenance
 retains donor attribution and distinguishes historical extraction paths.

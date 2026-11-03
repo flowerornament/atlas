@@ -10,7 +10,7 @@ rust-version = "1.99.1"
 default-run = "atlas"
 description = "Source-backed Rust navigation, workflows, and architecture diagrams"
 repository = "https://github.com/flowerornament/atlas"
-include = ["src/**", "docs/**", "PROVENANCE.md", "examples/**", "renderer/**", "vendor/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE*", "NOTICE*"]
+include = ["src/**", "docs/**", "ARCHITECTURE.md", "PROVENANCE.md", "examples/**", "renderer/**", "vendor/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE*", "NOTICE*"]
 license = "MIT OR Apache-2.0"
 publish = false
 

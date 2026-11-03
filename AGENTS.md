@@ -4,7 +4,7 @@ A read-only Rust source intelligence library and CLI. One source model supports 
 
 ## Work
 
-Read docs/architecture.md for code ownership and execution flow. Read PROVENANCE.md before changing extracted code and `peat <path|topic>` before changing existing work. One writer per desk; create isolated desks with `~/.nix-config/scripts/desk spawn <purpose>`. Run checks before publishing. Never change an inspected project's source as a side effect of scanning or rendering it.
+Read ARCHITECTURE.md for code ownership and execution flow. Read PROVENANCE.md before changing extracted code and `peat <path|topic>` before changing existing work. One writer per desk; create isolated desks with `~/.nix-config/scripts/desk spawn <purpose>`. Run checks before publishing. Never change an inspected project's source as a side effect of scanning or rendering it.
 
 ## Build
 

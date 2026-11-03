@@ -333,7 +333,7 @@ paths are reexports of those same definitions. The application groups private
 commands/output under cli/, selected models under views/, and all native
 presentations under render/. Stage path syntax, root inventories and interface
 checks are separate private modules; original regression examples remain intact.
-The move map and execution contracts are documented in docs/architecture.md.
+The move map and execution contracts are documented in ARCHITECTURE.md.
 Older extraction accounts retain historical filenames where they describe the
 migration at that date. No additional Murail/Anneal source was copied in this move.
 
