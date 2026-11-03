@@ -62,11 +62,11 @@ fn line_motion_is_not_a_change_but_renames_and_signatures_are() {
         .expect("modified admit");
     assert_eq!(
         admit.0.declaration_block.as_ref(),
-        "pub fn admit(cost: Cost) -> Tile { Tile { cost } }"
+        "pub fn admit(cost: Cost) -> Tile {"
     );
     assert_eq!(
         admit.1.declaration_block.as_ref(),
-        "pub fn admit(cost: Cost) -> Candidate { Candidate { cost } }"
+        "pub fn admit(cost: Cost) -> Candidate {"
     );
 }
 #[test]
@@ -128,22 +128,21 @@ fn test_scope_visibility_and_documentation_keep_native_boundaries() {
     );
 }
 #[test]
-fn item_review_does_not_need_unrelated_import_resolution() {
+fn malformed_required_syntax_refuses_item_review_even_without_relationships() {
     let (before, after) = captures(
         "use crate::{Broken as};\npub struct Old;\n",
         "use crate::{Broken as};\npub struct New;\n",
     );
     let prior = Navigation::new(&before, VisibilitySelection::All).expect("prior");
     let current = Navigation::new(&after, VisibilitySelection::All).expect("current");
-    assert_eq!(
-        current
-            .declaration_diff(&prior, ".", false)
-            .expect("declarations")
-            .declarations
-            .len(),
-        2
-    );
-    assert!(current.declaration_diff(&prior, ".", true).is_err());
+    for relationships in [false, true] {
+        assert!(
+            current
+                .declaration_diff(&prior, ".", relationships)
+                .is_err()
+        );
+    }
+    assert!(after.syntax_error("src/lib.rs").is_some());
 }
 
 #[test]
@@ -182,7 +181,7 @@ fn mismatched_subject_populations_cannot_become_false_source_changes() {
 #[test]
 fn captured_declaration_boundaries_are_explicit_for_inline_and_multiline_bodies() {
     for (before, after, changes) in [
-        ("pub fn f() { old(); }\n", "pub fn f() { new(); }\n", 1),
+        ("pub fn f() { old(); }\n", "pub fn f() { new(); }\n", 0),
         (
             "pub fn f() {\n old();\n}\n",
             "pub fn f() {\n new();\n}\n",

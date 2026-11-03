@@ -17,7 +17,7 @@ pub use mounted::{FileMount, MountedSources, UnavailableMount};
 
 struct Loaded {
     rel: String,
-    source: Arc<crate::source::Source>,
+    source: Arc<crate::source::Captured>,
     test_file: bool,
 }
 
@@ -37,7 +37,7 @@ pub fn scan_metadata(metadata: &Metadata) -> Result<SourceGraph> {
 /// Source bytes and their derived lexical graph from one discovery pass.
 pub struct Snapshot {
     graph: SourceGraph,
-    sources: BTreeMap<String, Arc<crate::source::Source>>,
+    sources: BTreeMap<String, Arc<crate::source::Captured>>,
     metadata: Metadata,
     mounted: BTreeMap<String, MountedSources>,
     source_diagnostics: Vec<Diagnostic>,
@@ -107,14 +107,26 @@ impl Snapshot {
     ) -> impl Iterator<Item = (String, Arc<crate::source::Source>)> + '_ {
         self.sources
             .iter()
-            .map(|(path, source)| (path.clone(), Arc::clone(source)))
+            .filter_map(|(path, source)| Some((path.clone(), source.retain()?)))
     }
     /// Rich lexical facts by normalized workspace-relative physical path.
     pub fn source_facts(&self, path: &str) -> Option<&crate::source::Source> {
-        self.sources.get(path).map(AsRef::as_ref)
+        self.sources.get(path).and_then(|source| source.facts())
     }
     pub(crate) fn retain_source(&self, path: &str) -> Option<Arc<crate::source::Source>> {
-        self.sources.get(path).map(Arc::clone)
+        self.sources.get(path).and_then(|source| source.retain())
+    }
+    /// Native line policies cannot separate mixed test/production sites on one line.
+    pub(crate) fn native_source_error(&self, path: &str) -> Option<String> {
+        if let Some(error) = self.syntax_error(path) {
+            return Some(error.to_string());
+        }
+        let (line, reason) = super::population::native_limitation(self.source_facts(path)?)?;
+        Some(format!("native source at {line}: {reason}"))
+    }
+    /// A captured parse failure; callers select its package/test applicability.
+    pub fn syntax_error(&self, path: &str) -> Option<&crate::source::SyntaxError> {
+        self.sources.get(path).and_then(|source| source.error())
     }
     /// Captured source bytes by normalized workspace-relative physical path.
     pub fn source(&self, path: &str) -> Option<&str> {
@@ -145,7 +157,7 @@ fn capture_metadata(metadata: Metadata) -> Result<Snapshot> {
 
 fn read_metadata(
     metadata: &Metadata,
-    captured: &mut BTreeMap<String, Arc<crate::source::Source>>,
+    captured: &mut BTreeMap<String, Arc<crate::source::Captured>>,
 ) -> Result<(
     SourceGraph,
     BTreeMap<String, MountedSources>,
@@ -244,7 +256,7 @@ fn read_metadata(
             let source = if let Some(source) = captured.get(&rel) {
                 Arc::clone(source)
             } else {
-                let source = Arc::new(crate::source::Source::of(
+                let source = Arc::new(crate::source::Captured::of(
                     Path::new(&rel),
                     fs::read_to_string(&path)?,
                 ));
@@ -289,9 +301,39 @@ fn read_metadata(
         source_mounts.insert(package.name.to_string(), outside);
         let mounts = mark_test_files(&mut loaded, &entry_points, &package.name, &mut diagnostics);
         for (file_index, file) in loaded.into_iter().enumerate() {
-            let source = &file.source;
+            let Some(source) = file.source.facts() else {
+                let error = file
+                    .source
+                    .error()
+                    .ok_or("invalid capture lacks syntax cause")?;
+                diagnostics.push(Diagnostic {
+                    file: file.rel.clone(),
+                    line: Some(error.line()),
+                    package: Some(package.name.to_string()),
+                    message: error.to_string(),
+                });
+                files.push(SourceFile {
+                    path: file.rel,
+                    crate_name: package.name.to_string(),
+                    content_fingerprint: fingerprint(file.source.text().as_bytes()),
+                    test_only: file.test_file,
+                    mounts: mounts.get(&file_index).cloned().unwrap_or_default(),
+                    imports: Vec::new(),
+                    declarations: Vec::new(),
+                });
+                continue;
+            };
+            if let Some((line, reason)) = super::population::native_limitation(source) {
+                diagnostics.push(Diagnostic {
+                    file: file.rel.clone(),
+                    line: Some(line),
+                    package: Some(package.name.to_string()),
+                    message: format!("native source at {line}: {reason}"),
+                });
+            }
             for import in source.imports().filter(|import| {
-                crate::population::TestSelection::Production.admits_line(source, import.line)
+                crate::population::TestSelection::Production
+                    .admits_offset(source, import.bytes.start)
             }) {
                 if let Err(error) = &import.bindings {
                     diagnostics.push(Diagnostic {
@@ -309,16 +351,28 @@ fn read_metadata(
                     matches!(
                         item.kind,
                         crate::scan::ItemKind::Use | crate::scan::ItemKind::PubUse
-                    ) && crate::population::TestSelection::Production.admits_line(source, item.line)
+                    ) && crate::population::TestSelection::Production
+                        .admits_offset(source, item.syntax_span.start)
                 })
                 .map(|item| Arc::clone(&item.declaration_block))
                 .collect();
+            let mut sites = BTreeMap::new();
+            for item in source.outline().iter().filter(|item| item.kind.declares()) {
+                *sites.entry((item.line, &item.name)).or_insert(0usize) += 1;
+            }
             let declarations = source
                 .outline()
                 .iter()
                 .filter(|item| item.kind.declares())
                 .map(|item| Declaration {
-                    id: format!("{}:{}:{}", file.rel, item.line, item.name),
+                    id: {
+                        let id = format!("{}:{}:{}", file.rel, item.line, item.name);
+                        if sites[&(item.line, &item.name)] > 1 {
+                            format!("{id}#{}", item.syntax_span.start)
+                        } else {
+                            id
+                        }
+                    },
                     name: item.name.clone(),
                     kind: item.kind.tag().to_owned(),
                     visibility: item.visibility.tag().to_owned(),
@@ -327,7 +381,7 @@ fn read_metadata(
                     summary: item.doc.clone(),
                     test_only: file.test_file
                         || !crate::population::TestSelection::Production
-                            .admits_line(source, item.line),
+                            .admits_offset(source, item.syntax_span.start),
                     block: Arc::clone(&item.declaration_block),
                 })
                 .collect();
@@ -369,7 +423,11 @@ fn read_metadata(
         relationships: Vec::new(),
         diagnostics,
     };
-    crate::relationships::derive_captured(&mut graph, captured);
+    let sources = captured
+        .iter()
+        .filter_map(|(p, c)| Some((p.clone(), c.retain()?)))
+        .collect();
+    crate::relationships::derive_captured(&mut graph, &sources);
     Ok((graph, source_mounts, source_diagnostics))
 }
 
@@ -501,19 +559,10 @@ fn mark_test_files(
     let mut children = BTreeMap::new();
     let mut mounted = BTreeSet::new();
     for (index, file) in files.iter().enumerate() {
-        let declarations = file.source.file_module_declarations();
-        for item in file.source.outline().iter().filter(|item| {
-            item.kind == crate::scan::ItemKind::Mod
-                && !item.top_level
-                && item.declaration_block.trim_end().ends_with(';')
-        }) {
-            diagnostics.push(Diagnostic {
-                package: Some(package.to_owned()),
-                file: file.rel.clone(),
-                line: Some(item.line),
-                message: "file module inside an inline module is not mounted by the rustfmt-shaped file-module reader".into(),
-            });
-        }
+        let Some(source) = file.source.facts() else {
+            continue;
+        };
+        let declarations = source.file_module_declarations();
         for (name, explicit, _) in declarations {
             let candidates = explicit.as_ref().map_or_else(
                 || {
@@ -624,8 +673,10 @@ fn mark_test_files(
                 production.insert(mount.file);
             }
             pending.extend(
-                children[&mount]
-                    .iter()
+                children
+                    .get(&mount)
+                    .into_iter()
+                    .flatten()
                     .map(|(child, gated, _)| (*child, in_tests || *gated)),
             );
         }
@@ -660,7 +711,7 @@ fn mark_test_files(
                     test_only: in_tests,
                     target: target.clone(),
                 });
-            for (child, gated, name) in &children[&mount] {
+            for (child, gated, name) in children.get(&mount).into_iter().flatten() {
                 let mut namespace = modules.clone();
                 namespace.push(name.clone());
                 pending.push((*child, namespace, in_tests || *gated, ancestry.clone()));
@@ -756,7 +807,7 @@ pub(crate) fn classify_test_fixture(files: Vec<(String, Arc<crate::source::Sourc
         .into_iter()
         .map(|(rel, source)| Loaded {
             rel,
-            source,
+            source: Arc::new(crate::source::Captured::Parsed(source)),
             test_file: false,
         })
         .collect();

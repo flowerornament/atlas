@@ -11,7 +11,8 @@ pub(super) fn parse(source: &str, path: &str, selector: &str) -> Result<Workflow
         .ok_or_else(|| "workflow result missing".into())
 }
 pub(super) fn parse_many(source: &str, path: &str, selectors: &[&str]) -> Result<Vec<Workflow>> {
-    let ast = syn::parse_file(source).map_err(|e| format!("parse workflow {path}: {e}"))?;
+    let ast =
+        crate::source::parse_file(source).map_err(|e| format!("parse workflow {path}: {e}"))?;
     let reader = Reader {
         source,
         path,
@@ -26,7 +27,8 @@ pub(super) fn parse_many(source: &str, path: &str, selectors: &[&str]) -> Result
 }
 
 pub(super) fn parse_all(source: &str, path: &str) -> Result<super::ParsedFile> {
-    let ast = syn::parse_file(source).map_err(|e| format!("parse workflow {path}: {e}"))?;
+    let ast =
+        crate::source::parse_file(source).map_err(|e| format!("parse workflow {path}: {e}"))?;
     Ok(parse_ast(
         source,
         path,

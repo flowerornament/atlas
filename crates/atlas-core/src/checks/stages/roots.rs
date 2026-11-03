@@ -76,12 +76,8 @@ impl RootTable {
                 file,
                 selection,
             );
-            let text: Vec<&str> = file.source.projection().text().lines().collect();
             for item in file.source.outline() {
-                let exported = (*item.span.start()..item.line).any(|line| {
-                    text.get(line - 1)
-                        .is_some_and(|code| code.trim().starts_with("#[macro_export"))
-                });
+                let exported = item.has_attribute("macro_export");
                 if item.kind == ItemKind::MacroRules
                     && exported
                     && selection.admits_line(&file.source, item.line)

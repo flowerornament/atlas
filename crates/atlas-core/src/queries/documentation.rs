@@ -113,17 +113,32 @@ pub fn audit(snapshot: &Snapshot, scope: &str, policy: &Policy<'_>) -> Result<Re
         report
             .sources
             .insert(file.path.clone(), file.content_fingerprint.clone());
-        let source = snapshot
-            .source_facts(&file.path)
-            .ok_or_else(|| format!("snapshot lacks source facts for {}", file.path))?;
+        let source = snapshot.source_facts(&file.path);
+        let raw;
+        let projection = if let Some(source) = source {
+            source.projection()
+        } else if policy.item_kinds.is_empty()
+            && matches!(policy.header_scope, HeaderScope::AnyModule)
+        {
+            raw = crate::source::RustSourceProjection::of(
+                snapshot
+                    .source(&file.path)
+                    .ok_or("captured bytes absent")?
+                    .to_owned(),
+            );
+            &raw
+        } else {
+            return Err(format!("{}: required item syntax unavailable", file.path).into());
+        };
         if matches!(policy.headers, HeaderPopulation::AllFiles) || !file.test_only {
             report.checked_files += 1;
-            let header: Vec<_> = source
-                .projection()
+            let header: Vec<_> = projection
                 .module_header_sites()
                 .filter(|(line, _)| {
                     matches!(policy.header_scope, HeaderScope::AnyModule)
-                        || !source.outline().iter().any(|item| item.span.contains(line))
+                        || !source.is_some_and(|source| {
+                            source.outline().iter().any(|item| item.span.contains(line))
+                        })
                 })
                 .collect();
             if header.is_empty() {
@@ -144,6 +159,9 @@ pub fn audit(snapshot: &Snapshot, scope: &str, policy: &Policy<'_>) -> Result<Re
                 });
             }
         }
+        let Some(source) = source else {
+            continue;
+        };
         for item in source.outline().iter().filter(|item| {
             policy.item_kinds.contains(&item.kind) && policy.items.admits(file, source, item)
         }) {

@@ -26,6 +26,9 @@ impl<'a> Analysis<'a> {
         self.snapshot
     }
     pub(crate) fn syntax(&self, path: &str) -> Result<&syn::File> {
+        if let Some(error) = self.snapshot.syntax_error(path) {
+            return Err(format!("{path}: {error}").into());
+        }
         self.sources
             .get(path)
             .ok_or_else(|| format!("captured syntax absent for {path}"))?
@@ -49,8 +52,22 @@ impl<'a> Analysis<'a> {
         self.tests = tests;
         self
     }
+    fn require_selected_syntax(&self) -> Result<()> {
+        for file in self
+            .snapshot
+            .graph()
+            .physical_files()
+            .filter(|file| self.tests.admits_file(file.test_only))
+        {
+            if let Some(error) = self.snapshot.syntax_error(&file.path) {
+                return Err(format!("{}: {error}", file.path).into());
+            }
+        }
+        Ok(())
+    }
     /// Written type, literal and call observations from this capture.
     pub fn representations(&self) -> Result<Facts> {
+        self.require_selected_syntax()?;
         representations::extract::from_selected_sources(
             &self.sources,
             self.snapshot.metadata(),
@@ -60,6 +77,7 @@ impl<'a> Analysis<'a> {
     }
     /// Bind the same captured names to a caller's declared architecture.
     pub fn index(&self, architecture: &Architecture) -> Result<Index> {
+        self.require_selected_syntax()?;
         Index::from_selected_sources(
             &self.sources,
             self.snapshot.metadata(),

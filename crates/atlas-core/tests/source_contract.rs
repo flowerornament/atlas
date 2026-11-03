@@ -10,6 +10,7 @@ fn native_evidence_surfaces_exclude_fake_annotations_and_preserve_attachment() {
     assert!(!projection.starts_in_code(1));
     let item = projection
         .outline(Path::new("lib.rs"))
+        .unwrap()
         .into_iter()
         .find(|i| i.name == "actual")
         .unwrap();
@@ -21,11 +22,13 @@ fn native_evidence_surfaces_exclude_fake_annotations_and_preserve_attachment() {
 #[test]
 fn loc_keeps_native_helper_boundary_distinct_from_test_modules() {
     let source = "#[cfg(test)]\nfn helper() {}\nfn live() {}\n#[cfg(test)]\nmod tests {\n fn test() {}\n}\nfn after() {}\n";
-    assert_eq!(non_test_loc(source), 4);
+    assert_eq!(non_test_loc(source).unwrap(), 4);
     let projection = RustSourceProjection::of(source.into());
     let names: Vec<_> = projection
         .declaration_lines()
-        .map(|(_, item)| item.name.to_owned())
+        .unwrap()
+        .into_iter()
+        .map(|(_, item)| item.name)
         .collect();
     assert!(names.iter().any(|name| name == "after"));
 }
@@ -35,7 +38,7 @@ fn restricted_visibility_preserves_its_written_target() {
     let projection = RustSourceProjection::of(
         "pub(in crate::sealed) struct Restricted;\npub struct Public;\n".into(),
     );
-    let outline = projection.outline(Path::new("lib.rs"));
+    let outline = projection.outline(Path::new("lib.rs")).unwrap();
     assert_eq!(outline[0].visibility_restriction(), Some("crate::sealed"));
     assert_eq!(outline[1].visibility_restriction(), None);
 }
@@ -45,47 +48,55 @@ fn native_field_and_impl_facts_preserve_owner_and_visibility_syntax() {
     use atlas_core::source::{Visibility, impl_trait, restricted_path, struct_fields};
     let fields = struct_fields(
         "pub struct Bag<T> where T: Fn(u32) -> (u32, u32) {\n    pub(in crate::sealed) first: T,\n    #[cfg(any())] pub(super) second: u32,\n}",
-    );
+    ).unwrap();
     assert_eq!(fields.len(), 2);
     assert_eq!(
-        (fields[0].0, fields[0].1.as_str(), fields[0].2),
+        (
+            fields[0].line_offset,
+            fields[0].name.as_str(),
+            fields[0].visibility
+        ),
         (1, "first", Visibility::PubIn)
     );
-    assert_eq!(fields[0].3.as_deref(), Some("crate::sealed"));
+    assert_eq!(fields[0].restricted.as_deref(), Some("crate::sealed"));
     assert_eq!(
-        (fields[1].0, fields[1].1.as_str(), fields[1].2),
+        (
+            fields[1].line_offset,
+            fields[1].name.as_str(),
+            fields[1].visibility
+        ),
         (2, "second", Visibility::PubSuper)
     );
-    let tuple = struct_fields("pub struct Pair<T>(pub T, pub(crate) usize);");
+    let tuple = struct_fields("pub struct Pair<T>(pub T, pub(crate) usize);").unwrap();
     assert_eq!(
         tuple
             .iter()
-            .map(|field| field.1.as_str())
+            .map(|field| field.name.as_str())
             .collect::<Vec<_>>(),
         ["0", "1"]
     );
-    assert!(struct_fields("pub struct Unit;").is_empty());
+    assert!(struct_fields("pub struct Unit;").unwrap().is_empty());
     assert_eq!(
-        impl_trait("impl<T> crate::api::Trait<T> for Bag<T> {"),
+        impl_trait("impl<T> crate::api::Trait<T> for Bag<T> {").unwrap(),
         Some("Trait")
     );
-    assert_eq!(impl_trait("impl<T> Bag<T> {"), None);
+    assert_eq!(impl_trait("impl<T> Bag<T> {").unwrap(), None);
     assert_eq!(
-        restricted_path("pub(in crate :: sealed) first: T"),
+        restricted_path("pub(in crate :: sealed) first: T").unwrap(),
         Some("crate::sealed".into())
     );
-    assert_eq!(restricted_path("pub(crate) field: T"), None);
+    assert_eq!(restricted_path("pub(crate) field: T").unwrap(), None);
 }
 
 #[test]
 fn lexical_paths_accept_whitespace_around_separators() {
     use atlas_core::source::impl_trait;
     assert_eq!(
-        impl_trait("impl std :: fmt :: Display for Error {"),
+        impl_trait("impl std :: fmt :: Display for Error {").unwrap(),
         Some("Display")
     );
     assert_eq!(
-        impl_trait("impl ::std::error::Error for Refused {"),
+        impl_trait("impl ::std::error::Error for Refused {").unwrap(),
         Some("Error")
     );
 }

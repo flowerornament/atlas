@@ -49,11 +49,12 @@ impl Workspace {
                 .replace('\\', "/");
             let mut captured = Vec::new();
             for file in files.get(package.name.as_str()).into_iter().flatten() {
+                let Some(source) = snapshot.retain_source(&file.path) else {
+                    continue;
+                };
                 captured.push(FileMap {
                     rel: file.path.clone(),
-                    source: snapshot
-                        .retain_source(&file.path)
-                        .ok_or("captured file lacks source facts")?,
+                    source,
                     test_file: file.test_only,
                 });
             }
@@ -64,6 +65,7 @@ impl Workspace {
             let mounted = mounts
                 .files
                 .iter()
+                .filter(|mount| snapshot.source_facts(&mount.path).is_some())
                 .map(|mount| {
                     Ok(ModuleMount {
                         module: mount.module.clone(),
@@ -89,7 +91,19 @@ impl Workspace {
             .graph()
             .diagnostics
             .iter()
-            .filter(|issue| snapshot.source_facts(&issue.file).is_none())
+            .filter(|issue| {
+                (snapshot.source_facts(&issue.file).is_none()
+                    || snapshot.native_source_error(&issue.file).is_some())
+                    && snapshot
+                        .graph()
+                        .files
+                        .iter()
+                        .filter(|file| {
+                            file.path == issue.file
+                                && issue.package.as_ref().is_none_or(|p| p == &file.crate_name)
+                        })
+                        .all(|file| !file.test_only)
+            })
             .cloned()
             .collect();
         Ok(Self {
@@ -144,9 +158,6 @@ impl FileMap {
             .map(count)
             .map_err(|error| format!("tokenize {}: {error}", self.rel).into())
     }
-    pub fn production_code_lines(&self) -> impl Iterator<Item = (usize, &str)> {
-        self.code_lines(TestSelection::Production)
-    }
     pub fn code_lines(&self, selection: TestSelection) -> impl Iterator<Item = (usize, &str)> {
         self.source
             .projection()
@@ -165,13 +176,15 @@ impl FileMap {
         self.source.outline().iter().filter(move |item| {
             item.kind.declares()
                 && selection.admits_file(self.test_file)
-                && selection.admits_line(&self.source, item.line)
+                && selection.admits_offset(&self.source, item.syntax_span.start)
         })
     }
     #[cfg(test)]
     pub fn of(rel: String, text: String) -> Self {
         Self {
-            source: Arc::new(Source::of(std::path::Path::new(&rel), text)),
+            source: Arc::new(
+                Source::of(std::path::Path::new(&rel), text).expect("valid fixture Rust"),
+            ),
             rel,
             test_file: false,
         }

@@ -36,6 +36,7 @@ impl<'a> Navigation<'a> {
     }
     /// Workspace -> package -> directory -> file, preserving package-file observations.
     pub fn census(&self, key: Option<&str>) -> Result<Census> {
+        self.require_sources(key)?;
         let key = key.map(|key| key.trim_end_matches('/'));
         let (scope, rows) = match key {
             None => (
@@ -90,6 +91,25 @@ impl<'a> Navigation<'a> {
             total,
             basis: self.basis(),
         }))
+    }
+    pub(super) fn require_sources(&self, key: Option<&str>) -> Result<()> {
+        for file in self
+            .snapshot
+            .files(crate::population::FileSelection::SourceTree)
+            .filter(|file| {
+                !file.test_only
+                    && key.is_none_or(|key| {
+                        key == "."
+                            || file.crate_name == key
+                            || crate::architecture::contains(key, &file.path)
+                    })
+            })
+        {
+            if let Some(error) = self.snapshot.native_source_error(&file.path) {
+                return Err(format!("{}: {error}", file.path).into());
+            }
+        }
+        Ok(())
     }
     fn directory_rows(&self, prefix: &str) -> Vec<Row> {
         let mut children = BTreeMap::<String, Tally>::new();

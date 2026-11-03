@@ -49,6 +49,19 @@ fn read_stages(
                 order.crate_name
             )
         })?;
+        unavailable.extend(
+            workspace
+                .unavailable
+                .iter()
+                .filter(|issue| {
+                    issue
+                        .package
+                        .as_ref()
+                        .is_none_or(|name| name == &package.name)
+                        && crate::architecture::contains(&package.src_rel, &issue.file)
+                })
+                .cloned(),
+        );
         let root = stages::RootTable::of(package, crate::population::TestSelection::Production);
         let mut report = stages::StageReport::from_root(package, &order.stages, &root);
         report.interfaces = policy.stage_reads.get(&order.crate_name).cloned();
@@ -180,6 +193,17 @@ fn seam_readings(
             .ok_or("seamed package is absent")?;
         let supplied = declarations.get(name);
         let start = unavailable.len();
+        unavailable.extend(
+            snapshot
+                .source_diagnostics()
+                .iter()
+                .filter(|issue| {
+                    issue.package.as_ref().is_none_or(|p| p == name)
+                        && snapshot.source_facts(&issue.file).is_none()
+                        && crate::architecture::contains(&package.src_rel, &issue.file)
+                })
+                .cloned(),
+        );
         if let Some(mounts) = snapshot.mounted_sources(name) {
             for missing in &mounts.unavailable {
                 unavailable.push(crate::model::Diagnostic {

@@ -72,9 +72,6 @@ pub fn read(
             report
                 .sources
                 .insert(file.path.clone(), file.content_fingerprint.clone());
-            let source = snapshot
-                .source_facts(&file.path)
-                .ok_or("source population lacks captured facts")?;
             let ast = match analysis.syntax(&file.path) {
                 Ok(ast) => ast,
                 Err(error) => {
@@ -85,6 +82,9 @@ pub fn read(
                     continue;
                 }
             };
+            let source = snapshot
+                .source_facts(&file.path)
+                .ok_or("source population lacks captured facts")?;
             let mut visitor = Boundaries {
                 source,
                 lines: BTreeSet::new(),
@@ -103,6 +103,9 @@ pub fn read(
                 && diagnostic.file.starts_with(&source_prefix)
                 && !report.sources.contains_key(&diagnostic.file)
                 && snapshot.source_facts(&diagnostic.file).is_none()
+                && !snapshot.graph().files.iter().any(|file| {
+                    file.path == diagnostic.file && file.crate_name == *name && file.test_only
+                })
             {
                 report.unavailable.push(Unavailable::ExcludedSource {
                     path: diagnostic.file.clone(),

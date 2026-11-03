@@ -199,6 +199,7 @@ impl Navigation<'_> {
         ))
     }
     fn declaration_inventory(&self, scope: &str) -> Result<Inventory> {
+        self.require_sources(Some(scope))?;
         let files: BTreeMap<_, _> = self
             .snapshot
             .files(crate::population::FileSelection::SourceTree)
@@ -214,10 +215,12 @@ impl Navigation<'_> {
                 let observation = files
                     .get(&(package.name.as_str(), file.rel.as_str()))
                     .ok_or("source observation absent")?;
-                let ids: BTreeMap<_, _> = observation
-                    .declarations
-                    .iter()
-                    .map(|item| ((item.line, item.name.as_str()), item.id.as_str()))
+                let ids: BTreeMap<_, _> = file
+                    .source
+                    .declaration_items(observation)?
+                    .into_iter()
+                    .zip(&observation.declarations)
+                    .map(|(item, declaration)| (item.syntax_span.start, declaration.id.as_str()))
                     .collect();
                 let lines: Vec<_> = file.source.text().lines().collect();
                 let mut stack = Vec::<&Item>::new();
@@ -225,7 +228,7 @@ impl Navigation<'_> {
                 for item in file.source.outline() {
                     while stack
                         .last()
-                        .is_some_and(|outer| !outer.span.contains(&item.line))
+                        .is_some_and(|outer| !outer.syntax_span.contains(&item.syntax_span.start))
                     {
                         stack.pop();
                     }
@@ -235,9 +238,9 @@ impl Navigation<'_> {
                         && TestSelection::OutsideTestModules.admits_line(&file.source, item.line)
                         && self.visibility.admits(item.visibility)
                     {
-                        let owner = owner(&stack, &lines, &mut impl_headers)?;
+                        let owner = owner(&stack, &file.source, &mut impl_headers)?;
                         let id = ids
-                            .get(&(item.line, item.name.as_str()))
+                            .get(&item.syntax_span.start)
                             .ok_or("declaration identity absent")?;
                         inventory
                             .entry((
@@ -295,37 +298,31 @@ fn changed_declarations(mut old: Inventory, mut new: Inventory) -> Vec<ChangedDe
 
 fn owner(
     stack: &[&Item],
-    lines: &[&str],
+    source: &crate::source::Source,
     impl_headers: &mut BTreeMap<usize, String>,
 ) -> Result<String> {
     let mut parts = Vec::new();
     for parent in stack {
         if parent.kind == ItemKind::Impl {
             if let std::collections::btree_map::Entry::Vacant(entry) =
-                impl_headers.entry(parent.line)
+                impl_headers.entry(parent.syntax_span.start)
             {
-                let text = lines
-                    .get(*parent.span.start() - 1..*parent.span.end())
+                let header: proc_macro2::TokenStream = source
+                    .impl_header(parent)
                     .ok_or_else(|| {
                         format!(
-                            "impl span unavailable at {}:{}",
+                            "impl header absent at {}:{}",
                             parent.file.display(),
                             parent.line
                         )
                     })?
-                    .join("\n");
-                let header = crate::review::moves::impl_header(&text).ok_or_else(|| {
-                    format!(
-                        "unreadable impl owner at {}:{}",
-                        parent.file.display(),
-                        parent.line
-                    )
-                })?;
+                    .parse::<proc_macro2::TokenStream>()
+                    .map_err(|error| format!("impl header tokens: {error}"))?;
                 entry.insert(header.to_string());
             }
             parts.push(
                 impl_headers
-                    .get(&parent.line)
+                    .get(&parent.syntax_span.start)
                     .ok_or("impl owner absent")?
                     .clone(),
             );

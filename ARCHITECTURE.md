@@ -41,10 +41,12 @@ flow uses the selected qualified index and its captured syntax cache.
   membership, lexical projection, import/item grammar and the lexical graph.
   `discovery::Snapshot` retains one captured source per physical file plus its
   package observations. A physical file shared by packages has several contexts,
-  not an arbitrarily selected owner. `scan.rs` is the canonical lexical grammar.
+  not an arbitrarily selected owner. `syntax/` derives written items, imports, visibility and cfg implication with
+  syn. `items.rs` holds portable facts; `lexical.rs` owns raw comments/string
+  masking. `scan.rs` is an internal compatibility path, with no second grammar.
 - **Core `analysis/`** owns the conservative qualified index, representation
   observations and source-control projection. `Analysis` lazily parses captured
-  bytes and retains its own selection-dependent workflow cache. `index/` joins
+  bytes into a local AST and retains its own selection-dependent workflow cache. `index/` joins
   Cargo/module/import contexts; unsupported or ambiguous targets remain explicit.
   `representations/` preserves written aliases/signatures/fields/construction.
   `workflow/` preserves syntax control and occurrence-specific call returns.
@@ -153,3 +155,38 @@ Read workflows from their entries. Named intermediate results make the sequence
 and refusals visible. Hide implementation decisions behind cohesive interfaces;
 do not add a forwarding layer, generic framework or smaller file solely to make
 an entry point short. Source size is navigation evidence, not a quality verdict.
+
+## Structural source contract
+
+1. Capture owns bytes and physical/package membership. `Source::of` is fallible:
+   a `Source` contains valid written-Rust facts. Discovery retains invalid bytes,
+   fingerprints and a portable `SyntaxError` separately. An invalid file stays
+   in the inventory; a missing fact never implies a zero count or complete PASS.
+2. `source/syntax/` is the only structural grammar. Item nesting, boundaries,
+   visibility, fields, imports and attributes come from syn. The text mask does
+   not recognize declarations. Macro payloads remain opaque. Unsupported item
+   forms refuse rather than disappear from an otherwise successful inventory.
+3. Select required failures by package/file/test population before reporting them.
+   Known test-only files can be excluded. Failed parents cannot establish test
+   ancestry for their children. Qualified views and native checks preserve their
+   existing failure/unavailable distinction.
+4. Syntax facts use exact byte positions, including several items on one line.
+   Native line budgets keep their named units. Mixed production/test sites on a
+   shared native line are unavailable to that line policy; qualified syntax-site
+   selection can distinguish them. Neither population silently substitutes for
+   the other.
+5. Snapshots and their source facts are Send + Sync. syn ASTs are invocation-local,
+   under Analysis, because syn/proc-macro2 syntax is not Send/Sync. Capture parses
+   to portable facts and drops that AST; qualified commands may parse the retained
+   bytes again into the local cache. There is no global AST cache. Script preambles
+   require a coordinate-preserving reparse after syn recognizes them.
+6. A header-only comment observation can use captured raw text even when structural
+   syntax fails. It cannot supply missing item facts. Declared architecture,
+   project authority and policy remain supplied facts, not parser inference.
+
+Trace capture from `discovery::snapshot_workspace` through `read_metadata` into
+`Captured::of`. Its syn walk constructs Source or retains the failure. A native
+Workspace borrows successful facts and keeps selected missing evidence. A qualified
+Analysis checks selected failures, then reads its cached AST. Both use the same
+`TestSelection`; source sites use byte offsets and native line accounting uses
+its documented line ranges.

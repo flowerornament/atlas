@@ -114,8 +114,9 @@ impl Navigation<'_> {
                 .source_facts(&site.file)
                 .ok_or("captured source absent")?;
             let bindings = source
-                .import_at(site.line)
-                .ok_or("captured export absent")?
+                .imports()
+                .find(|import| import.bytes.start == site.offset)
+                .ok_or("captured export site absent")?
                 .bindings
                 .as_ref()
                 .map_err(|why| {

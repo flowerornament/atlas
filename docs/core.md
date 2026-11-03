@@ -159,7 +159,7 @@ Explicit file workflows (`workflow::read`, `read_many`, `read_file`) remain synt
 queries over the requested bodies, including test bodies. They do not acquire a
 production-population filter merely because qualified workspace views use one.
 
-File-module loading remains rustfmt-shaped. File children inside inline modules,
+File-module declarations come from syn, independent of layout. Native file children inside inline modules,
 external siblings outside the discovered inventory, symlink mounts and missing
 or escaping paths are diagnosed rather than assigned invented namespaces. This
 is source evidence, not the compiler's expanded module tree.
@@ -460,13 +460,35 @@ native rule. `relationships: null` means the relationship query was not requeste
 an empty array means it was requested and found no known incidents. Module
 `--items` and `--graph` control presentation of already-typed module facts.
 
-The declaration block retains its inherited rustfmt-shaped boundary: an inline
-function body shares its captured declaration line, while later body lines are
-outside that block. Such an inline body edit can therefore be a captured
-modification. This is neither semantic equivalence nor the body-normalized move
-query. Full attached doc and attribute payloads are compared; internal blank
-lines in a raw attribute string are preserved. Body moves and qualified contract
-comparison remain their own questions.
+Function declaration blocks end at the AST body opener, in both inline and
+multiline forms. An implementation-body edit is therefore outside the signature
+comparison in either layout. Full attached doc and attribute payloads are compared;
+internal blank lines in a raw attribute string are preserved. Body moves and
+qualified contract comparison remain their own questions.
+
+### atlas-core 0.3 source API
+
+`Source::of`, projection `outline`/`declaration_lines`/`test_regions`, and the
+standalone `non_test_loc`, `TestRegions::of`, `struct_fields`, `impl_trait`,
+`restricted_path` and `import_bindings` readers return Result. A parse failure
+cannot masquerade as an empty inventory. `struct_fields` returns named `Field`
+values; `declaration_lines` returns owned `(line, Item)` facts. `LineItem` is
+retired. Obtain Item and navigation Site values from source/navigation rather
+than constructing partial struct literals. Public compatibility module paths
+still name the same implementations.
+
+`Snapshot::source` retains failed bytes; `source_facts` is absent for invalid
+Rust, and `syntax_error` explains why. The graph retains that file's fingerprint
+and diagnostic. Qualified requests refuse selected invalid source; native checks
+retain required-source unavailability. Opaque macro bodies and unsupported
+Verbatim/trait-alias items are never reinterpreted by a lexical fallback.
+
+Items expose exact syntax and attached byte ranges alongside their native line
+witnesses. File top-level is structural nesting, not indentation. Same-line
+imports remain distinct and stage paths retain the code around them. Source IDs
+keep their existing shape when unique; colliding physical sites append a byte
+offset before the package-context suffix. Native presentation sites retain their exact byte positions while serialized
+line witnesses and report shapes stay unchanged.
 
 `seams --items` includes the complete item-observation packet in text output.
 JSON always retains that packet. This presentation control does not supply

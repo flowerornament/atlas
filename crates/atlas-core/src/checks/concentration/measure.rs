@@ -231,17 +231,13 @@ fn remapped_modules(file: &FileMap, features: &[&str]) -> Vec<String> {
     if modules.is_empty() {
         return Vec::new();
     }
-    let text: Vec<&str> = file.source.text().lines().collect();
     modules
         .into_iter()
         .filter_map(|item| {
-            let attributes: Vec<&str> = (*item.span.start()..item.line)
-                .filter_map(|line| text.get(line - 1).map(|code| code.trim()))
-                .collect();
-            let remap = attributes.iter().any(|line| line.starts_with("#[path"));
+            let remap = item.has_attribute("path");
             let test_support = file.source.individually_test_gated(item.line)
                 || crate::source::attributes_require_test_or_features(
-                    &attributes.join("\n"),
+                    item.attribute_text(file.source.text()),
                     features,
                 );
             (remap && !test_support).then(|| format!("{}:{}", file.rel, item.line))
@@ -300,7 +296,7 @@ fn aliases(
     {
         let import = file
             .source
-            .import_at(item.line)
+            .import_for(item)
             .ok_or_else(|| format!("captured import unavailable at {}:{}", file.rel, item.line))?;
         let bindings = import.bindings.as_ref().map_err(|why| {
             format!(

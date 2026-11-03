@@ -1,7 +1,7 @@
 //! Read captured use statements and textual paths in their module namespace.
 //! This native path grammar is distinct from qualified call resolution.
 use super::{FileMap, ItemKind, RootTable, Unjudged};
-use crate::scan::{ImportBinding, use_import};
+use crate::scan::ImportBinding;
 use std::collections::{BTreeMap, BTreeSet};
 /// Which namespaces a path's last segment names: a `use` binding imports
 /// every one, an inline path names one, and a braced `self`
@@ -33,20 +33,25 @@ pub(super) enum SourceLine<'a> {
 
 /// A file's production lines, `use` statements joined across lines.
 pub(super) fn source_lines(file: &FileMap) -> Vec<SourceLine<'_>> {
-    logical_lines(file, file.production_code_lines())
+    let code = file
+        .source
+        .code_without_imports()
+        .lines()
+        .enumerate()
+        .filter(|(i, _)| {
+            !file.test_file
+                && crate::population::TestSelection::Production.admits_line(&file.source, i + 1)
+        })
+        .map(|(i, line)| (i + 1, line));
+    logical_lines(file, code)
 }
 pub(super) fn logical_lines<'a>(
     file: &'a FileMap,
     code_lines: impl Iterator<Item = (usize, &'a str)>,
 ) -> Vec<SourceLine<'a>> {
     let mut lines = Vec::new();
-    let mut covered_until = 0;
     for (line, code) in code_lines {
-        if line <= covered_until {
-            continue;
-        }
-        if let Some(import) = file.source.import_at(line) {
-            covered_until = import.end_line;
+        for import in file.source.imports().filter(|import| import.line == line) {
             lines.push(match &import.bindings {
                 Ok(bindings) => SourceLine::Use {
                     line,
@@ -58,9 +63,8 @@ pub(super) fn logical_lines<'a>(
                     text: &import.statement,
                 },
             });
-        } else if use_import(code).is_some() {
-            lines.push(SourceLine::UnreadableUse { line, text: code });
-        } else {
+        }
+        if !code.trim().is_empty() {
             lines.push(SourceLine::Code { line, code });
         }
     }
@@ -83,7 +87,7 @@ pub(super) fn test_source_lines<'a>(
         })
         .collect();
     let mut by_module: BTreeMap<Vec<String>, Vec<(usize, &str)>> = BTreeMap::new();
-    for (index, code) in file.source.projection().code_lines().enumerate() {
+    for (index, code) in file.source.code_without_imports().lines().enumerate() {
         let line = index + 1;
         if !file.test_file
             && crate::population::TestSelection::Production.admits_line(&file.source, line)

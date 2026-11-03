@@ -104,7 +104,7 @@ pub(super) fn boundaries(
             match item.kind {
                 ItemKind::Mod | ItemKind::Impl | ItemKind::MacroRules => {}
                 ItemKind::PubUse => {
-                    let Some(import) = file.source.import_at(item.line) else {
+                    let Some(import) = file.source.import_for(item) else {
                         continue;
                     };
                     let Ok(bindings) = &import.bindings else {

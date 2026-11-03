@@ -21,6 +21,8 @@ pub struct Site {
     pub name: String,
     pub doc: Option<String>,
     pub visibility_restriction: Option<String>,
+    #[serde(skip)]
+    pub(super) offset: usize,
 }
 impl Site {
     pub(super) fn matches_diagnostic(&self, diagnostic: &crate::model::Diagnostic) -> bool {
@@ -33,6 +35,7 @@ impl Site {
     }
     pub(super) fn of(package: &str, file: &str, item: &Item) -> Self {
         Self {
+            offset: item.syntax_span.start,
             package: package.into(),
             file: file.into(),
             line: item.line,
@@ -91,6 +94,7 @@ pub struct ModuleContext {
 impl Navigation<'_> {
     /// Bare name or the native path-fragment::Name spelling; no Rust resolution implied.
     pub fn name(&self, query: &str) -> Result<Name> {
+        self.require_sources(None)?;
         let (fragment, name) = query
             .rsplit_once("::")
             .map_or((None, query), |(fragment, name)| {
@@ -116,7 +120,7 @@ impl Navigation<'_> {
                 for item in file.items(TestSelection::OutsideTestModules) {
                     if item.kind == ItemKind::PubUse {
                         if in_fragment(&file.rel)
-                            && file.source.import_at(item.line).is_some_and(|import| {
+                            && file.source.import_for(item).is_some_and(|import| {
                                 import.bindings.as_ref().is_ok_and(|bindings| {
                                     bindings.iter().any(|binding| {
                                         binding.source == name || binding.local_name == name
@@ -308,7 +312,7 @@ fn use_targets(file: &FileMap) -> impl Iterator<Item = &str> {
             !file.test_file
                 && TestSelection::OutsideTestModules.admits_line(&file.source, import.line)
         })
-        .filter_map(|import| import.statement.lines().find_map(crate::scan::use_import))
+        .map(|import| import.target.as_ref())
 }
 fn import_counts(file: &FileMap) -> (usize, usize) {
     use_targets(file).fold((0, 0), |(total, internal), target| {

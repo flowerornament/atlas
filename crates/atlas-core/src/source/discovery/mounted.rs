@@ -2,7 +2,7 @@
 use super::{
     Loaded, child_directory, has_symlink, normalize_path, rel_display, resolve_module_path,
 };
-use crate::{Result, model::Diagnostic, source::Source};
+use crate::{Result, model::Diagnostic, source::Captured};
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -47,14 +47,17 @@ pub(super) fn outside_mounts(
     root: &Path,
     src_rel: &str,
     files: &[Loaded],
-    sources: &mut BTreeMap<String, Arc<Source>>,
+    sources: &mut BTreeMap<String, Arc<Captured>>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<MountedSources> {
     let inside = format!("{src_rel}/");
     let mut pending = Vec::new();
     for file in files.iter().filter(|file| file.rel.starts_with(&inside)) {
         let parent = module_path_of(src_rel, &file.rel);
-        for (name, path, _) in file.source.file_module_declarations() {
+        let Some(source) = file.source.facts() else {
+            continue;
+        };
+        for (name, path, _) in source.file_module_declarations() {
             if let Some(path) = path {
                 let rel = resolve_module_path(&file.rel, path);
                 if !rel.starts_with(&inside) {
@@ -91,6 +94,9 @@ pub(super) fn outside_mounts(
         }) {
             continue;
         }
+        let Some(source) = source.facts() else {
+            continue;
+        };
         for (name, path, _) in source.file_module_declarations() {
             let children = path.as_ref().map_or_else(
                 || module_candidates(&child_directory(&rel), name).to_vec(),
@@ -135,9 +141,9 @@ pub(super) fn module_candidates(directory: &str, name: &str) -> [String; 2] {
 fn capture_optional(
     root: &Path,
     rel: &str,
-    sources: &mut BTreeMap<String, Arc<Source>>,
+    sources: &mut BTreeMap<String, Arc<Captured>>,
     diagnostics: &mut Vec<Diagnostic>,
-) -> Result<Option<Arc<Source>>> {
+) -> Result<Option<Arc<Captured>>> {
     if let Some(source) = sources.get(rel) {
         return Ok(Some(Arc::clone(source)));
     }
@@ -153,7 +159,7 @@ fn capture_optional(
     }
     match fs::read_to_string(&path) {
         Ok(text) => {
-            let source = Arc::new(Source::of(Path::new(rel), text));
+            let source = Arc::new(Captured::of(Path::new(rel), text));
             sources.insert(rel.to_owned(), Arc::clone(&source));
             Ok(Some(source))
         }

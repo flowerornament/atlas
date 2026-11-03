@@ -200,7 +200,7 @@ fn aliases(ty: &str, file: &FileMap) -> Vec<String> {
                 }
             }
             ItemKind::Use | ItemKind::PubUse => {
-                let Some(import) = file.source.import_at(item.line) else {
+                let Some(import) = file.source.import_for(item) else {
                     continue;
                 };
                 let Ok(bindings) = &import.bindings else {

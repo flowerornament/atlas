@@ -199,6 +199,12 @@ fn read_authorities(
         .collect();
     for authority in &policy.authority {
         let (path, item) = anchor(&authority.home, "authority home")?;
+        if snapshot.syntax_error(path).is_some() {
+            for gap in source_gaps(snapshot, path) {
+                report.missing(format!("authority.{}.home", authority.fact), &gap.message);
+            }
+            continue;
+        }
         if !files.contains_key(path) {
             let gaps = source_gaps(snapshot, path);
             if !gaps.is_empty() {

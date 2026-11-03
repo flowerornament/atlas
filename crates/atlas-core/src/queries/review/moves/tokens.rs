@@ -17,32 +17,6 @@ pub(super) fn readings(stream: TokenStream, roots: &BTreeSet<String>) -> Body {
     }
 }
 
-/// Stop at the impl body, not a brace group inside a const-generic argument.
-pub(crate) fn impl_header(text: &str) -> Option<TokenStream> {
-    let stream = text.parse::<TokenStream>().ok()?;
-    let mut header = TokenStream::new();
-    let mut angles = 0usize;
-    let mut previous = None;
-    for token in stream {
-        match &token {
-            TokenTree::Group(group) if angles == 0 && group.delimiter() == Delimiter::Brace => {
-                return Some(header);
-            }
-            TokenTree::Punct(punct) => {
-                match punct.as_char() {
-                    '<' => angles += 1,
-                    '>' if previous != Some('-') => angles = angles.saturating_sub(1),
-                    _ => {}
-                }
-                previous = Some(punct.as_char());
-            }
-            _ => previous = None,
-        }
-        header.extend([token]);
-    }
-    None
-}
-
 fn punct(token: Option<&TokenTree>, ch: char) -> bool {
     matches!(token, Some(TokenTree::Punct(p)) if p.as_char() == ch)
 }

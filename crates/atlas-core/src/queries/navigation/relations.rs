@@ -47,6 +47,7 @@ impl Navigation<'_> {
         })
     }
     fn read_relations(&self) -> Result<Relations> {
+        self.require_sources(None)?;
         let files: BTreeSet<_> = self
             .workspace
             .crates
@@ -86,17 +87,11 @@ impl Navigation<'_> {
                     .into());
                 }
             }
-            let items: BTreeMap<_, _> = source
-                .outline()
-                .iter()
-                .map(|item| ((item.line, item.name.as_str()), item))
-                .collect();
-            for declaration in &mut file.declarations {
+            let items = source.declaration_items(file)?;
+            for (declaration, item) in file.declarations.iter_mut().zip(items) {
                 declaration.test_only = file.test_only
-                    || !TestSelection::OutsideTestModules.admits_line(&source, declaration.line);
-                let item = items
-                    .get(&(declaration.line, declaration.name.as_str()))
-                    .ok_or("captured declaration absent")?;
+                    || !TestSelection::OutsideTestModules
+                        .admits_offset(&source, item.syntax_span.start);
                 if self.visibility.admits(item.visibility) {
                     registry.insert(declaration.id.clone());
                 }

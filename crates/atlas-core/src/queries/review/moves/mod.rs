@@ -9,7 +9,7 @@ use crate::{
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 mod tokens;
-pub(crate) use tokens::impl_header;
+
 use tokens::tokens;
 
 /// Report selection does not narrow matching: a path admits its whole crate.
@@ -140,9 +140,12 @@ fn inventory(
         .iter()
         .filter(|file| matched(&file.crate_name))
     {
-        let source = snapshot
-            .source_facts(&file.path)
-            .ok_or_else(|| format!("snapshot lacks source facts for {}", file.path))?;
+        let source = snapshot.source_facts(&file.path).ok_or_else(|| {
+            snapshot.syntax_error(&file.path).map_or_else(
+                || format!("snapshot lacks source facts for {}", file.path),
+                |error| format!("{}:{}: {error}", file.path, error.line()),
+            )
+        })?;
         for (class, name, site) in file_sites(file, source, bodies)? {
             inventory
                 .entry((file.crate_name.clone(), class, name))
@@ -178,8 +181,6 @@ fn file_sites(
         .iter()
         .filter(|item| !source.test_regions().covers(item.line))
         .collect();
-    let code: Vec<&str> = source.projection().code_lines().collect();
-    let text: Vec<&str> = source.text().lines().collect();
     let roots = if bodies {
         path_roots(&items, source, &file.path)?
     } else {
@@ -189,8 +190,7 @@ fn file_sites(
         if !bodies {
             return Body::Uncompared;
         }
-        let span = &text[*item.span.start() - 1..*item.span.end()];
-        tokens(&span.join("\n"), &roots)
+        tokens(&source.text()[item.byte_span.clone()], &roots)
     };
     let site = |item: &Item, body: Body| Site {
         file: file.path.clone(),
@@ -207,7 +207,7 @@ fn file_sites(
     for item in items {
         while stack
             .last()
-            .is_some_and(|(outer, _)| !outer.span.contains(&item.line))
+            .is_some_and(|(outer, _)| !outer.syntax_span.contains(&item.syntax_span.start))
         {
             stack.pop();
         }
@@ -238,7 +238,7 @@ fn file_sites(
         }
         let enclosing = match item.kind {
             ItemKind::Use | ItemKind::PubUse => {
-                for binding in bindings(source, &file.path, item.line)? {
+                for binding in bindings(source, &file.path, item)? {
                     // A binding's body is its target: a move may reroot the
                     // path to it, never retarget the name.
                     let body = if bodies {
@@ -264,16 +264,11 @@ fn file_sites(
                 Enclosing::Folded
             }
             ItemKind::Impl => {
-                let header =
-                    tokens::impl_header(&text[*item.span.start() - 1..*item.span.end()].join("\n"));
-                let header_text = header
-                    .as_ref()
-                    .map_or_else(String::new, ToString::to_string);
-                let owner = scan::impl_trait(crate::scan::skip_attributes(&header_text))
-                    .map_or_else(
-                        || format!("{module}{}", item.name),
-                        |name| format!("<{module}{} as {name}>", item.name),
-                    );
+                let header = source.impl_header(item).and_then(|text| text.parse().ok());
+                let owner = item.trait_name.as_deref().map_or_else(
+                    || format!("{module}{}", item.name),
+                    |name| format!("<{module}{} as {name}>", item.name),
+                );
                 let header_body = if bodies {
                     header.map_or(Body::Unreadable, |header| tokens::readings(header, &roots))
                 } else {
@@ -311,16 +306,14 @@ fn file_sites(
                     site(item, body_of(item)),
                 ));
                 if kind == ItemKind::Struct {
-                    let declaration = code[item.line - 1..*item.span.end()].join("\n");
-                    for (offset, field, visibility, restricted) in scan::struct_fields(&declaration)
-                    {
+                    for field in &item.fields {
                         found.push((
                             "field",
-                            format!("{module}{}.{field}", item.name),
+                            format!("{module}{}.{}", item.name, field.name),
                             Site {
-                                restricted,
-                                line: item.line + offset,
-                                visibility,
+                                restricted: field.restricted.clone(),
+                                line: item.line + field.line_offset,
+                                visibility: field.visibility,
                                 ..site(item, Body::Uncompared)
                             },
                         ));
@@ -334,9 +327,11 @@ fn file_sites(
     Ok(found)
 }
 
-fn bindings<'a>(source: &'a Source, file: &str, line: usize) -> Result<&'a [scan::ImportBinding]> {
+fn bindings<'a>(source: &'a Source, file: &str, item: &Item) -> Result<&'a [scan::ImportBinding]> {
+    let line = item.line;
     source
-        .import_at(line)
+        .imports()
+        .find(|import| import.bytes.start == item.syntax_span.start)
         .ok_or_else(|| format!("captured import absent at {file}:{line}"))?
         .bindings
         .as_deref()
@@ -359,7 +354,7 @@ fn path_roots(items: &[&Item], source: &Source, file: &str) -> Result<BTreeSet<S
         .iter()
         .filter(|item| matches!(item.kind, ItemKind::Use | ItemKind::PubUse))
     {
-        for binding in bindings(source, file, item.line)? {
+        for binding in bindings(source, file, item)? {
             let module = binding
                 .local_name
                 .starts_with(|ch: char| ch.is_ascii_lowercase() || ch == '_');
@@ -1192,22 +1187,20 @@ fn helper() {}
             ("a.rs", "pub fn same() {}\nfn broken() {\n"),
             ("b.rs", "fn same() {}\n"),
         ]);
-        let visibility = visibility(&before, &after, None).expect("visibility report");
-        assert_eq!(visibility.ambiguous_keys, 1);
-        assert_eq!(visibility.ambiguous[0].name, "same");
-        assert_eq!(visibility.ambiguous[0].after.len(), 2);
-        // The unchanged private occurrence cancels; an addition is not a paired widening.
-        assert!(visibility.widened.is_empty());
-        let bodies = moved(&before, &after, None).expect("move report");
-        assert!(!bodies.unreadable.is_empty());
         assert!(
-            bodies
-                .basis
-                .before
-                .sources
-                .contains_key("crates/murail-fix/src/a.rs")
+            visibility(&before, &after, None).is_err(),
+            "invalid Rust has no structural inventory"
         );
-        assert!(!bodies.limits.is_empty());
+        assert!(moved(&before, &after, None).is_err());
+        assert!(after.syntax_error("crates/murail-fix/src/a.rs").is_some());
+        // Ambiguity is still retained for valid, same-named sites.
+        let before = workspace(&[("a.rs", "fn same() {}\n")]);
+        let after = workspace(&[("a.rs", "pub fn same() {}\n"), ("b.rs", "fn same() {}\n")]);
+        let report = visibility(&before, &after, None).expect("valid ambiguity report");
+        assert_eq!(report.ambiguous_keys, 1);
+        assert_eq!(report.ambiguous[0].name, "same");
+        assert_eq!(report.ambiguous[0].after.len(), 2);
+        assert!(report.widened.is_empty());
     }
     #[test]
     fn removed_scopes_are_read_from_the_before_snapshot() {

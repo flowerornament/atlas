@@ -233,7 +233,8 @@ fn imports_keep_absolute_paths_and_are_retained_with_their_source_witnesses() {
     let source = atlas_core::source::Source::of(
         std::path::Path::new("src/lib.rs"),
         "use ::external::{Thing as Local, other};\n".into(),
-    );
+    )
+    .unwrap();
     let import = source.imports().next().unwrap();
     assert_eq!(import.line, 1);
     assert_eq!(

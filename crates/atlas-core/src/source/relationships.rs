@@ -7,18 +7,22 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Derive mentions without claiming ownership, call order or Rust name resolution.
 pub fn derive(graph: &mut SourceGraph) {
-    let imports = graph
-        .files
-        .iter()
-        .map(|file| {
-            let bindings = file
-                .imports
-                .iter()
-                .flat_map(|import| scan::import_bindings(import))
-                .collect();
-            (file.path.clone(), bindings)
-        })
-        .collect();
+    let mut imports = BTreeMap::new();
+    for file in &graph.files {
+        let mut bindings = Vec::new();
+        for statement in &file.imports {
+            match scan::import_bindings(statement) {
+                Ok(found) => bindings.extend(found),
+                Err(error) => graph.diagnostics.push(Diagnostic {
+                    package: Some(file.crate_name.clone()),
+                    file: file.path.clone(),
+                    line: None,
+                    message: format!("use syntax could not be read: {error}"),
+                }),
+            }
+        }
+        imports.insert(file.path.clone(), bindings);
+    }
     derive_with_bindings(graph, &imports, None, MentionScope::Classified);
 }
 
@@ -51,7 +55,7 @@ fn captured_imports(
         .map(|(path, source)| {
             let bindings = source
                 .imports()
-                .filter(|import| tests.admits_line(source, import.line))
+                .filter(|import| tests.admits_offset(source, import.bytes.start))
                 .filter_map(|import| import.bindings.as_ref().ok())
                 .flatten()
                 .cloned()

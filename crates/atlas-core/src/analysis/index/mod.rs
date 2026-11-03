@@ -576,7 +576,7 @@ impl ParsedSource {
     pub(crate) fn ast(&self, path: &str) -> Result<&syn::File> {
         self.ast
             .get_or_init(|| {
-                syn::parse_file(self.source.text())
+                crate::source::parse_file(self.source.text())
                     .map_err(|error| format!("parse source {path}: {error}"))
             })
             .as_ref()
@@ -628,7 +628,7 @@ pub(crate) fn read_sources(root: &Path, graph: &SourceGraph) -> Result<Sources> 
         }
         Ok((
             f.path.clone(),
-            Arc::new(crate::source::Source::of(Path::new(&f.path), source)),
+            Arc::new(crate::source::Source::of(Path::new(&f.path), source)?),
         ))
     }))
 }

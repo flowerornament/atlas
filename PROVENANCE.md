@@ -355,3 +355,15 @@ protocol code retains Node/bundle/SVG interpretation and adapter code retains
 explicit executable/custody/declaration interpretation. Early-child diagnostics
 survive incomplete input delivery. This changes overflow and failure handling,
 not source discovery, native policy or renderer/vendor bytes.
+
+
+The 2026-11-03 structural migration (girard-wt6s) replaces the inherited
+rustfmt-shaped item/module/visibility/field grammar with the locked syn parser.
+The source mask and named native counting/population policies remain; the parser
+neither expands macros nor assigns project authority. Portable successful Source
+facts and retained failed captures replace success-shaped partial lexical facts.
+The original regression examples remain, with malformed-source and inline-body
+expectations explicitly corrected. The [registered census and plan](docs/design/2026-11-03-syn-source-facts.md)
+and [qualification record](docs/design/2026-11-03-syn-source-facts-record.md)
+state the observed changes and limits. No additional Murail/Anneal source or new
+dependency was copied into production by this migration.

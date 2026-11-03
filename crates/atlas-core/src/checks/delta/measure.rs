@@ -62,7 +62,7 @@ pub(in crate::checks) fn read_workspace(
             {
                 surface += if item.kind == ItemKind::PubUse {
                     file.source
-                        .import_at(item.line)
+                        .import_for(item)
                         .ok_or_else(|| {
                             format!(
                                 "public surface lacks captured import {}:{}",
