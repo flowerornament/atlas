@@ -13,11 +13,13 @@ evidence; a review does not rebuild its lexical projection. Its graph and source
 accessors borrow captured data; later filesystem edits do not change the snapshot.
 `discovery::scan_metadata` remains the graph-only convenience interface.
 
-`source::RustSourceProjection` exposes lexical item outlines, declaration lines,
-comment lines and test regions. It masks strings and comments before recognizing
-Rust structure. Item spans include attached comments and attributes. Lexical
-recognition is deliberately approximate and does not expand macros or resolve
-Rust types. Comment recognition alone does not interpret an FM annotation.
+`source::Source::of` captures structural facts with syn; item spans include
+attached comments and attributes. `source::RustSourceProjection` retains exact
+text and a comment/string mask for line-based observations. Its structural
+compatibility methods (outlines, declaration lines and test regions) delegate to
+the same syn grammar and return `SyntaxError` for invalid or unsupported syntax.
+Macro payloads stay opaque, Rust types are not resolved, and comment recognition
+does not interpret an FM annotation.
 
 The native LOC boundary excludes cfg-test modules, including their attached
 attributes. Individually cfg-test-gated helpers outside such modules remain in
