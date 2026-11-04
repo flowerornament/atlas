@@ -3,15 +3,11 @@
 //! Test selection resets only this Analysis's workflow cache; Source stays shared.
 pub mod index;
 pub mod representations;
+mod sources;
 pub mod workflow;
 
-use crate::{
-    Result,
-    architecture::Architecture,
-    discovery::Snapshot,
-    representations::Facts,
-    source_index::{self, Index, Sources},
-};
+use self::{index::Index, sources::Sources};
+use crate::{Result, architecture::Architecture, discovery::Snapshot, representations::Facts};
 
 /// Share captured bytes and lazily parse each selected file once for this invocation.
 /// Context-independent workflow facts are also materialized once and shared across queries.
@@ -35,7 +31,7 @@ impl<'a> Analysis<'a> {
             .ast(path)
     }
     pub fn new(snapshot: &'a Snapshot) -> Result<Self> {
-        let sources = source_index::parse_sources(snapshot.captured_sources().map(Ok))?;
+        let sources = sources::retain_sources(snapshot.captured_sources().map(Ok))?;
         Ok(Self {
             snapshot,
             sources,

@@ -2,8 +2,8 @@
 use super::{Detail, ExitKind, LoopKind, Site, Step, Workflow, compact::Folds};
 use crate::{
     Result,
+    analysis::index::{Index, Target},
     diagram::{Coverage, Diagram, Edge, EdgeEvidence, Level, Node, View},
-    source_index::{Index, Target},
 };
 use std::fmt::Write as _;
 

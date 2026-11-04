@@ -1,5 +1,5 @@
 //! Native token readings, with exact and explicitly approximate rerooted modes.
-use super::Body;
+use super::inventory::Body;
 use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
 use std::collections::BTreeSet;
 

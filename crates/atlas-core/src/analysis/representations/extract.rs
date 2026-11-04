@@ -7,9 +7,9 @@ use super::{
 };
 use crate::{
     Result,
+    analysis::index::{Index, Target},
     architecture::Architecture,
     model::SourceGraph,
-    source_index::{Index, Target},
 };
 use cargo_metadata::Metadata;
 use std::{
@@ -182,11 +182,11 @@ impl References<'_> {
 }
 pub(super) fn extract(root: &Path, metadata: &Metadata, graph: &SourceGraph) -> Result<Facts> {
     let root = root.canonicalize()?;
-    let sources = crate::source_index::read_sources(&root, graph)?;
+    let sources = crate::analysis::sources::read_sources(&root, graph)?;
     from_sources(&sources, metadata, graph)
 }
-pub(crate) fn from_sources(
-    sources: &crate::source_index::Sources,
+pub(in crate::analysis) fn from_sources(
+    sources: &crate::analysis::sources::Sources,
     metadata: &Metadata,
     graph: &SourceGraph,
 ) -> Result<Facts> {
@@ -197,8 +197,8 @@ pub(crate) fn from_sources(
         crate::population::TestSelection::Production,
     )
 }
-pub(crate) fn from_selected_sources(
-    sources: &crate::source_index::Sources,
+pub(in crate::analysis) fn from_selected_sources(
+    sources: &crate::analysis::sources::Sources,
     metadata: &Metadata,
     graph: &SourceGraph,
     tests: crate::population::TestSelection,

@@ -4,6 +4,7 @@
 //! expanded; macros, closures and unsupported constructs remain visible and opaque.
 mod compact;
 pub(crate) mod facts;
+mod functions;
 mod parse;
 mod projection;
 use crate::{Result, diagram::Diagram};
@@ -328,12 +329,12 @@ pub fn expanded(
         modules: vec![],
         workflows: vec![],
     };
-    let index = crate::source_index::Index::new(root, metadata, graph, &architecture)?;
+    let index = crate::analysis::index::Index::new(root, metadata, graph, &architecture)?;
     expand(&index, path, function, depth)
 }
 /// Expand a captured name index without any source or Cargo read.
 pub fn expand(
-    index: &crate::source_index::Index,
+    index: &crate::analysis::index::Index,
     path: &str,
     function: &str,
     depth: u8,
@@ -342,7 +343,7 @@ pub fn expand(
 }
 /// Use the same source-control builder with explicit display detail.
 pub fn expand_with_detail(
-    index: &crate::source_index::Index,
+    index: &crate::analysis::index::Index,
     path: &str,
     function: &str,
     depth: u8,

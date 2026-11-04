@@ -45,15 +45,20 @@ flow uses the selected qualified index and its captured syntax cache.
   syn. `items.rs` holds portable facts; `lexical.rs` owns raw comments/string
   masking. `scan.rs` is an internal compatibility path, with no second grammar.
 - **Core `analysis/`** owns the conservative qualified index, representation
-  observations and source-control projection. `Analysis` lazily parses captured
-  bytes into a local AST and retains its own selection-dependent workflow cache. `index/` joins
-  Cargo/module/import contexts; unsupported or ambiguous targets remain explicit.
+  observations and source-control projection. `Analysis` owns the invocation-local lazy AST and selection-dependent workflow
+  cache in `sources.rs`. `index/` joins Cargo/module/import contexts: `mod.rs`
+  sequences construction, `mounts.rs` owns Cargo contexts and boundary roots,
+  `build.rs` fills correlated name tables, and `resolve.rs` follows supported
+  imports and signature types. Unsupported or ambiguous targets remain explicit.
   `representations/` preserves written aliases/signatures/fields/construction.
   `workflow/` preserves syntax control and occurrence-specific call returns.
+  `functions.rs` discovers/selects bodies; `parse.rs` reads their ordered expressions.
 - **Core `queries/`** owns developer reports: lexical queries, selected native
   navigation, review and documentation audits. Lexical and selected native results
   intentionally differ in population/schema. `review/` keeps source metrics and
-  token-based move observations; it does not assign an elegance score.
+  token-based move observations; it does not assign an elegance score. Its
+  `moves/` entry sequences scope, inventory, comparison and report construction;
+  `scope.rs`, `inventory.rs` and `compare.rs` own those distinct decisions.
 - **Core `checks/`** combines captured observations with explicit policy. The
   `stages/` entry composes a report; `roots.rs` reads root bindings, `paths.rs`
   owns the native textual path reading, `interfaces.rs` applies declared
@@ -143,6 +148,22 @@ process outcome.
 The serialized kinds/statuses, physical source and selected test population are
 part of a report's meaning. Do not substitute a qualified call graph for textual
 paths, or an authored permission for an observed relationship, to simplify a view.
+
+## Trace indexing and a move report
+
+Start at `analysis/index/mod.rs::Index::from_selected_sources`. It reads Cargo
+mounts, binds supplied boundaries, collects functions and reexports, builds static
+names, then rebinds imported method owners. Only the finished index escapes.
+`resolve.rs::resolve` distinguishes method receivers from static/value calls;
+receiver ownership follows a written type or one initializer's return signature.
+No Rust inference or arbitrary choice among candidates is added.
+
+For a move review, start at `queries/review/moves/mod.rs::moved`. Scope selects
+whole owning crates, inventory reads their native keys and tokens, comparison
+pairs exact/rerooted/remaining bodies, then the entry constructs the owned report.
+Scope narrows reporting after matching, so moving across the selected path does
+not invent additions/removals. `visibility` shares that inventory but compares
+written visibility. It never substitutes Rust's effective visibility.
 
 ## Working principles
 
