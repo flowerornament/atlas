@@ -56,8 +56,9 @@ lists the guides (`help concepts`, `help --topic query`, `help --topic facts`).
   `FILE:LINE`, or a declaration id from `--as json`.
 - A bare name can match hundreds of functions (`new`, `run`, `from`). Narrow
   first with `Type::method`, `FILE:LINE` or `--in PATH`.
-- Revisions: in a jj repository `@-` is the previous change; in git,
-  `HEAD~1`. `diff REV` and `diff --vs REV` are the same.
+- Revisions: in a jj repository `@-` is the previous change and `@--` the
+  one before (any jj revision works: a change id, `main`, `trunk()`); in git,
+  `HEAD~1`, `HEAD~2`. `diff REV` and `diff --vs REV` are the same.
 
 ## Output
 
@@ -134,6 +135,10 @@ a mention's `basis`; `cargo atlas help --topic query` explains both.
 - `unknown_call.spelling` is what was written: a method name or a path
   segment, not `Type::method`. Read it with `last_segment`.
 - `function.qualified` is not a module path; join `mount` for that.
+  `mount.target` is empty when one Cargo target starts at that root, which is
+  most rows.
+- `function.public` is a bare written `pub`: `pub(crate)` and the like are
+  false, and so is a trait impl's method (it has the trait's visibility).
 - Before concluding that nothing calls a function, read `possible_call`: the
   unresolved calls written with its name.
 - `name X --relations` lists co-mentions, not calls. For calls, use

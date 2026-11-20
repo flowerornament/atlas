@@ -76,13 +76,14 @@ fn text<'a>(row: &'a BTreeMap<String, Value>, column: &str) -> &'a str {
 #[test]
 fn schema_matches_the_committed_contract() {
     let fixture = fixture();
-    let printed = String::from_utf8(stdout(&fixture, &["facts", "--schema"])).expect("UTF-8");
+    let printed =
+        String::from_utf8(stdout(&fixture, &["facts", "--schema", "--as", "json"])).expect("UTF-8");
     let committed = include_str!("snapshots/facts-schema.json");
     assert_eq!(
         printed, committed,
         "the facts schema changed. Within schema v1 a change may only add relations or append \
          columns; if this one does, update tests/snapshots/facts-schema.json and docs/facts.md \
-         (cargo run -- facts --schema > tests/snapshots/facts-schema.json)"
+         (cargo run -- facts --schema --as json > tests/snapshots/facts-schema.json)"
     );
 }
 
@@ -107,7 +108,7 @@ fn docs_describe_every_relation_and_column() {
 fn every_row_has_its_schema_columns_and_kinds() {
     let fixture = fixture();
     let facts = json(&fixture, &["facts"]);
-    let schema = json(&fixture, &["facts", "--schema"]);
+    let schema = json(&fixture, &["facts", "--schema", "--as", "json"]);
     assert_eq!(facts["schema"], schema["schema"]);
     for relation in schema["relations"].as_array().expect("relations") {
         let name = relation["name"].as_str().expect("name");

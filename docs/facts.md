@@ -6,7 +6,8 @@ jq, a script or a database. Every relation, column and companion described
 below is also printed, without reading any source, by:
 
 ```sh
-cargo atlas facts --schema
+cargo atlas facts --schema             # readable: relation, column, kind, meaning
+cargo atlas facts --schema --as json   # the same, as data
 ```
 
 The export adds no evidence of its own. It flattens the same observations
@@ -194,7 +195,7 @@ Lexical. A module path at which a package's Cargo target reaches a file through 
 | `package` | text | The package, as in `file.package`. |
 | `root` | text | The Cargo target root the path starts from. |
 | `module_path` | text | Modules from the target root, joined with `::`; empty for the root file itself. |
-| `target` | text | The Cargo target, when several share the root; otherwise empty. |
+| `target` | text | The Cargo target, when several share the root; empty when one target starts there (most rows), since the root then names it. |
 | `test_only` | boolean | The target or a module on the path requires a test build. |
 
 - A file can have several mounts (several targets, or `#[path]`), or none.
@@ -302,7 +303,7 @@ Qualified. A function body the qualified analysis selected.
 | `name` | text | The name as written, with the impl type for a method (`Type::name`). |
 | `qualified` | text | The name with the inline `mod` blocks that enclose it, and the owner type for a method (`Snapshot::graph`); the file's own module path is `mount.module_path`, one per Cargo target that reaches the file. |
 | `signature` | text | The signature as written. |
-| `public` | boolean | Written `pub`. |
+| `public` | boolean | Written `pub` with no restriction. `pub(crate)`, `pub(super)`, `pub(in path)` and private are false, and so is a trait impl's method, which has the trait's visibility. |
 | `trait_impl` | boolean | Declared in a trait impl. |
 | `declaration` | text | The lexical `declaration.id` at the same file, line and name; empty if none matched. |
 

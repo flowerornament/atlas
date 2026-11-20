@@ -141,7 +141,7 @@ pub const RELATIONS: &[Relation] = &[
             ),
             text(
                 "target",
-                "The Cargo target, when several share the root; otherwise empty.",
+                "The Cargo target, when several share the root; empty when one target starts there (most rows), since the root then names it.",
             ),
             boolean(
                 "test_only",
@@ -320,7 +320,10 @@ pub const RELATIONS: &[Relation] = &[
                 "The name with the inline `mod` blocks that enclose it, and the owner type for a method (`Snapshot::graph`); the file's own module path is `mount.module_path`, one per Cargo target that reaches the file.",
             ),
             text("signature", "The signature as written."),
-            boolean("public", "Written `pub`."),
+            boolean(
+                "public",
+                "Written `pub` with no restriction. `pub(crate)`, `pub(super)`, `pub(in path)` and private are false, and so is a trait impl's method, which has the trait's visibility.",
+            ),
             boolean("trait_impl", "Declared in a trait impl."),
             text(
                 "declaration",

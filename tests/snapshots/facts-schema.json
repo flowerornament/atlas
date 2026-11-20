@@ -65,7 +65,7 @@
         {
           "name": "target",
           "kind": "text",
-          "description": "The Cargo target, when several share the root; otherwise empty."
+          "description": "The Cargo target, when several share the root; empty when one target starts there (most rows), since the root then names it."
         },
         {
           "name": "test_only",
@@ -345,7 +345,7 @@
         {
           "name": "public",
           "kind": "boolean",
-          "description": "Written `pub`."
+          "description": "Written `pub` with no restriction. `pub(crate)`, `pub(super)`, `pub(in path)` and private are false, and so is a trait impl's method, which has the trait's visibility."
         },
         {
           "name": "trait_impl",

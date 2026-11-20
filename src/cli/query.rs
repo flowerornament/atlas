@@ -178,7 +178,9 @@ fn render(cell: &Cell) -> String {
     }
 }
 
-fn text(answer: &query::Answer, source: &str, show: usize) -> String {
+/// `standing` are the facts' fixed limitations, the same on every run: the
+/// text folds them into one line, and JSON keeps each.
+fn text(answer: &query::Answer, source: &str, show: usize, standing: &[String]) -> String {
     let more = crate::cli::output::rows::rerun_all(None);
     let mut out = String::new();
     for (i, table) in answer.tables.iter().enumerate() {
@@ -240,10 +242,21 @@ fn text(answer: &query::Answer, source: &str, show: usize) -> String {
     for accepted in &answer.accepted {
         let _ = writeln!(out, "\n{accepted}");
     }
-    if !answer.notes.is_empty() {
+    let (fixed, notes): (Vec<&String>, Vec<&String>) = answer
+        .notes
+        .iter()
+        .partition(|note| standing.contains(note));
+    if !notes.is_empty() || !fixed.is_empty() {
         out.push('\n');
-        for note in &answer.notes {
+        for note in notes {
             let _ = writeln!(out, "note: {note}");
+        }
+        if !fixed.is_empty() {
+            let _ = writeln!(
+                out,
+                "note: the facts read carry {} standing limits (production source only, no macro expansion, conservative call resolution); cargo atlas help concepts explains them, and --as json lists each",
+                fixed.len()
+            );
         }
     }
     let _ = writeln!(
@@ -339,7 +352,7 @@ pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Res
         )?;
     } else {
         let show = options.show.unwrap_or_else(|| options.rows.limit(20));
-        stdout.write_all(text(&answer, &source, show).as_bytes())?;
+        stdout.write_all(text(&answer, &source, show, &relations.limitations).as_bytes())?;
     }
     Ok(())
 }

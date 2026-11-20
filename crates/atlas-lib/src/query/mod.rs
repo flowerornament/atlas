@@ -210,6 +210,10 @@ pub struct Answer {
     pub accepted: Vec<String>,
     /// What the answer cannot show, from the facts it read.
     pub notes: Vec<String>,
+    /// Join steps the evaluation took: a measure of its cost that does not
+    /// depend on the machine, for comparing programs. Not in the JSON.
+    #[serde(skip)]
+    pub work: u64,
 }
 
 fn millis<S: serde::Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {

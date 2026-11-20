@@ -175,3 +175,54 @@ fn diff_items_counts_source_limits_by_kind() {
     assert!(limits[1].ends_with("(--json lists each)"), "{text}");
     assert!(text.contains("  mount-missing  e.g. tests/"), "{text}");
 }
+
+#[test]
+fn the_schema_reads_as_text_and_as_data() {
+    let f = fixture();
+    let (ok, text, _) = atlas(&f, &["facts", "--schema"]);
+    assert!(ok);
+    assert!(text.starts_with("Atlas facts, schema 1: "), "{text}");
+    assert!(text.contains("\nfunction (qualified): "), "{text}");
+    assert!(text.contains("  public "), "{text}");
+    assert!(
+        text.contains("unresolved observations: unknown_call"),
+        "{text}"
+    );
+    let (_, json, _) = atlas(&f, &["facts", "--schema", "--as", "json"]);
+    let json: serde_json::Value = serde_json::from_str(&json).expect("schema JSON");
+    for relation in json["relations"].as_array().expect("relations") {
+        let name = relation["name"].as_str().expect("name");
+        assert!(
+            text.contains(&format!("\n{name} (")),
+            "{name} missing from the text"
+        );
+    }
+    let (ok, _, stderr) = atlas(&f, &["facts", "--as", "text"]);
+    assert!(!ok);
+    assert!(stderr.contains("--as text is for --schema"), "{stderr}");
+}
+
+#[test]
+fn query_text_folds_the_standing_limits_into_one_note() {
+    let f = fixture();
+    let program = "?- calls_function{from: F, to: G}.";
+    let (ok, text, _) = atlas(&f, &["query", program]);
+    assert!(ok);
+    let notes: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with("note: "))
+        .collect();
+    assert_eq!(notes.len(), 2, "{text}");
+    assert!(
+        notes[0].contains("`call` has an unknowns relation"),
+        "{text}"
+    );
+    assert!(
+        notes[1].contains("standing limits") && notes[1].contains("cargo atlas help concepts"),
+        "{text}"
+    );
+    // JSON keeps every one.
+    let (_, json, _) = atlas(&f, &["query", program, "--as", "json"]);
+    let json: serde_json::Value = serde_json::from_str(&json).expect("JSON");
+    assert!(json["notes"].as_array().expect("notes").len() >= 5);
+}

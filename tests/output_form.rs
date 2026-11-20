@@ -353,7 +353,7 @@ fn as_refuses_an_old_spelling_that_asks_for_something_else() {
             &["dependencies", "--help"],
             "[possible values: text, json, svg]",
         ),
-        (&["facts", "--help"], "[possible values: json, jsonl]"),
+        (&["facts", "--help"], "[possible values: text, json, jsonl]"),
     ] {
         assert!(
             text(&atlas(&f, args, false).stdout).contains(values),

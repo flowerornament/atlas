@@ -20,6 +20,22 @@ suggested commands in `orient` and `compare`'s notes.
  census, and the same count as a query); the module `atlas_lib::guide` is the
  library guide (`cargo atlas help library`), and a test keeps the crate's copy
  equal to it.
+- **Behaviour change:** `facts --schema` prints a readable listing by
+ default (each relation with its family and meaning, each column with its
+ kind and meaning, its basis column and unknowns companion); `--schema --as
+ json` (or `--format json`) prints the schema as data, as `--schema` did.
+- From an agent's second session:
+  - The prelude's `possible_call` joins on a name's last segment through
+  `function_segment` and `call_segment` instead of testing every pair: on a
+  workspace with 40,729 such calls it went from 85 s to under a second. A
+  test bounds its join steps, independent of the machine.
+  - `cargo atlas --help` (and `help`) opens with "Run `cargo atlas help
+  agent` first".
+  - `function.public` is defined (a bare written `pub`; restricted and
+  trait-impl methods are false) and an empty `mount.target` explained.
+  - The briefing names `@--` and other jj revisions.
+  - Query text folds the facts' standing limits into one note pointing at
+  `cargo atlas help concepts`; program-specific notes stay; JSON keeps all.
 - From an agent's first session with only the binary:
   - The prelude gains `possible_call{to: F, call: C}`, the unresolved calls
   written with F's name, as `callers` reads "possibly" (a test holds them

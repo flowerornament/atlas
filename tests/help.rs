@@ -235,3 +235,15 @@ fn the_library_crate_carries_the_library_guide() {
         "copy docs/library.md to crates/atlas-lib/src/guide.md"
     );
 }
+
+/// The main help opens with the briefing, for a reader with only the binary.
+#[test]
+fn main_help_starts_with_the_agent_briefing() {
+    for args in [&["--help"][..], &["help"]] {
+        let (_, help, _) = atlas(args);
+        assert!(
+            help.starts_with("New here, or an agent? Run `cargo atlas help agent` first"),
+            "{args:?}: {help}"
+        );
+    }
+}

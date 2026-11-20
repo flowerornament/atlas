@@ -803,5 +803,6 @@ pub(crate) fn run(
         elapsed: engine.started.elapsed(),
         accepted: Vec::new(),
         notes: Vec::new(),
+        work: engine.work.get(),
     })
 }

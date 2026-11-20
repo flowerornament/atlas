@@ -9,7 +9,7 @@ use atlas_lib::{
 };
 use cargo_atlas::Result;
 use clap::{Args, ValueEnum};
-use std::{io::Write, path::PathBuf};
+use std::{fmt::Write as _, io::Write, path::PathBuf};
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Format {
@@ -33,24 +33,26 @@ pub(crate) struct Options {
         default_value = "lexical,qualified"
     )]
     families: Vec<FamilyArg>,
-    /// `json` is one document: each relation's columns and rows (rows are
-    /// arrays). `jsonl` is a header line, then one object per row with a
-    /// `relation` key.
+    /// `json` (the default) is one document: each relation's columns and
+    /// rows (rows are arrays). `jsonl` is a header line, then one object per
+    /// row with a `relation` key. With --schema, `text` (the default) is a
+    /// readable listing and `json` the schema as data.
     #[arg(
         long = "as",
         id = "as",
         value_name = "FORMAT",
-        value_parser = formats(&[As::Json, As::Jsonl])
+        value_parser = formats(&[As::Text, As::Json, As::Jsonl])
     )]
     form: Option<As>,
     /// Superseded by --as, with the same values.
-    #[arg(long, value_enum, default_value = "json")]
-    format: Format,
+    #[arg(long, value_enum)]
+    format: Option<Format>,
     /// Write to this file instead of standard output.
     #[arg(long)]
     out: Option<PathBuf>,
-    /// Print the relations, columns, bases and unknowns companions as JSON,
-    /// without reading the source.
+    /// Print every relation and column, what each means, and each relation's
+    /// basis and unknowns companion, without reading the source; --as json
+    /// for the schema as data.
     #[arg(long)]
     schema: bool,
 }
@@ -60,9 +62,61 @@ impl Options {
         match self.form {
             Some(As::Jsonl) => Format::Jsonl,
             Some(As::Json) => Format::Json,
-            Some(As::Text | As::Svg | As::Html) | None => self.format,
+            Some(As::Text | As::Svg | As::Html) | None => self.format.unwrap_or(Format::Json),
         }
     }
+}
+
+/// `facts --schema` as text: each relation with its family and meaning, its
+/// columns with their kinds and meanings, and what it keeps apart.
+fn schema_text() -> String {
+    let mut out = format!(
+        "Atlas facts, schema {}: {} relations in two families, lexical (names as written) and qualified (names followed through use statements and modules). --as json prints this as data; cargo atlas help --topic facts explains it.\n",
+        schema::VERSION,
+        schema::RELATIONS.len()
+    );
+    for relation in schema::RELATIONS {
+        let _ = writeln!(
+            out,
+            "\n{} ({}): {}",
+            relation.name,
+            relation.family.name(),
+            relation.description
+        );
+        let width = relation
+            .columns
+            .iter()
+            .map(|c| c.name.len())
+            .max()
+            .unwrap_or(0);
+        for column in relation.columns {
+            let kind = serde_json::to_value(column.kind)
+                .ok()
+                .and_then(|kind| kind.as_str().map(str::to_owned))
+                .unwrap_or_default();
+            let _ = writeln!(
+                out,
+                "  {:width$}  {kind:7}  {}",
+                column.name, column.description
+            );
+        }
+        if let Some(basis) = relation.basis {
+            let _ = writeln!(
+                out,
+                "  basis column: {basis} (keep it, or pin it to \"unique\")"
+            );
+        }
+        if let Some(unknowns) = relation.unknowns {
+            let _ = writeln!(
+                out,
+                "  unresolved observations: {unknowns} (no row here is not evidence of none)"
+            );
+        }
+        for note in relation.notes {
+            let _ = writeln!(out, "  note: {note}");
+        }
+    }
+    out
 }
 
 pub(crate) fn schema() -> Result<String> {
@@ -81,8 +135,17 @@ pub(crate) fn schema() -> Result<String> {
 
 pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Result<()> {
     if options.schema {
-        std::io::stdout().lock().write_all(schema()?.as_bytes())?;
+        // Text unless the schema is asked for as data.
+        let data = matches!(options.form, Some(As::Json | As::Jsonl)) || options.format.is_some();
+        let text = if data { schema()? } else { schema_text() };
+        std::io::stdout().lock().write_all(text.as_bytes())?;
         return Ok(());
+    }
+    if options.form == Some(As::Text) {
+        return Err(
+            "facts prints JSON (--as json) or JSON Lines (--as jsonl); --as text is for --schema"
+                .into(),
+        );
     }
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let graph = snapshot.graph();

@@ -567,3 +567,60 @@ fn limits_refuse_with_the_relation_that_grew() {
     .unwrap_err();
     assert!(error.message.contains("time limit of 0 s"), "{error}");
 }
+
+/// `possible_call` joins functions and unresolved calls on their last name
+/// segment through an index, not by testing every pair: its work stays
+/// proportional to its inputs and rows. Timing-independent: `work` counts
+/// join steps, which a nested loop over both relations would square.
+#[test]
+fn possible_call_is_keyed_on_the_segment_not_every_pair() {
+    const N: u64 = 300;
+    let (mut relations, _, _) = graph(0);
+    let function = relations.get("function").unwrap().schema;
+    relations.relations[0] = Relation {
+        schema: function,
+        rows: (0..N)
+            .map(|n| {
+                vec![
+                    Cell::Text(format!("src/m.rs:{n}:0")),
+                    Cell::Text("src/m.rs".into()),
+                    Cell::Integer(n),
+                    Cell::Text(format!("Owner::f{n}")),
+                    Cell::Text(format!("Owner::f{n}")),
+                    Cell::Text(String::new()),
+                    Cell::Boolean(true),
+                    Cell::Boolean(false),
+                    Cell::Text(String::new()),
+                ]
+            })
+            .collect(),
+    };
+    let unknown = Relation {
+        schema: schema::relation("unknown_call").unwrap(),
+        rows: (0..N)
+            .map(|n| {
+                vec![
+                    Cell::Text(format!("unknown_call:{n}")),
+                    Cell::Text("src/m.rs:0:0".into()),
+                    Cell::Text(format!("f{n}")),
+                    Cell::Text("value".into()),
+                    Cell::Text("receiver".into()),
+                    Cell::Text("src/m.rs".into()),
+                    Cell::Integer(n),
+                    Cell::Integer(0),
+                    Cell::Text("receiver-type-unknown".into()),
+                    Cell::Text("value".into()),
+                ]
+            })
+            .collect(),
+    };
+    relations.relations.push(unknown);
+    let answer = ask("?- possible_call{to: F, call: C}.", &relations).unwrap();
+    assert_eq!(answer.tables[0].total, usize::try_from(N).unwrap());
+    // Each function and call is read a few times; every pair would be N * N.
+    assert!(
+        answer.work < 20 * N,
+        "{} join steps for {N} + {N} rows",
+        answer.work
+    );
+}

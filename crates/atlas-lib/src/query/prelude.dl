@@ -29,15 +29,23 @@ file_calls{from: A, to: B, calls: count(C)} :-
 calls_function{from: F, to: G} :-
     call{from: F, to: G}.
 
-% An unresolved call C written with function F's name: the last segment of
-% what was written (`graph` in `snapshot.graph()`) equals the last segment of
-% F's name. `callers F` lists these as "possibly", never as callers: read
-% them before concluding that a function has no caller.
-possible_call{to: F, call: C} :-
+% The last segment of each function's name and of each unresolved call's
+% spelling (`graph` for `Snapshot::graph` and for `snapshot.graph()`), so
+% `possible_call` joins on it instead of testing every pair.
+function_segment{function: F, segment: S} :-
     function{id: F, name: N},
-    last_segment(N, S),
+    last_segment(N, S).
+call_segment{call: C, segment: S} :-
     unknown_call{id: C, spelling: W},
     last_segment(W, S).
+
+% An unresolved call C written with function F's name: the last segment of
+% what was written equals the last segment of F's name. `callers F` lists
+% these as "possibly", never as callers: read them before concluding that a
+% function has no caller.
+possible_call{to: F, call: C} :-
+    function_segment{function: F, segment: S},
+    call_segment{call: C, segment: S}.
 
 % The functions F reaches through resolved calls, at any depth. `callees F
 % --depth N` lists those within N steps, and `callers G --depth N` those that
