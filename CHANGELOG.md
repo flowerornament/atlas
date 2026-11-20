@@ -53,6 +53,25 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  The output gains a `semantic_indexing` record (`indexing` in `flow`'s
  evidence file); `--scip` output is unchanged. **Library:**
  `SemanticIndex::read_indexed`, whose provenance `origin` is `indexed`.
+- New command `query`: Datalog over the `facts` relations, for questions no
+ command asks. Rules and `?-` queries name fields (`call{from: F, to: G}`)
+ and may recurse, negate (`!`), compare, test text (`under`, `starts_with`,
+ `ends_with`, `contains`, `last_segment`) and count distinct bindings; a
+ query may `order by` its columns and take a `limit`. A program captures
+ only the families it reads, or reads a saved export with `--facts FILE`
+ and notes which files have changed since. A prelude (`--prelude`) restates
+ `dependencies --relation calls` (`file_calls`), `name --relations`
+ (`name_match`, `name_card`) and `census`, each tested equal to its
+ command. Two honesty checks refuse a rule that drops a candidate's
+ `basis`, or negates calls, references or mentions without reading their
+ unknowns relation, unless `--accept basis` or `--accept absence`, which
+ the answer reports. The command exits 0 whenever the program ran,
+ whatever the rows; it has no pass or fail. Row and time limits refuse with
+ the relation that grew. See docs/query.md.
+- **Library:** new `query::{parse, check, run}` with `Program`, `Checked`,
+ `Options`, `Check`, `Limits`, `Answer`, `Table`, `Error` and `PRELUDE`, and
+ `relations::Relations::read` for an export written by `write_json` or
+ `write_jsonl`.
 
 ## cargo-atlas 0.18.0 / atlas-lib 0.8.0
 

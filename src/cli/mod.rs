@@ -16,6 +16,7 @@ mod overview;
 mod policy;
 mod profile;
 mod program;
+mod query;
 mod review;
 mod semantic;
 mod stages;
@@ -74,6 +75,7 @@ pub(crate) fn run() -> Result<()> {
         Command::Orient(options) => orient::run(&metadata, &selected_root, &options),
         Command::Dump(args) => navigation::run_dump(&root, &metadata, &args, &cache.semantic()),
         Command::Facts(options) => facts::run(&metadata, &options),
+        Command::Query(options) => query::run(&metadata, &options),
         Command::Census(args) => navigation::run_census(&metadata, &args),
         Command::Name(args) => navigation::run_name(&metadata, &args),
         Command::Module(args) => navigation::run_module(&metadata, &args),

@@ -346,6 +346,21 @@ fn families_name_what_a_program_reads() {
     assert_eq!(checked.reads().collect::<Vec<_>>(), ["mention", "call"]);
     let error = check(&program, &[Family::Qualified], &Options::default()).unwrap_err();
     assert!(error.message.contains("lexical family"), "{error}");
+    // A prelude relation over a missing family is refused only when read.
+    let qualified = parse("?- file_calls{from: A, to: B, calls: N}.").unwrap();
+    assert_eq!(
+        check(&qualified, &[Family::Qualified], &Options::default())
+            .unwrap()
+            .families(),
+        [Family::Qualified]
+    );
+    let census = parse("?- census{metric: M, key: K, n: N}.").unwrap();
+    let error = check(&census, &[Family::Qualified], &Options::default()).unwrap_err();
+    assert!(
+        error.message.starts_with("the prelude's")
+            && error.message.contains("in the lexical family"),
+        "{error}"
+    );
 }
 
 #[test]

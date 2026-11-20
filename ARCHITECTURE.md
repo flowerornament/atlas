@@ -74,6 +74,14 @@ flow uses the selected qualified index and its captured syntax cache.
   observations into rows, adds witness ids, and bridges a qualified function or
   type to the lexical declaration at its file, line and name. It resolves
   nothing anew, and it never merges the two families.
+- **Core `query/`** evaluates Datalog over those relations. `syntax.rs` reads
+  clauses with their positions; `check.rs` resolves relations and fields
+  against the schema, the prelude and rule heads, infers kinds, refuses unsafe
+  variables, keeps only the rules a query needs and stratifies them;
+  `honesty.rs` owns the basis and absence checks; `eval.rs` runs the strata
+  semi-naively over interned rows. `prelude.dl` restates commands as rules,
+  each held equal to its command by `tests/query.rs`. It reports rows only:
+  no verdict, and no rule adds a resolution the facts did not make.
 - **Core `checks/`** combines captured observations with explicit policy. The
   `stages/` entry composes a report; `roots.rs` reads root bindings, `paths.rs`
   owns the native textual path reading, `interfaces.rs` applies declared

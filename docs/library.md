@@ -171,6 +171,34 @@ fn export(root: &Path) -> atlas_lib::Result<()> {
 
 Read columns by name with `Relation::records()` or `schema.position(name)`:
 within one schema version, columns are only ever appended.
+`Relations::read(text)` reads an export back, JSON or JSON Lines.
+
+## Queries
+
+`query::parse`, `query::check` and `query::run` evaluate the Datalog of
+[query.md](query.md) over a `Relations`. `check` refuses a program it cannot
+resolve against the schema, and an honesty finding that `Options` does not
+accept; `Checked::families()` names the families the program reads, so you
+can capture only those. `run` returns each query's rows with the accepted
+findings and the notes that say what the rows cannot show.
+
+```rust,no_run
+use atlas_lib::{discovery, query, relations::Relations};
+use std::path::Path;
+
+fn edges(root: &Path) -> atlas_lib::Result<()> {
+    let program = query::parse(r#"?- file_calls{from: A, to: B, calls: N}, under(A, "src")."#)?;
+    let checked = query::check(&program, &atlas_lib::relations::Family::ALL, &query::Options::default())?;
+    let snapshot = discovery::snapshot_workspace(root)?;
+    let facts = atlas_lib::analysis::Analysis::new(&snapshot)?.representations()?;
+    let relations = Relations::capture(snapshot.graph(), Some(&facts));
+    let answer = query::run(&checked, &relations, query::Limits::default())?;
+    for row in &answer.tables[0].rows {
+        let _ = row;
+    }
+    Ok(())
+}
+```
 
 ## Comparing versions
 

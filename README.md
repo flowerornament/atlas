@@ -304,6 +304,7 @@ for what it checks before trusting an index.
 - [Using the library](https://github.com/flowerornament/atlas/blob/main/docs/library.md): calling Atlas from your own Rust code
 - [Extending Atlas](https://github.com/flowerornament/atlas/blob/main/docs/extensions.md): teaching Atlas your project's conventions
 - [Facts](https://github.com/flowerornament/atlas/blob/main/docs/facts.md): everything Atlas found, as tables for your own queries
+- [Query](https://github.com/flowerornament/atlas/blob/main/docs/query.md): asking your own questions of those tables, in Datalog
 - [Contributing](https://github.com/flowerornament/atlas/blob/main/CONTRIBUTING.md), [code architecture](https://github.com/flowerornament/atlas/blob/main/ARCHITECTURE.md) and the
   [changelog](https://github.com/flowerornament/atlas/blob/main/CHANGELOG.md)
 

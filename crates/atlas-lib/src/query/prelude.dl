@@ -1,3 +1,70 @@
-% The prelude: named questions every program may read.
-% Rules are added here with conformance tests against the commands they
-% restate.
+% The prelude: questions the commands answer, written as rules over the
+% facts so a program can read, join and extend them by name. Each relation
+% here has a conformance test against the command it restates. A relation
+% counted with `count` has no row where there is nothing to count: an
+% absent row is not a 0.
+
+% --- dependencies --relation calls -------------------------------------------
+
+% One resolved call between functions in two different files, with its
+% witness id. Calls inside one file are not dependencies between files.
+file_call{from: A, to: B, call: C} :-
+    call{id: C, from: F, to: G},
+    function{id: F, path: A},
+    function{id: G, path: B},
+    A != B.
+
+% File-level call edges and the number of calls behind each, the edges
+% `dependencies --relation calls` draws. Restrict both ends with `under` to
+% read one scope, as the command's SCOPE does:
+%   ?- file_calls{from: A, to: B, calls: N}, under(A, "src"), under(B, "src").
+% Only resolved calls count: unresolved ones are in `unknown_call`.
+file_calls{from: A, to: B, calls: count(C)} :-
+    file_call{from: A, to: B, call: C}.
+
+% --- name NAME --relations ----------------------------------------------------
+
+% The production declarations `name` matches by their written name.
+name_match{name: N, declaration: D} :-
+    declaration{id: D, name: N, test_only: false}.
+
+% A declaration's lexical card: each mention it makes (outgoing), each
+% mention that names it alone (incoming), and each that names it among
+% other candidates (possible). Mentions are spellings, not resolved uses.
+name_card{name: N, declaration: D, relation: "outgoing", mention: E} :-
+    name_match{name: N, declaration: D},
+    mention{id: E, source: D}.
+name_card{name: N, declaration: D, relation: "incoming", mention: E} :-
+    name_match{name: N, declaration: D},
+    mention_target{mention: E, target: D, basis: "unique"}.
+name_card{name: N, declaration: D, relation: "possible", mention: E} :-
+    name_match{name: N, declaration: D},
+    mention_target{mention: E, target: D, basis: "candidate"}.
+
+% --- census -------------------------------------------------------------------
+
+% A path at least one package reads outside a test build.
+production_path{path: P} :- file{path: P, test_only: false}.
+
+% The workspace counts `census` reports, as (metric, key, n). `key` is the
+% kind or package for `kinds` and `crates`, and "" otherwise. Declarations
+% are counted once per package that reads them, files once per path.
+census{metric: "files", key: "", n: count(P)} :-
+    file{path: P}.
+census{metric: "test_only_files", key: "", n: count(P)} :-
+    file{path: P, test_only: true},
+    !production_path{path: P}.
+census{metric: "declarations", key: "", n: count(D, K)} :-
+    declaration{id: D, package: K, test_only: false}.
+census{metric: "kinds", key: Kind, n: count(D, K)} :-
+    declaration{id: D, package: K, kind: Kind, test_only: false}.
+census{metric: "crates", key: K, n: count(P)} :-
+    file{path: P, package: K}.
+census{metric: "relationships", key: "", n: count(E)} :-
+    mention{id: E}.
+census{metric: "ambiguous", key: "", n: count(E)} :-
+    mention_target{mention: E, basis: "candidate"}.
+census{metric: "unresolved", key: "", n: count(E)} :-
+    mention_unresolved{mention: E}.
+census{metric: "diagnostics", key: "", n: count(D)} :-
+    diagnostic{id: D}.

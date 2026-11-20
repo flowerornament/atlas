@@ -209,6 +209,188 @@ impl Relations {
         }
         Ok(())
     }
+    /// Read an export that [`Self::write_json`] or [`Self::write_jsonl`]
+    /// wrote. The export must carry this schema version, name only known
+    /// relations and give every column of each, with values of the column's
+    /// kind; an older export that lacks an appended column is refused, not
+    /// filled in.
+    pub fn read(text: &str) -> Result<Self, String> {
+        let trimmed = text.trim_start();
+        let first_line = trimmed.lines().next().unwrap_or_default();
+        let header: serde_json::Value = serde_json::from_str(first_line)
+            .or_else(|_| serde_json::from_str(trimmed))
+            .map_err(|e| format!("not a facts export: {e}"))?;
+        if header.get("relations").is_some() {
+            Self::read_document(&header)
+        } else {
+            let document: serde_json::Value =
+                serde_json::from_str(trimmed).unwrap_or(serde_json::Value::Null);
+            if document.get("relations").is_some() {
+                return Self::read_document(&document);
+            }
+            Self::read_lines(&header, trimmed.lines().skip(1))
+        }
+    }
+    fn header(header: &serde_json::Value) -> Result<(Vec<Family>, Vec<String>), String> {
+        let version = header.get("schema").and_then(serde_json::Value::as_u64);
+        if version != Some(u64::from(VERSION)) {
+            return Err(format!(
+                "the export has schema {}, and this Atlas reads schema {VERSION}; export it again",
+                version.map_or_else(|| "none".into(), |v| v.to_string())
+            ));
+        }
+        let families = header
+            .get("families")
+            .and_then(serde_json::Value::as_array)
+            .map(|names| {
+                names
+                    .iter()
+                    .filter_map(|n| {
+                        Family::ALL
+                            .into_iter()
+                            .find(|f| Some(f.name()) == n.as_str())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let limitations = header
+            .get("limitations")
+            .and_then(serde_json::Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|l| l.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok((families, limitations))
+    }
+    fn cell(
+        relation: &str,
+        column: &schema::Column,
+        value: &serde_json::Value,
+    ) -> Result<Cell, String> {
+        let cell = match column.kind {
+            schema::Kind::Integer => value.as_u64().map(Cell::Integer),
+            schema::Kind::Boolean => value.as_bool().map(Cell::Boolean),
+            _ => value.as_str().map(|t| Cell::Text(t.to_owned())),
+        };
+        cell.ok_or_else(|| {
+            format!(
+                "`{relation}.{}` should hold {:?} values, found {value}",
+                column.name, column.kind
+            )
+        })
+    }
+    fn known(name: &str) -> Result<&'static schema::Relation, String> {
+        schema::relation(name)
+            .ok_or_else(|| format!("the export names an unknown relation `{name}`"))
+    }
+    fn read_document(document: &serde_json::Value) -> Result<Self, String> {
+        let (families, limitations) = Self::header(document)?;
+        let tables = document
+            .get("relations")
+            .and_then(serde_json::Value::as_object)
+            .ok_or("the export's `relations` is not an object")?;
+        let mut relations = Vec::new();
+        for (name, table) in tables {
+            let schema = Self::known(name)?;
+            let columns: Vec<&str> = table
+                .get("columns")
+                .and_then(serde_json::Value::as_array)
+                .map(|c| c.iter().filter_map(serde_json::Value::as_str).collect())
+                .unwrap_or_default();
+            let expected: Vec<&str> = schema.columns.iter().map(|c| c.name).collect();
+            if columns != expected {
+                return Err(format!(
+                    "`{name}` has columns {columns:?} in the export and {expected:?} in this Atlas; export it again"
+                ));
+            }
+            let mut relation = Relation {
+                schema,
+                rows: Vec::new(),
+            };
+            for row in table
+                .get("rows")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let values = row
+                    .as_array()
+                    .filter(|v| v.len() == expected.len())
+                    .ok_or_else(|| {
+                        format!("a `{name}` row does not have {} values", expected.len())
+                    })?;
+                relation.rows.push(
+                    schema
+                        .columns
+                        .iter()
+                        .zip(values)
+                        .map(|(column, value)| Self::cell(name, column, value))
+                        .collect::<Result<_, _>>()?,
+                );
+            }
+            relations.push(relation);
+        }
+        Ok(Self {
+            schema: VERSION,
+            families,
+            limitations,
+            relations,
+        })
+    }
+    fn read_lines<'a>(
+        header: &serde_json::Value,
+        lines: impl Iterator<Item = &'a str>,
+    ) -> Result<Self, String> {
+        let (families, limitations) = Self::header(header)?;
+        let mut relations: Vec<Relation> = Vec::new();
+        for (n, line) in lines.enumerate().filter(|(_, l)| !l.trim().is_empty()) {
+            let object: serde_json::Value = serde_json::from_str(line)
+                .map_err(|e| format!("line {} of the export: {e}", n + 2))?;
+            let name = object
+                .get("relation")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| format!("line {} of the export names no relation", n + 2))?;
+            let schema = Self::known(name)?;
+            let row = schema
+                .columns
+                .iter()
+                .map(|column| {
+                    let value = object.get(column.name).ok_or_else(|| {
+                        format!("a `{name}` row has no `{}`; export it again", column.name)
+                    })?;
+                    Self::cell(name, column, value)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if let Some(relation) = relations.iter_mut().find(|r| r.schema.name == name) {
+                relation.rows.push(row);
+            } else {
+                relations.push(Relation {
+                    schema,
+                    rows: vec![row],
+                });
+            }
+        }
+        // A relation with no rows has no line; give it an empty table.
+        for family in &families {
+            for schema in schema::RELATIONS.iter().filter(|r| r.family == *family) {
+                if !relations.iter().any(|r| r.schema.name == schema.name) {
+                    relations.push(Relation {
+                        schema,
+                        rows: Vec::new(),
+                    });
+                }
+            }
+        }
+        Ok(Self {
+            schema: VERSION,
+            families,
+            limitations,
+            relations,
+        })
+    }
 }
 impl Serialize for Relations {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {

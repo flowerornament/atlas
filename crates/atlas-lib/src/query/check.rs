@@ -223,6 +223,15 @@ pub(crate) fn check(
     }
     let mut rules = Vec::new();
     let mut queries = Vec::new();
+    // The caller's atoms are refused where they are written when their
+    // family is missing; a prelude rule only if a query needs it (below).
+    let available = |program: &Program| -> &[Family] {
+        if program.origin == Origin::Prelude {
+            &Family::ALL
+        } else {
+            families
+        }
+    };
     for source in &sources {
         let clause = &source.program.clauses[source.index];
         match &clause.kind {
@@ -243,7 +252,7 @@ pub(crate) fn check(
                     head_rel,
                     Some(head),
                     body,
-                    families,
+                    available(source.program),
                 )?);
             }
             ClauseKind::Query { body, order, limit } => {
@@ -258,7 +267,7 @@ pub(crate) fn check(
                     body,
                     order,
                     *limit,
-                    families,
+                    available(source.program),
                     queries.len(),
                 )?;
                 rules.push(rule);
@@ -279,6 +288,26 @@ pub(crate) fn check(
         .filter(|(i, _)| needed.contains(i))
         .map(|(_, r)| r)
         .collect();
+    for rule in rules.iter().filter(|r| r.origin == Origin::Prelude) {
+        for literal in &rule.body {
+            let (CLit::Pos(rel, _) | CLit::Neg(rel, _)) = literal else {
+                continue;
+            };
+            if let Some(stored) = catalog.rels[*rel].stored
+                && !families.contains(&stored.family)
+            {
+                return Err(Error::plain(
+                    ErrorKind::Schema,
+                    format!(
+                        "the prelude's `{}` reads `{}`, in the {} family, which these facts do not include",
+                        catalog.rels[rule.head].name,
+                        stored.name,
+                        stored.family.name()
+                    ),
+                ));
+            }
+        }
+    }
     let strata = stratify(&catalog.rels, user, prelude, &rules)?;
     let stored: BTreeSet<RelId> = rules
         .iter()

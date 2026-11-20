@@ -1,7 +1,7 @@
 //! Command grammar and compatibility positional roots; operational work belongs to each command.
 use super::{
     comparison, delta, dependencies, documentation, facts, flow, map, navigation, orient, overview,
-    policy, program, review, stages, types,
+    policy, program, query, review, stages, types,
 };
 use cargo_atlas::Result;
 use clap::{Parser, Subcommand};
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
     version,
     bin_name = "cargo atlas",
     about = "Answer questions about how a Rust codebase is put together",
-    after_help = "Start here: orient (entry points, where the code is, and what Atlas could not resolve)\nAsk by question: what is X, who names X: name · what is in a directory: module · steps in a function: flow · who calls whom: dependencies · what takes or returns a type: types · what changed: diff, moved, visibility · rules: policy, delta · every fact as tables: facts\n\nFind your way around: orient, census, name, module, dump, facts\nReview a change: diff, moved, visibility, compare\nMeasure: spans, concentration, nontest-loc, comments\nDraw diagrams: dependencies, types, flow, overview, program, map\nCheck architecture: delta, stages, policy, seams\n\nCommands read the Cargo project in the current directory, or the one given with --root.\nAdd --json for machine-readable output; flow and map write their JSON evidence beside the drawing instead. Atlas never changes the code it reads.\nGuides: https://github.com/flowerornament/atlas#documentation"
+    after_help = "Start here: orient (entry points, where the code is, and what Atlas could not resolve)\nAsk by question: what is X, who names X: name · what is in a directory: module · steps in a function: flow · who calls whom: dependencies · what takes or returns a type: types · what changed: diff, moved, visibility · rules: policy, delta · every fact as tables: facts · your own question over the facts: query\n\nFind your way around: orient, census, name, module, dump, facts, query\nReview a change: diff, moved, visibility, compare\nMeasure: spans, concentration, nontest-loc, comments\nDraw diagrams: dependencies, types, flow, overview, program, map\nCheck architecture: delta, stages, policy, seams\n\nCommands read the Cargo project in the current directory, or the one given with --root.\nAdd --json for machine-readable output; flow and map write their JSON evidence beside the drawing instead. Atlas never changes the code it reads.\nGuides: https://github.com/flowerornament/atlas#documentation"
 )]
 pub(super) struct Cli {
     /// Cargo project directory; defaults to the current directory. Positional ROOT remains supported.
@@ -110,6 +110,11 @@ pub(super) enum Command {
         after_help = "Answers: what did Atlas observe, as tables a tool can join?\nRelations: lexical (files, declarations, mentions and their candidates) and qualified (functions, types, calls, references), each with documented columns. An ambiguous mention has one row per candidate with a basis column; an unresolved call or type is a row in its unknowns relation, never left out.\n--schema prints every relation and column without reading the source. See docs/facts.md.\nExample: cargo atlas facts --format jsonl --out target/atlas/facts.jsonl"
     )]
     Facts(facts::Options),
+    /// Ask your own question over the facts, in Datalog.
+    #[command(
+        after_help = "Answers: any question the facts can answer, written as rules over named fields: join, recurse, negate and count.\nExample: cargo atlas query '?- file_calls{from: A, to: B, calls: N}, under(A, \"src\") order by N desc limit 10.'\nThe prelude (--prelude) restates file_calls (dependencies), name_card (name --relations) and census. Fields are those of `cargo atlas facts --schema`.\nHonesty: a rule that drops a candidate's basis, or negates calls without reading unknown_call, is refused unless you --accept that check; the acceptance is printed with the answer. Rows are observations: an empty answer is not proof of absence.\nExit 0 whenever the program ran, whatever the rows. See docs/query.md."
+    )]
+    Query(query::Options),
     /// Compare file sizes and shapes, or declarations, with an earlier commit.
     #[command(
         after_help = "Answers: how did each file's size and shape change since REVISION?\nWith --items: which declarations were added, removed or changed. Add --graph for their mentions.\nCounts: code outside test modules. Removed files are included.\nEvidence: source lines and declarations; not proof that behavior is the same.\nExample: cargo atlas diff HEAD~1 --scope src --items"
