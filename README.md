@@ -214,6 +214,7 @@ missing answer is reported as unknown, never as "nothing found".
 - [Architecture checks](https://github.com/flowerornament/atlas/blob/main/docs/checks.md): writing rules for your project and checking them
 - [Using the library](https://github.com/flowerornament/atlas/blob/main/docs/library.md): calling Atlas from your own Rust code
 - [Extending Atlas](https://github.com/flowerornament/atlas/blob/main/docs/extensions.md): teaching Atlas your project's conventions
+- [Facts](https://github.com/flowerornament/atlas/blob/main/docs/facts.md): everything Atlas found, as tables for your own queries
 - [Contributing](https://github.com/flowerornament/atlas/blob/main/CONTRIBUTING.md), [code architecture](https://github.com/flowerornament/atlas/blob/main/ARCHITECTURE.md) and the
   [changelog](https://github.com/flowerornament/atlas/blob/main/CHANGELOG.md)
 

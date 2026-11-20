@@ -131,7 +131,7 @@ no half-finished image is left behind.
 
 | Task | Commands |
 | --- | --- |
-| Find your way around | `orient`, `census`, `name`, `module`, `dump` |
+| Find your way around | `orient`, `census`, `name`, `module`, `dump`, `facts` |
 | Review a change | `diff`, `moved`, `visibility`, `compare` |
 | Measure | `spans`, `concentration`, `nontest-loc`, `comments` |
 | Draw diagrams | `dependencies`, `types`, `flow`, `overview`, `program`, `map` |

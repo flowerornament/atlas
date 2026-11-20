@@ -1,0 +1,725 @@
+{
+  "schema": 1,
+  "families": [
+    "lexical",
+    "qualified"
+  ],
+  "relations": [
+    {
+      "name": "file",
+      "family": "lexical",
+      "description": "One package's observation of a source file. A path that two packages read has two rows; Atlas never picks an owner.",
+      "columns": [
+        {
+          "name": "path",
+          "kind": "text",
+          "description": "Path relative to the workspace root."
+        },
+        {
+          "name": "package",
+          "kind": "text",
+          "description": "The Cargo package that reads the file."
+        },
+        {
+          "name": "test_only",
+          "kind": "boolean",
+          "description": "The package reads it only in a test build (a test target, or under a test module)."
+        },
+        {
+          "name": "fingerprint",
+          "kind": "text",
+          "description": "FNV-1a 64-bit content fingerprint; a change detector, not a security digest."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": [
+        "Includes files no module declaration reaches (disconnected source): they have no mount row."
+      ]
+    },
+    {
+      "name": "mount",
+      "family": "lexical",
+      "description": "A module path at which a package's Cargo target reaches a file through `mod` declarations.",
+      "columns": [
+        {
+          "name": "path",
+          "kind": "text",
+          "description": "The file, as in `file.path`."
+        },
+        {
+          "name": "package",
+          "kind": "text",
+          "description": "The package, as in `file.package`."
+        },
+        {
+          "name": "root",
+          "kind": "text",
+          "description": "The Cargo target root the path starts from."
+        },
+        {
+          "name": "module_path",
+          "kind": "text",
+          "description": "Modules from the target root, joined with `::`; empty for the root file itself."
+        },
+        {
+          "name": "target",
+          "kind": "text",
+          "description": "The Cargo target, when several share the root; otherwise empty."
+        },
+        {
+          "name": "test_only",
+          "kind": "boolean",
+          "description": "The target or a module on the path requires a test build."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": [
+        "A file can have several mounts (several targets, or `#[path]`), or none."
+      ]
+    },
+    {
+      "name": "declaration",
+      "family": "lexical",
+      "description": "A declaration site: an item Atlas read at a file and line. Not a resolved Rust symbol.",
+      "columns": [
+        {
+          "name": "id",
+          "kind": "text",
+          "description": "`path:line:name`. A file two packages read gives the same id in each package."
+        },
+        {
+          "name": "package",
+          "kind": "text",
+          "description": "The package whose observation of the file this is."
+        },
+        {
+          "name": "path",
+          "kind": "text",
+          "description": "The file."
+        },
+        {
+          "name": "name",
+          "kind": "text",
+          "description": "The declared name as written (for an impl, its written head)."
+        },
+        {
+          "name": "kind",
+          "kind": "text",
+          "description": "Fn, Struct, Enum, Union, Trait, TypeAlias, Mod, MacroRules, PubUse, Const, Static, Impl, Use, MacroCall or Extern; an unknown tag is kept verbatim."
+        },
+        {
+          "name": "visibility",
+          "kind": "text",
+          "description": "Written visibility: Pub, PubCrate, PubIn, PubSuper or Private. Not Rust's effective visibility."
+        },
+        {
+          "name": "line",
+          "kind": "integer",
+          "description": "First line of the item, 1-based."
+        },
+        {
+          "name": "end_line",
+          "kind": "integer",
+          "description": "Last line of the item."
+        },
+        {
+          "name": "inline_modules",
+          "kind": "text",
+          "description": "Enclosing inline `mod` blocks in the file, outermost first, joined with `::`; empty at file level."
+        },
+        {
+          "name": "test_only",
+          "kind": "boolean",
+          "description": "Inside a test module, or in a file the package reads only for tests."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": [
+        "The key is (id, package). Count declarations per package observation, as `census` does."
+      ]
+    },
+    {
+      "name": "import",
+      "family": "lexical",
+      "description": "A `use` declaration as written, per package observation of its file.",
+      "columns": [
+        {
+          "name": "path",
+          "kind": "text",
+          "description": "The file."
+        },
+        {
+          "name": "package",
+          "kind": "text",
+          "description": "The package."
+        },
+        {
+          "name": "written",
+          "kind": "text",
+          "description": "The `use` tree as written, without resolving it."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": []
+    },
+    {
+      "name": "mention",
+      "family": "lexical",
+      "description": "A type name written in a declaration's signature or body, matched by spelling.",
+      "columns": [
+        {
+          "name": "id",
+          "kind": "text",
+          "description": "Mention id, unique within one export."
+        },
+        {
+          "name": "source",
+          "kind": "text",
+          "description": "The declaration whose text holds the mention (`declaration.id`)."
+        },
+        {
+          "name": "spelling",
+          "kind": "text",
+          "description": "The identifier as written."
+        },
+        {
+          "name": "evidence",
+          "kind": "text",
+          "description": "parameter-mention, return-mention or type-body-mention."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": [
+        "Approximate: a spelling match, not compiler name resolution."
+      ]
+    },
+    {
+      "name": "mention_target",
+      "family": "lexical",
+      "description": "A declaration a mention's spelling can name. An ambiguous mention has one row per candidate.",
+      "columns": [
+        {
+          "name": "mention",
+          "kind": "text",
+          "description": "The mention (`mention.id`)."
+        },
+        {
+          "name": "target",
+          "kind": "text",
+          "description": "A candidate declaration (`declaration.id`)."
+        },
+        {
+          "name": "basis",
+          "kind": "text",
+          "description": "`unique` when the spelling names one declaration; `candidate` when it names several and this is one of them."
+        }
+      ],
+      "basis": "basis",
+      "unknowns": "mention_unresolved",
+      "notes": [
+        "A `unique` basis is a unique spelling match, not proof that Rust resolves the name there."
+      ]
+    },
+    {
+      "name": "mention_unresolved",
+      "family": "lexical",
+      "description": "A mention whose spelling Atlas could not match to a workspace declaration.",
+      "columns": [
+        {
+          "name": "mention",
+          "kind": "text",
+          "description": "The mention (`mention.id`)."
+        },
+        {
+          "name": "reason",
+          "kind": "text",
+          "description": "Why it is unresolved, as Atlas reports it."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": []
+    },
+    {
+      "name": "diagnostic",
+      "family": "lexical",
+      "description": "An observation Atlas could not complete while reading the source.",
+      "columns": [
+        {
+          "name": "id",
+          "kind": "text",
+          "description": "Witness id, unique within this relation in one export; not stable between exports."
+        },
+        {
+          "name": "path",
+          "kind": "text",
+          "description": "The file."
+        },
+        {
+          "name": "line",
+          "kind": "integer",
+          "description": "The line, or 0 when the diagnostic is about the whole file."
+        },
+        {
+          "name": "package",
+          "kind": "text",
+          "description": "The package whose observation it is, or empty for the physical file."
+        },
+        {
+          "name": "message",
+          "kind": "text",
+          "description": "The diagnostic as written in Atlas's other output."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": []
+    },
+    {
+      "name": "qualified_file",
+      "family": "qualified",
+      "description": "A production file the qualified analysis read.",
+      "columns": [
+        {
+          "name": "path",
+          "kind": "text",
+          "description": "The file."
+        },
+        {
+          "name": "fingerprint",
+          "kind": "text",
+          "description": "Content fingerprint of the bytes analyzed."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": [
+        "Production source only: test targets and test modules are outside the qualified population."
+      ]
+    },
+    {
+      "name": "function",
+      "family": "qualified",
+      "description": "A function body the qualified analysis selected.",
+      "columns": [
+        {
+          "name": "id",
+          "kind": "text",
+          "description": "`path:line:column` of the item."
+        },
+        {
+          "name": "path",
+          "kind": "text",
+          "description": "The file."
+        },
+        {
+          "name": "line",
+          "kind": "integer",
+          "description": "First line of the item."
+        },
+        {
+          "name": "name",
+          "kind": "text",
+          "description": "The name as written, with the impl type for a method (`Type::name`)."
+        },
+        {
+          "name": "qualified",
+          "kind": "text",
+          "description": "Module-qualified name, when Atlas could form one; otherwise empty."
+        },
+        {
+          "name": "signature",
+          "kind": "text",
+          "description": "The signature as written."
+        },
+        {
+          "name": "public",
+          "kind": "boolean",
+          "description": "Written `pub`."
+        },
+        {
+          "name": "trait_impl",
+          "kind": "boolean",
+          "description": "Declared in a trait impl."
+        },
+        {
+          "name": "declaration",
+          "kind": "text",
+          "description": "The lexical `declaration.id` at the same file, line and name; empty if none matched."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": []
+    },
+    {
+      "name": "type",
+      "family": "qualified",
+      "description": "A workspace struct, enum or type alias.",
+      "columns": [
+        {
+          "name": "id",
+          "kind": "text",
+          "description": "`path:line:column` of the item."
+        },
+        {
+          "name": "path",
+          "kind": "text",
+          "description": "The file."
+        },
+        {
+          "name": "line",
+          "kind": "integer",
+          "description": "First line of the item."
+        },
+        {
+          "name": "name",
+          "kind": "text",
+          "description": "The name as written."
+        },
+        {
+          "name": "qualified",
+          "kind": "text",
+          "description": "Module-qualified name, when Atlas could form one; otherwise empty."
+        },
+        {
+          "name": "alias",
+          "kind": "text",
+          "description": "For a type alias, its right-hand side as written; empty for a struct or enum."
+        },
+        {
+          "name": "declaration",
+          "kind": "text",
+          "description": "The lexical `declaration.id` at the same file, line and name; empty if none matched."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": [
+        "An alias is never expanded."
+      ]
+    },
+    {
+      "name": "field",
+      "family": "qualified",
+      "description": "A field of a workspace struct or enum, with its type as written.",
+      "columns": [
+        {
+          "name": "type",
+          "kind": "text",
+          "description": "The type (`type.id`)."
+        },
+        {
+          "name": "position",
+          "kind": "integer",
+          "description": "Position among the type's fields, from 0."
+        },
+        {
+          "name": "name",
+          "kind": "text",
+          "description": "The field name, or its position for a tuple field."
+        },
+        {
+          "name": "written",
+          "kind": "text",
+          "description": "The field's type as written."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": []
+    },
+    {
+      "name": "call",
+      "family": "qualified",
+      "description": "A call whose target Atlas resolved to exactly one workspace function.",
+      "columns": [
+        {
+          "name": "id",
+          "kind": "text",
+          "description": "Witness id, unique within this relation in one export; not stable between exports."
+        },
+        {
+          "name": "from",
+          "kind": "text",
+          "description": "The calling function (`function.id`)."
+        },
+        {
+          "name": "to",
+          "kind": "text",
+          "description": "The called function (`function.id`)."
+        },
+        {
+          "name": "path",
+          "kind": "text",
+          "description": "File of the call site."
+        },
+        {
+          "name": "line",
+          "kind": "integer",
+          "description": "Line of the call site."
+        },
+        {
+          "name": "column",
+          "kind": "integer",
+          "description": "Column of the call site."
+        }
+      ],
+      "basis": null,
+      "unknowns": "unknown_call",
+      "notes": [
+        "Only unique resolutions: an ambiguous or unresolved call is an `unknown_call` row, never a `call` row.",
+        "Calls inside closures and macro arguments are not observed."
+      ]
+    },
+    {
+      "name": "unknown_call",
+      "family": "qualified",
+      "description": "A call Atlas could not resolve to exactly one workspace function: external, ambiguous or unsupported.",
+      "columns": [
+        {
+          "name": "id",
+          "kind": "text",
+          "description": "Witness id, unique within this relation in one export; not stable between exports."
+        },
+        {
+          "name": "from",
+          "kind": "text",
+          "description": "The calling function (`function.id`)."
+        },
+        {
+          "name": "spelling",
+          "kind": "text",
+          "description": "The callee as written."
+        },
+        {
+          "name": "receiver",
+          "kind": "text",
+          "description": "The method receiver as written, or empty for a path call."
+        },
+        {
+          "name": "reason",
+          "kind": "text",
+          "description": "Why the call is unresolved, as Atlas reports it."
+        },
+        {
+          "name": "path",
+          "kind": "text",
+          "description": "File of the call site."
+        },
+        {
+          "name": "line",
+          "kind": "integer",
+          "description": "Line of the call site."
+        },
+        {
+          "name": "column",
+          "kind": "integer",
+          "description": "Column of the call site."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": [
+        "Includes calls into other crates and the standard library; an unknown call is not a missing call."
+      ]
+    },
+    {
+      "name": "reference",
+      "family": "qualified",
+      "description": "A signature or field type that names exactly one workspace type.",
+      "columns": [
+        {
+          "name": "id",
+          "kind": "text",
+          "description": "Witness id, unique within this relation in one export; not stable between exports."
+        },
+        {
+          "name": "from",
+          "kind": "text",
+          "description": "The function or type whose signature or field it is."
+        },
+        {
+          "name": "to",
+          "kind": "text",
+          "description": "The named type (`type.id`)."
+        },
+        {
+          "name": "role",
+          "kind": "text",
+          "description": "input, output, field or alias-target."
+        },
+        {
+          "name": "slot",
+          "kind": "text",
+          "description": "The parameter, return or field it occupies."
+        },
+        {
+          "name": "expression",
+          "kind": "text",
+          "description": "The entire written type, such as `Arc<Graph>`."
+        },
+        {
+          "name": "line",
+          "kind": "integer",
+          "description": "Line of the written type."
+        },
+        {
+          "name": "borrow",
+          "kind": "boolean",
+          "description": "The written type is a reference."
+        }
+      ],
+      "basis": null,
+      "unknowns": "unknown_type",
+      "notes": [
+        "`Arc<Graph>` is a reference to Graph, not a claim that the function owns one."
+      ]
+    },
+    {
+      "name": "unknown_type",
+      "family": "qualified",
+      "description": "A type spelling in a signature or field that Atlas did not resolve to one workspace type.",
+      "columns": [
+        {
+          "name": "id",
+          "kind": "text",
+          "description": "Witness id, unique within this relation in one export; not stable between exports."
+        },
+        {
+          "name": "from",
+          "kind": "text",
+          "description": "The function or type whose signature or field it is."
+        },
+        {
+          "name": "spelling",
+          "kind": "text",
+          "description": "The type as written."
+        },
+        {
+          "name": "role",
+          "kind": "text",
+          "description": "input, output, field or alias-target."
+        },
+        {
+          "name": "reason",
+          "kind": "text",
+          "description": "Why it is unresolved, as Atlas reports it."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": [
+        "Includes external and primitive types.",
+        "Rows carry no site, so two identical rows can be two mentions or one mention observed twice; count them by id only with that caveat."
+      ]
+    },
+    {
+      "name": "construction",
+      "family": "qualified",
+      "description": "A struct literal or enum variant of a workspace type built in a function body.",
+      "columns": [
+        {
+          "name": "id",
+          "kind": "text",
+          "description": "Witness id, unique within this relation in one export; not stable between exports."
+        },
+        {
+          "name": "from",
+          "kind": "text",
+          "description": "The function (`function.id`)."
+        },
+        {
+          "name": "to",
+          "kind": "text",
+          "description": "The type built (`type.id`)."
+        },
+        {
+          "name": "line",
+          "kind": "integer",
+          "description": "Line of the construction."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": []
+    },
+    {
+      "name": "default_call",
+      "family": "qualified",
+      "description": "An explicit zero-argument `Type::default()` call for a workspace type.",
+      "columns": [
+        {
+          "name": "id",
+          "kind": "text",
+          "description": "Witness id, unique within this relation in one export; not stable between exports."
+        },
+        {
+          "name": "from",
+          "kind": "text",
+          "description": "The function (`function.id`)."
+        },
+        {
+          "name": "to",
+          "kind": "text",
+          "description": "The type (`type.id`)."
+        },
+        {
+          "name": "line",
+          "kind": "integer",
+          "description": "Line of the call."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": [
+        "No trait dispatch is followed."
+      ]
+    },
+    {
+      "name": "constant",
+      "family": "qualified",
+      "description": "A written `const` item and its value as syntax; nothing is evaluated.",
+      "columns": [
+        {
+          "name": "id",
+          "kind": "text",
+          "description": "`path::modules::NAME`, unique within one export."
+        },
+        {
+          "name": "path",
+          "kind": "text",
+          "description": "The file."
+        },
+        {
+          "name": "line",
+          "kind": "integer",
+          "description": "Line of the item."
+        },
+        {
+          "name": "name",
+          "kind": "text",
+          "description": "The constant's name."
+        },
+        {
+          "name": "inline_modules",
+          "kind": "text",
+          "description": "Enclosing inline `mod` blocks, joined with `::`; empty at file level."
+        },
+        {
+          "name": "value",
+          "kind": "text",
+          "description": "The value as JSON: `{\"kind\": ..., \"value\": ...}` with kind string, array, tuple, path, call or opaque."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": []
+    }
+  ]
+}

@@ -138,6 +138,32 @@ they are approximate. Every ambiguous candidate is kept, and a name that
 matches nothing is marked unresolved rather than dropped. `dump()` returns all
 the declarations, re-exports and relationships in one value.
 
+## Relations
+
+`relations::Relations::capture(graph, Some(&facts))` flattens a snapshot's
+lexical graph and its qualified facts into the tables `cargo atlas facts`
+exports, described in [facts.md](facts.md). Pass `None` for the facts to
+capture only the lexical family. `relations::schema::RELATIONS` lists every
+relation's columns, its `basis` column and its unknowns companion as data.
+
+```rust,no_run
+use atlas_lib::{analysis::Analysis, discovery, relations::Relations};
+use std::path::Path;
+
+fn export(root: &Path) -> atlas_lib::Result<()> {
+    let snapshot = discovery::snapshot_workspace(root)?;
+    let facts = Analysis::new(&snapshot)?.representations()?;
+    let relations = Relations::capture(snapshot.graph(), Some(&facts));
+    let calls = relations.get("call").map_or(0, |call| call.rows.len());
+    relations.write_jsonl(std::io::stdout().lock())?;
+    let _ = calls;
+    Ok(())
+}
+```
+
+Read columns by name with `Relation::records()` or `schema.position(name)`:
+within one schema version, columns are only ever appended.
+
 ## Comparing versions
 
 `revision::Revision::read(root, "HEAD~1")` copies one commit into a private

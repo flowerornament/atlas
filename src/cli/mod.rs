@@ -6,6 +6,7 @@ mod comparison;
 mod delta;
 mod dependencies;
 mod documentation;
+mod facts;
 mod flow;
 mod map;
 mod navigation;
@@ -71,6 +72,7 @@ pub(crate) fn run() -> Result<()> {
         Command::Map(options) => map::run(&root, &metadata, &options),
         Command::Orient(options) => orient::run(&metadata, &selected_root, &options),
         Command::Dump(args) => navigation::run_dump(&metadata, &args),
+        Command::Facts(options) => facts::run(&metadata, &options),
         Command::Census(args) => navigation::run_census(&metadata, &args),
         Command::Name(args) => navigation::run_name(&metadata, &args),
         Command::Module(args) => navigation::run_module(&metadata, &args),

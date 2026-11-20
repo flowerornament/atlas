@@ -59,6 +59,12 @@ flow uses the selected qualified index and its captured syntax cache.
   token-based move observations; it does not assign an elegance score. Its
   `moves/` entry sequences scope, inventory, comparison and report construction;
   `scope.rs`, `inventory.rs` and `compare.rs` own those distinct decisions.
+- **Core `relations/`** flattens the lexical graph and the qualified facts into
+  the documented tables `facts` exports. `schema.rs` is the v1 contract as data
+  (columns, basis column, unknowns companion); `mod.rs` only copies existing
+  observations into rows, adds witness ids, and bridges a qualified function or
+  type to the lexical declaration at its file, line and name. It resolves
+  nothing anew, and it never merges the two families.
 - **Core `checks/`** combines captured observations with explicit policy. The
   `stages/` entry composes a report; `roots.rs` reads root bindings, `paths.rs`
   owns the native textual path reading, `interfaces.rs` applies declared

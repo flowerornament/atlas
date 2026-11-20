@@ -12,6 +12,7 @@ pub use queries::{documentation, review};
 pub mod architecture;
 pub mod checks;
 pub mod diagram;
+pub mod relations;
 pub mod revision;
 
 /// Errors from source, revision and analysis boundaries.

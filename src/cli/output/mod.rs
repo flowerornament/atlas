@@ -276,6 +276,10 @@ pub(super) fn render(options: &RenderOptions, diagram: &Diagram) -> Result<Artif
         .render(diagram),
     }
 }
+/// Write one file to `path`, refusing a destination that is a protected input.
+pub(super) fn write_protected(path: &Path, bytes: Vec<u8>, protected: &[PathBuf]) -> Result<()> {
+    publish(vec![(path.to_owned(), bytes)], protected)
+}
 pub(super) fn protected_inputs(
     metadata: &cargo_metadata::Metadata,
     graph: &cargo_atlas::model::SourceGraph,

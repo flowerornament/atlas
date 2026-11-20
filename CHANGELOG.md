@@ -6,6 +6,18 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- New command `facts` exports what Atlas found as flat relations, in JSON or
+ JSON Lines: files, module paths, declarations, `use` statements, mentions
+ and diagnostics (lexical), and functions, types, fields, calls, references,
+ constructions and constants (qualified). An ambiguous mention is one row
+ per candidate with a `basis` column; calls, references and mentions Atlas
+ could not resolve are rows in an unknowns relation that each resolved
+ relation names. Qualified functions and types name the lexical declaration
+ at their site. `facts --schema` prints every relation and column; see
+ docs/facts.md. Lexical declarations carry their enclosing inline modules,
+ which `dump` leaves out.
+- **Library:** `atlas_lib::relations` builds the same relations
+ (`Relations::capture`), with the schema as data in `relations::schema`.
 - **Breaking (CLI):** the `representations` command is now `types`, and its
  Pele output defaults to `target/atlas/types.svg`. `representations` still
  works as an alias.
