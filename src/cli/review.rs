@@ -337,6 +337,13 @@ pub(super) struct SourceReviewArgs {
     /// Print the same answer as JSON, for scripts and agents.
     #[arg(long)]
     json: bool,
+    /// Files shown in text; the rest are counted, with the command that lists
+    /// them. JSON always holds every file.
+    #[arg(long, default_value_t = 20)]
+    rows: usize,
+    /// Show every file in text.
+    #[arg(long, conflicts_with = "rows")]
+    all: bool,
 }
 #[derive(Clone, Copy)]
 pub(super) enum SourceQuestion {
@@ -376,7 +383,12 @@ pub(super) fn source_review(
             }))?
         );
     } else {
-        for file in &report.files {
+        let shown = if args.all {
+            report.files.len()
+        } else {
+            args.rows.min(report.files.len())
+        };
+        for file in &report.files[..shown] {
             if matches!(question, SourceQuestion::Loc) {
                 println!("{} {}", file.non_test_lines, file.file);
             } else if matches!(question, SourceQuestion::Concentration) {
@@ -397,6 +409,20 @@ pub(super) fn source_review(
                     println!("  uncovered code: {:?}", file.uncovered_code);
                 }
             }
+        }
+        let hidden = report.files.len() - shown;
+        if hidden > 0 {
+            let scope = args
+                .scope
+                .as_deref()
+                .or(args.path.as_deref())
+                .map_or_else(String::new, |scope| format!(" --scope {scope}"));
+            println!(
+                "... {hidden} more file{} ({} in all); to see them: cargo atlas {} --all{scope}",
+                if hidden == 1 { "" } else { "s" },
+                report.files.len(),
+                question.name()
+            );
         }
     }
     Ok(())

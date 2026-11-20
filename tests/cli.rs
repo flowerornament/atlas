@@ -719,3 +719,43 @@ fn visibility_text_says_plainly_when_nothing_changed() {
         "{text}"
     );
 }
+
+#[test]
+fn per_file_listings_are_bounded_with_a_tail_that_says_how_to_see_more() {
+    let f = Fixture::new(&[
+        ("src/lib.rs", "pub mod a;\npub mod b;\npub mod c;\n"),
+        ("src/a.rs", "pub fn a() {}\n"),
+        ("src/b.rs", "pub fn b() {}\n"),
+        ("src/c.rs", "pub fn c() {}\n"),
+    ]);
+    let run_with = |args: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .arg("atlas")
+            .args(args)
+            .arg("--root")
+            .arg(f.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+    for command in ["spans", "concentration", "nontest-loc"] {
+        let bounded = run_with(&[command, "--rows", "2"]);
+        assert!(
+            bounded.contains(&format!(
+                "2 more files (4 in all); to see them: cargo atlas {command} --all"
+            )),
+            "{command}: {bounded}"
+        );
+        let all = run_with(&[command, "--all"]);
+        assert!(
+            all.contains("src/lib.rs") && all.contains("src/c.rs"),
+            "{all}"
+        );
+        assert!(!all.contains("more files"), "{all}");
+    }
+}

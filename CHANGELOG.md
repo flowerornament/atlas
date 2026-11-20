@@ -6,6 +6,11 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `spans`, `concentration` and `nontest-loc` text show the first 20 files
+ (`--rows N` for another number), then `... 1285 more files (1305 in all);
+ to see them: cargo atlas spans --all`. `--all` lists every file as before,
+ and JSON always holds every file. On a 1,305-file workspace `spans` text
+ goes from 47,501 lines to 484.
 - `visibility` text says `No visibility changes against <commit>.` when
  there are none, instead of a row of zero counts, and states repeated keys
  as a caveat: `(422 items share a name and were paired approximately;
