@@ -133,6 +133,12 @@ impl Index {
                 "ambiguous static call: {} candidates",
                 candidates.len()
             )),
+            None if p.len() > 1 && self.foreign.contains(&p[..p.len() - 1]) => {
+                Target::Summarized(format!(
+                    "{} is not a type the workspace source declares (a foreign type, or one a macro declares); its trait impls dispatch on argument types and inherent methods, so the call is not resolved",
+                    p[..p.len() - 1].join("::")
+                ))
+            }
             None => Target::Summarized(format!("unresolved or external path {}", p.join("::"))),
         }
     }

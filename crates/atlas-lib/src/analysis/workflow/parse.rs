@@ -55,9 +55,12 @@ pub(super) fn parse_ast(
         .filter(|function| !function.default_body)
         .map(|function| reader.build(function))
         .collect();
+    let mut types = Vec::new();
+    super::facts::types(&ast.items, &[], reader.selection, &mut types);
     super::ParsedFile {
         functions,
         exports: super::facts::exports(&ast.items, reader.selection),
+        types,
     }
 }
 

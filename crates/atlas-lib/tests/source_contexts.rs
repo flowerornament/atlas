@@ -610,3 +610,114 @@ fn indexed_call_positions_are_local_and_out_of_range_is_explicit() {
         );
     }
 }
+
+#[test]
+fn trait_impls_for_foreign_types_do_not_claim_foreign_calls() {
+    // `impl From<Slot> for usize` declares a function the index could name
+    // `usize::from`, but `usize::from(port)` with a u16 is core's impl, and
+    // `self.sqrt()` on an f64 is the inherent method. Neither is a
+    // workspace call; a workspace type's own trait impl still resolves.
+    use atlas_lib::{architecture::Architecture, source_index::Target};
+    let fixture = Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[package]\nname='fixture'\nversion='0.0.0'\nedition='2024'\n[workspace]\n",
+        ),
+        (
+            "src/lib.rs",
+            "pub struct Slot(u16);\n\
+             impl From<Slot> for usize { fn from(s: Slot) -> usize { usize::from(s.0) } }\n\
+             pub trait Root { fn sqrt(self) -> Self; }\n\
+             impl Root for f64 { fn sqrt(self) -> f64 { self.sqrt() } }\n\
+             impl Root for Slot { fn sqrt(self) -> Self { self } }\n\
+             pub fn caller(port: u16) -> usize { let _ = Slot::sqrt(Slot(port)); usize::from(port) }\n",
+        ),
+    ]);
+    let snapshot = discovery::snapshot_workspace(fixture.path()).unwrap();
+    let analysis = Analysis::new(&snapshot).unwrap();
+    let architecture = Architecture {
+        schema: 1,
+        provenance: vec![],
+        modules: vec![],
+        workflows: vec![],
+    };
+    let index = analysis.index(&architecture).unwrap();
+    let resolved = |function: &str, spelling: &str| {
+        let caller = index.select("src/lib.rs", function).unwrap();
+        let call = index.functions()[caller]
+            .flow
+            .calls
+            .iter()
+            .find(|call| call.spelling == spelling)
+            .unwrap_or_else(|| panic!("{function} calls {spelling}"));
+        index.resolve(caller, call)
+    };
+    for (function, spelling) in [
+        ("caller", "usize::from"),
+        ("usize::from", "usize::from"),
+        ("f64::sqrt", "sqrt"),
+    ] {
+        let target = resolved(function, spelling);
+        assert!(
+            matches!(&target, Target::Summarized(reason) if reason.contains("foreign type")),
+            "{function} → {spelling}: {target:?}"
+        );
+    }
+    let Target::Function(own) = resolved("caller", "Slot::sqrt") else {
+        panic!("a workspace type's trait impl still resolves");
+    };
+    assert_eq!(index.functions()[own].flow.function, "Slot::sqrt");
+}
+
+#[test]
+fn impls_of_workspace_types_behind_restricted_reexports_still_resolve() {
+    // `Ctx` is declared in `outer::context` and reached as `super::Ctx`
+    // through a `pub(crate)` re-export the index does not follow. Neither
+    // its inherent impl nor its trait impl is for a foreign type.
+    use atlas_lib::{architecture::Architecture, source_index::Target};
+    let fixture = Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[package]\nname='fixture'\nversion='0.0.0'\nedition='2024'\n[workspace]\n",
+        ),
+        (
+            "src/lib.rs",
+            "pub mod outer;\npub trait Root { fn sqrt(self) -> Self; }\n",
+        ),
+        (
+            "src/outer/mod.rs",
+            "mod context;\nmod arith;\npub(crate) use context::Ctx;\n",
+        ),
+        ("src/outer/context.rs", "pub(crate) struct Ctx;\n"),
+        (
+            "src/outer/arith.rs",
+            "use super::Ctx;\n\
+             impl Ctx { pub fn add(&self) {} }\n\
+             impl crate::Root for Ctx { fn sqrt(self) -> Self { self } }\n\
+             pub fn run(c: Ctx) { Ctx::add(&c); let _ = Ctx::sqrt(c); }\n",
+        ),
+    ]);
+    let snapshot = discovery::snapshot_workspace(fixture.path()).unwrap();
+    let analysis = Analysis::new(&snapshot).unwrap();
+    let architecture = Architecture {
+        schema: 1,
+        provenance: vec![],
+        modules: vec![],
+        workflows: vec![],
+    };
+    let index = analysis.index(&architecture).unwrap();
+    let caller = index.select("src/outer/arith.rs", "run").unwrap();
+    for (spelling, expected) in [("Ctx::add", "Ctx::add"), ("Ctx::sqrt", "Ctx::sqrt")] {
+        let call = index.functions()[caller]
+            .flow
+            .calls
+            .iter()
+            .find(|call| call.spelling == spelling)
+            .unwrap();
+        let target = index.resolve(caller, call);
+        let Target::Function(found) = target else {
+            panic!("{spelling}: {target:?}");
+        };
+        assert_eq!(index.functions()[found].flow.function, expected);
+    }
+}

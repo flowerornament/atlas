@@ -9,6 +9,37 @@ pub(crate) fn imports(
 ) -> BTreeMap<String, Vec<Vec<String>>> {
     bindings(items, selection, false)
 }
+/// Paths, relative to the file's module, of the types it declares: structs,
+/// enums, unions, aliases and traits, through inline modules. An impl whose
+/// owner is not among a workspace's declared types is for a foreign type.
+pub(super) fn types(
+    items: &[Item],
+    module: &[String],
+    selection: crate::population::SyntaxSelection<'_>,
+    out: &mut Vec<Vec<String>>,
+) {
+    for item in items.iter().filter(|item| selection.admits(item.span())) {
+        let ident = match item {
+            Item::Struct(item) => &item.ident,
+            Item::Enum(item) => &item.ident,
+            Item::Union(item) => &item.ident,
+            Item::Type(item) => &item.ident,
+            Item::Trait(item) => &item.ident,
+            Item::Mod(item) => {
+                if let Some((_, items)) = &item.content {
+                    let mut child = module.to_vec();
+                    child.push(item.ident.to_string());
+                    types(items, &child, selection, out);
+                }
+                continue;
+            }
+            _ => continue,
+        };
+        let mut path = module.to_vec();
+        path.push(ident.to_string());
+        out.push(path);
+    }
+}
 pub(super) fn exports(
     items: &[Item],
     selection: crate::population::SyntaxSelection<'_>,

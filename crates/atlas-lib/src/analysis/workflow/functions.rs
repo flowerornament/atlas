@@ -199,6 +199,7 @@ impl Reader<'_> {
             function: function.name.clone(),
             module: function.module.clone(),
             owner: function.owner.clone(),
+            trait_impl: function.trait_name.is_some(),
             type_parameters: function.parameters.clone(),
             site: self.site(function.signature.span()),
             steps: self.block(function.body),

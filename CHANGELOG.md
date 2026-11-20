@@ -4,6 +4,20 @@ Atlas has two packages: `cargo-atlas` (the `cargo atlas` command and its
 library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 `atlas-core`. Versions below name the package they apply to.
 
+## Unreleased
+
+- A trait impl for a type the workspace does not declare, such as
+ `impl From<Slot> for usize` or `impl Root for f64`, no longer makes a call
+ like `usize::from(port)` or `self.sqrt()` resolve to the workspace's impl.
+ Rust picks the impl by argument type, or prefers an inherent method, so the
+ call stays summarized and names the type. Only trait impls are read this
+ way, and only when no workspace type has the owner's name; a trait impl for
+ a type declared only by a macro is also left unresolved. Before, `program`,
+ `dependencies` and call expansion drew these as workspace calls, including
+ false self-recursion.
+- **Library:** `workflow::ParsedFile` has a `types` field listing the types
+ and traits a file declares.
+
 ## cargo-atlas 0.17.1 / atlas-lib 0.7.1
 
 - `diff`, `moved` and `visibility` refuse, naming the directories, when the

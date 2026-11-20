@@ -42,6 +42,11 @@ impl Index {
                         .collect();
                     self.exports.entry(key).or_default().extend(values);
                 }
+                for path in &parsed.types {
+                    self.type_names.extend(path.last().cloned());
+                    self.types
+                        .insert(scope.iter().chain(path).cloned().collect());
+                }
                 for flow in &parsed.functions {
                     let id = format!(
                         "{}::{} [{}]",
@@ -79,6 +84,20 @@ impl Index {
             if let Some(owner) = f.flow.owner.as_deref().and_then(ty)
                 && let Some(mut key) = self.canonical(i, &owner).and_then(|p| self.exported(&p))
             {
+                // `impl From<X> for usize` names no workspace `usize::from`:
+                // Rust picks the impl by argument type, or an inherent method.
+                // Only a trait impl can have a foreign owner. A workspace type
+                // reached through an import the index does not follow (a
+                // restricted re-export) still declares its name somewhere,
+                // so an owner whose name the workspace declares is kept.
+                let foreign = f.flow.trait_impl
+                    && !self.types.contains(&key)
+                    && key
+                        .last()
+                        .is_none_or(|name| !self.type_names.contains(name));
+                if foreign {
+                    self.foreign.insert(key.clone());
+                }
                 key.push(
                     f.flow
                         .function
@@ -92,9 +111,14 @@ impl Index {
                     original.extend(p.into_iter().skip(f.flow.module.len()));
                     if let Some(values) = self.names.get_mut(&original) {
                         values.retain(|v| *v != i);
+                        if values.is_empty() {
+                            self.names.remove(&original);
+                        }
                     }
                 }
-                self.names.entry(key).or_default().push(i);
+                if !foreign {
+                    self.names.entry(key).or_default().push(i);
+                }
             }
         }
         Ok(())

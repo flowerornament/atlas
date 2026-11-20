@@ -186,6 +186,10 @@ pub struct Workflow {
     pub function: String,
     pub module: Vec<String>,
     pub owner: Option<String>,
+    /// A trait impl's method, whose owner may be a foreign type. Read from
+    /// source only; workflow JSON does not carry it.
+    #[serde(skip)]
+    pub trait_impl: bool,
     #[serde(default)]
     pub type_parameters: Vec<String>,
     pub site: Site,
@@ -237,6 +241,8 @@ pub fn read_many(root: &Path, anchors: &[(&str, &str)]) -> Result<Vec<Workflow>>
 pub struct ParsedFile {
     pub functions: Vec<Workflow>,
     pub exports: std::collections::BTreeMap<String, Vec<Vec<String>>>,
+    /// Declared type and trait paths, relative to the file's module.
+    pub types: Vec<Vec<String>>,
 }
 /// Inspect all function bodies in a file with one AST parse.
 pub fn read_file(root: &Path, path: &str) -> Result<ParsedFile> {
