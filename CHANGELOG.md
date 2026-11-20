@@ -15,6 +15,12 @@ resolve. Every 0.18 spelling still works; the superseded ones print one note
 on stderr. JSON outputs are unchanged or gain fields, apart from the
 suggested commands in `orient` and `compare`'s notes.
 
+- `cargo atlas help agent` prints a one-page briefing for an agent's first
+ session: what an answer means (resolved, possibly, unobserved; unknown is
+ not absent), which command answers which question, how to name and narrow
+ a subject, output and tails, a query cookbook whose every recipe a test runs
+ on the tutorial project, and common pitfalls. `skills/atlas/SKILL.md` is an
+ Agent Skill that points at it and at `orient`.
 - The guides are in the binary: `cargo atlas help topics` lists them and
  `cargo atlas help TOPIC` prints one, exactly as its `docs/` file reads, so a
  reader with only `cargo install` has them. `query` and `facts` are commands

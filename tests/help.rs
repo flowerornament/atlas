@@ -4,6 +4,7 @@
 use std::process::Command;
 
 const TOPICS: &[&str] = &[
+    "agent",
     "getting-started",
     "concepts",
     "query",
@@ -110,4 +111,59 @@ fn help_points_at_topics_not_files() {
         }
     }
     assert!(main.contains("cargo atlas help topics"));
+}
+
+/// The cookbook in `help agent`: every `datalog` block is a program that runs
+/// on the tutorial project and answers with rows.
+#[test]
+fn every_agent_recipe_runs_on_the_tutorial() {
+    let briefing = file("agent");
+    assert!(
+        briefing.lines().count() <= 160,
+        "the briefing grew past a page"
+    );
+    let project = tempfile::tempdir().expect("tutorial copy");
+    copy(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/tutorial"),
+        project.path(),
+    );
+    let mut recipes = 0;
+    for block in briefing.split("```datalog\n").skip(1) {
+        let program = block.split("```").next().expect("a closed block");
+        let mut child = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .current_dir(project.path())
+            .args(["query", "-f", "-", "--as", "json"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run Atlas");
+        std::io::Write::write_all(&mut child.stdin.take().expect("stdin"), program.as_bytes())
+            .expect("write the recipe");
+        let output = child.wait_with_output().expect("Atlas output");
+        assert!(
+            output.status.success(),
+            "{program}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let answer: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON");
+        assert!(
+            answer["tables"][0]["total"].as_u64().is_some_and(|n| n > 0),
+            "{program} answered no rows"
+        );
+        recipes += 1;
+    }
+    assert!(recipes >= 5, "{recipes} recipes");
+}
+fn copy(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).expect("directory");
+    for entry in std::fs::read_dir(from).expect("source") {
+        let entry = entry.expect("entry");
+        let target = to.join(entry.file_name());
+        if entry.file_type().expect("type").is_dir() {
+            copy(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).expect("copy");
+        }
+    }
 }

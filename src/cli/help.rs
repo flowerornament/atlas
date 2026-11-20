@@ -9,6 +9,11 @@ use std::{fmt::Write as _, io::Write};
 /// The topics, in the order `help topics` lists them: name, one line, text.
 pub(crate) const TOPICS: &[(&str, &str, &str)] = &[
     (
+        "agent",
+        "the briefing for an agent's first session: what answers mean, commands, recipes",
+        include_str!("../../docs/agent.md"),
+    ),
+    (
         "getting-started",
         "a fifteen-minute tour on a tiny example project",
         include_str!("../../docs/getting-started.md"),
