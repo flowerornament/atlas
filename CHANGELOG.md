@@ -6,6 +6,12 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- An unresolved call whose path starts with a name nothing in scope binds
+ (no import, item, module or crate root), such as `Box::new`, `Ok(..)` or
+ `std::fmt::Formatter::write_str`, is reported as written. Before, the reason
+ read `unresolved or external path murail_abi::gpu::Box::new`, a path no
+ source text says. Its subject is the written path, and the message says it
+ may be a prelude or external name.
 - `orient` scoped to a package counts the same diagnostics as `census` and
  `module`: on a file another package also reads, only this package's (and
  the file's own) diagnostics. Before, it also counted the other package's.

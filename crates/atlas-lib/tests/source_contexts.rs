@@ -899,15 +899,12 @@ fn diagnostics_and_unknown_calls_carry_stable_codes() {
     reasons.sort_by_key(|(_, subject)| subject.clone());
     assert_eq!(
         reasons,
-        // The subject is the path as Atlas qualified it.
+        // Neither `Vec` nor `external` is bound in the crate: as written.
         [
+            (SummaryKind::UnresolvedPath, Some("Vec::len".to_owned())),
             (
                 SummaryKind::UnresolvedPath,
-                Some("fixture::Vec::len".to_owned())
-            ),
-            (
-                SummaryKind::UnresolvedPath,
-                Some("fixture::external::make".to_owned())
+                Some("external::make".to_owned())
             ),
         ]
     );
@@ -1000,5 +997,46 @@ fn a_package_scope_counts_only_that_packages_diagnostics_everywhere() {
             orient.resolution.diagnostics
         ),
         (expected, expected, expected)
+    );
+}
+
+#[test]
+fn an_unbound_prelude_name_is_reported_as_written() {
+    // Nothing in `gpu` binds `Box` or `Vec`: they are prelude names, so the
+    // reason names the path as written, not `fixture::gpu::Box::new`. A path
+    // through a local module keeps its qualified form.
+    use atlas_lib::source_index::{SummaryKind, Target};
+    let fixture = Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[package]\nname='fixture'\nversion='0.0.0'\nedition='2024'\n[workspace]\n",
+        ),
+        ("src/lib.rs", "pub mod gpu;\n"),
+        (
+            "src/gpu.rs",
+            "mod local { pub fn here() {} }\n\
+             pub fn make(v: Vec<u8>) { let _ = Box::new(1); v.len(); local::gone(); }\n",
+        ),
+    ]);
+    let snapshot = discovery::snapshot_workspace(fixture.path()).unwrap();
+    let analysis = Analysis::new(&snapshot).unwrap();
+    let index = analysis
+        .index(&atlas_lib::architecture::Architecture::empty())
+        .unwrap();
+    let caller = index.select("src/gpu.rs", "make").unwrap();
+    let subjects: Vec<_> = index.functions()[caller]
+        .flow
+        .calls
+        .iter()
+        .map(|call| match index.resolve(caller, call) {
+            Target::Summarized(reason) if reason.kind == SummaryKind::UnresolvedPath => {
+                reason.subject.unwrap_or_default()
+            }
+            other => format!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        subjects,
+        ["Box::new", "Vec::len", "fixture::gpu::local::gone"]
     );
 }

@@ -208,7 +208,7 @@ impl Index {
                 ));
             }
         }
-        self.canonical(function, &p).map_or_else(
+        let target = self.canonical(function, &p).map_or_else(
             || {
                 Target::Summarized(Summary::new(
                     SummaryKind::ImportAmbiguous,
@@ -216,7 +216,8 @@ impl Index {
                 ))
             },
             |p| self.classify(&p),
-        )
+        );
+        self.as_written(f, target, &p)
     }
     fn resolve_receiver(
         &self,
@@ -255,7 +256,7 @@ impl Index {
             ));
         }
         let owner = self.binding_owner(function, bindings[0]);
-        owner.map_or_else(
+        let target = owner.map_or_else(
             || {
                 Target::Summarized(Summary::about(
                     SummaryKind::ReceiverInitializerUnknown,
@@ -267,7 +268,67 @@ impl Index {
                 p.push(call.spelling.clone());
                 self.classify(&p)
             },
-        )
+        );
+        match bindings[0].ty.as_deref().and_then(ty) {
+            Some(mut written) => {
+                written.push(call.spelling.clone());
+                self.as_written(f, target, &written)
+            }
+            None => target,
+        }
+    }
+
+    /// An unresolved path whose first name nothing in scope binds (no import,
+    /// item, module or crate root) is a prelude or external name such as
+    /// `Box` or `Vec`. Report it as written, not under the caller's module,
+    /// which no source text says.
+    fn as_written(&self, f: &Function, target: Target, written: &[String]) -> Target {
+        let Target::Summarized(reason) = &target else {
+            return target;
+        };
+        let Some(first) = written.first() else {
+            return target;
+        };
+        if reason.kind != SummaryKind::UnresolvedPath || self.binds(f, first) {
+            return target;
+        }
+        let path = written.join("::");
+        Target::Summarized(Summary::about(
+            SummaryKind::UnresolvedPath,
+            &path,
+            format!(
+                "unresolved or external path {path}: nothing in this module or its imports binds {first}, so it may be a prelude or external name"
+            ),
+        ))
+    }
+
+    /// Whether `first` names something in `f`'s scope: a path keyword, an
+    /// import, a workspace crate, or an item or module declared there.
+    fn binds(&self, f: &Function, first: &str) -> bool {
+        if matches!(first, "crate" | "self" | "super" | "Self")
+            || f.flow.imports.contains_key(first)
+            || self.crates.contains(first)
+        {
+            return true;
+        }
+        let mut key = f.scope.clone();
+        key.push(first.to_owned());
+        let under = |k: &Vec<String>| k.starts_with(&key);
+        self.names
+            .range(key.clone()..)
+            .next()
+            .is_some_and(|(k, _)| under(k))
+            || self.types.range(key.clone()..).next().is_some_and(under)
+            || self
+                .aliases
+                .range(key.clone()..)
+                .next()
+                .is_some_and(|(k, _)| under(k))
+            || self
+                .exports
+                .range(key.clone()..)
+                .next()
+                .is_some_and(|(k, _)| under(k))
     }
 
     /// Prefer the written type; otherwise inspect a unique initializer's return type.
