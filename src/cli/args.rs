@@ -1,12 +1,16 @@
 //! Command grammar and compatibility positional roots; operational work belongs to each command.
-use super::output::form::{As, formats};
+use super::output::{
+    form::{As, formats},
+    notice::Notices,
+};
+use super::subject;
 use super::{
     comparison, delta, dependencies, documentation, facts, flow, map, navigation, orient, overview,
     policy, program, query, review, stages, types,
 };
 use cargo_atlas::Result;
 use clap::{Parser, Subcommand};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 #[derive(Parser)]
 #[command(
     version,
@@ -15,7 +19,7 @@ use std::path::{Path, PathBuf};
     after_help = "Start here: orient (entry points, where the code is, and what Atlas could not resolve)\nAsk by question: what is X, who names X: name · what is in a directory: module · steps in a function: flow · who calls whom: dependencies · what takes or returns a type: types · what changed: diff, moved, visibility · rules: policy, delta · every fact as tables: facts · your own question over the facts: query\n\nFind your way around: orient, census, name, module, dump, facts, query\nReview a change: diff, moved, visibility, compare\nMeasure: spans, concentration, nontest-loc, comments\nDraw diagrams: dependencies, types, flow, overview, program, map\nCheck architecture: delta, stages, policy, seams\n\nCommands read the Cargo project in the current directory, or the one given with --root.\nAdd --as json (or --json) for machine-readable output, or --as svg for an image; flow and map write their JSON evidence beside the drawing instead. Atlas never changes the code it reads.\nGuides: https://github.com/flowerornament/atlas#documentation"
 )]
 pub(super) struct Cli {
-    /// Cargo project directory; defaults to the current directory. Positional ROOT remains supported.
+    /// Cargo project directory; defaults to the current directory. A project directory as the first bare word still works until 1.0.
     #[arg(long = "root", global = true, value_name = "PATH")]
     project_root: Option<PathBuf>,
     /// Read every file afresh, without the syntax-facts cache (same as ATLAS_CACHE=off).
@@ -25,37 +29,27 @@ pub(super) struct Cli {
     pub(super) command: Command,
 }
 impl Cli {
-    pub(super) fn selected_root(&self) -> Result<PathBuf> {
-        let given = self.command.root();
-        let positional = given.map(|(_, root)| root);
-        if let (Some(named), Some(positional)) = (self.project_root.as_deref(), positional)
+    /// The project directory: `--root`, or a positional ROOT the bare words
+    /// hold (spec §3.2.2). Reads every command's bare words into its subject.
+    pub(super) fn selected_root(&mut self, notices: &mut Notices) -> Result<PathBuf> {
+        let positional = self.command.read_bare(&mut subject::Reader {
+            command: self.command.name(),
+            named_root: self.project_root.as_deref(),
+            notices,
+        })?;
+        if let (Some(named), Some(positional)) =
+            (self.project_root.as_deref(), positional.as_deref())
             && named.canonicalize()? != positional.canonicalize()?
         {
             return Err(
                 "positional ROOT conflicts with --root; choose one project directory".into(),
             );
         }
-        if let (None, Some((command, root))) = (self.project_root.as_deref(), given) {
-            let shown = root.display();
-            // A directory without a manifest is part of the enclosing
-            // project, which Cargo would read instead: that is a scope.
-            if root.is_dir() && !root.join("Cargo.toml").is_file() {
-                return Err(format!(
-                    "{shown} is not a Cargo project (it has no Cargo.toml), so it cannot be the project root; to read part of this project, run: {}",
-                    scoped_command(command, root)
-                )
-                .into());
-            }
-            eprintln!(
-                "atlas: reading {shown} as the project root; a positional ROOT is deprecated, so use --root {shown} (or --scope for part of a project)"
-            );
-        }
         Ok(self
             .project_root
-            .as_deref()
+            .clone()
             .or(positional)
-            .unwrap_or_else(|| Path::new("."))
-            .to_owned())
+            .unwrap_or_else(|| PathBuf::from(".")))
     }
 }
 /// The word that named the command, as written (an alias stays an alias),
@@ -71,11 +65,13 @@ pub(super) fn command_word(args: &[std::ffi::OsString]) -> Option<&std::ffi::OsS
     }
     None
 }
-/// This run's command line with the positional `root` as `--scope`.
-fn scoped_command(command: &str, root: &Path) -> String {
-    let root = root.to_string_lossy();
-    this_command_with(&root, &format!("--scope {root}"))
-        .unwrap_or_else(|| format!("cargo atlas {command} --scope {root}"))
+/// Whether the first argument equal to `word` is the value of a flag.
+pub(super) fn follows_flag(word: &str) -> bool {
+    let args: Vec<String> = std::env::args().collect();
+    args.iter()
+        .position(|arg| arg == word)
+        .and_then(|at| at.checked_sub(1))
+        .is_some_and(|before| args[before].starts_with('-'))
 }
 /// This run's command line, as `cargo atlas ...`, with the first argument
 /// equal to `from` replaced by `to`; `None` when no argument is `from`.
@@ -92,12 +88,12 @@ pub(super) fn this_command_with(from: &str, to: &str) -> Option<String> {
 pub(super) enum Command {
     /// Start here: entry points, where the code is, and what Atlas could not resolve.
     #[command(
-        after_help = "Answers: what is this project, where is its code, and how far can Atlas resolve it?\nOne page of measured lists. Each states its unit, its order and its total, and names the command that shows the rest; tied rows are reported, never picked. It ends with commands to run next, built from the names it found.\nEvidence: Cargo targets, non-test lines, resolved calls (a lower bound) and lexical type mentions. Nothing is ranked by importance.\nExample: cargo atlas orient --scope src --rows 8"
+        after_help = "Answers: what is this project, where is its code, and how far can Atlas resolve it?\nOne page of measured lists. Each states its unit, its order and its total, and names the command that shows the rest; tied rows are reported, never picked. It ends with commands to run next, built from the names it found.\nEvidence: Cargo targets, non-test lines, resolved calls (a lower bound) and lexical type mentions. Nothing is ranked by importance.\nExample: cargo atlas orient src --rows 8"
     )]
     Orient(orient::Options),
     /// Count the files and declarations in a project.
     #[command(
-        after_help = "Answers: what does this project contain?\nCounts: files and declarations, by kind. Without --population, every declaration Atlas found; with it, only items of that visibility outside test modules.\nEvidence: names written in the source (lexical). Counts are not proof that code is used.\nExample: cargo atlas census --scope src --population pub-ish"
+        after_help = "Answers: what does this project contain?\nCounts: files and declarations, by kind. Without --population, every declaration Atlas found; with it, only items of that visibility outside test modules.\nEvidence: names written in the source (lexical). Counts are not proof that code is used.\nExample: cargo atlas census src --population pub-ish"
     )]
     Census(navigation::ScopeArgs),
     /// Find where a name is declared, and what mentions it.
@@ -134,37 +130,37 @@ pub(super) enum Command {
     Query(query::Options),
     /// Compare file sizes and shapes, or declarations, with an earlier commit.
     #[command(
-        after_help = "Answers: how did each file's size and shape change since REVISION?\nWith --items: which declarations were added, removed or changed. Add --graph for their mentions.\nCounts: code outside test modules. Removed files are included.\nEvidence: source lines and declarations; not proof that behavior is the same.\nExample: cargo atlas diff HEAD~1 --scope src --items"
+        after_help = "Answers: how did each file's size and shape change since REVISION?\nWith --items: which declarations were added, removed or changed. Add --graph for their mentions.\nCounts: code outside test modules. Removed files are included.\nEvidence: source lines and declarations; not proof that behavior is the same.\nExample: cargo atlas diff HEAD~1 --in src --items"
     )]
     Diff(review::DiffOptions),
     /// List item bodies that are unchanged, moved or changed since an earlier commit.
     #[command(
-        after_help = "Answers: which item bodies stayed the same, moved, or changed since REVISION?\nExact: same tokens, ignoring docs, visibility and layout. Rerooted: the same once module paths such as crate:: and super:: are ignored.\nItems are matched by package, kind and name; repeated names are matched approximately. This does not prove behavior is the same.\nExample: cargo atlas moved HEAD~1 --scope src"
+        after_help = "Answers: which item bodies stayed the same, moved, or changed since REVISION?\nExact: same tokens, ignoring docs, visibility and layout. Rerooted: the same once module paths such as crate:: and super:: are ignored.\nItems are matched by package, kind and name; repeated names are matched approximately. This does not prove behavior is the same.\nExample: cargo atlas moved HEAD~1 --in src"
     )]
     Moved(review::Options),
     /// List items that became more or less public since an earlier commit.
     #[command(
-        after_help = "Answers: which items changed their written visibility (pub, pub(crate), private) since REVISION?\nItems are matched by package, kind and name; repeated names are matched approximately.\nThis compares what is written, not Rust's effective visibility or API compatibility.\nExample: cargo atlas visibility HEAD~1 --scope src"
+        after_help = "Answers: which items changed their written visibility (pub, pub(crate), private) since REVISION?\nItems are matched by package, kind and name; repeated names are matched approximately.\nThis compares what is written, not Rust's effective visibility or API compatibility.\nExample: cargo atlas visibility HEAD~1 --in src"
     )]
     Visibility(review::Options),
     /// Show where each item starts and ends, and any code outside items.
     #[command(
-        after_help = "Answers: which lines does each item cover, and which code lies outside any item?\nIncludes private imports and test items. Macros are not expanded.\nExample: cargo atlas spans --scope src"
+        after_help = "Answers: which lines does each item cover, and which code lies outside any item?\nIncludes private imports and test items. Macros are not expanded.\nExample: cargo atlas spans src"
     )]
     Spans(review::SourceReviewArgs),
     /// Measure each file's largest block and number of items.
     #[command(
-        after_help = "Answers: how big is each file's largest top-level block, and how many top-level items does it have?\nA block runs from one top-level declaration to the next. Code in test modules is left out.\nThis is a measurement, not a quality score.\nExample: cargo atlas concentration --scope src"
+        after_help = "Answers: how big is each file's largest top-level block, and how many top-level items does it have?\nA block runs from one top-level declaration to the next. Code in test modules is left out.\nThis is a measurement, not a quality score.\nExample: cargo atlas concentration src"
     )]
     Concentration(review::SourceReviewArgs),
     /// Count lines of code outside test modules.
     #[command(
-        after_help = "Answers: how many lines, and how many lines with code, are outside test modules?\nA #[cfg(test)] module is left out with its attributes. A single #[cfg(test)] function outside a test module is still counted.\nExample: cargo atlas nontest-loc --scope src"
+        after_help = "Answers: how many lines, and how many lines with code, are outside test modules?\nA #[cfg(test)] module is left out with its attributes. A single #[cfg(test)] function outside a test module is still counted.\nExample: cargo atlas nontest-loc src"
     )]
     NontestLoc(review::SourceReviewArgs),
     /// Report missing documentation comments.
     #[command(
-        after_help = "Answers: which files lack a //! header, which headers cite nothing, and which items lack a /// comment?\n--citation-markers lists the strings that count as a citation (such as docs/ or RFC-); without it, citations are not checked.\nReads //! and /// comments only, not #[doc] attributes or block comments. No pass or fail.\nExample: cargo atlas comments --scope src --population pub-ish"
+        after_help = "Answers: which files lack a //! header, which headers cite nothing, and which items lack a /// comment?\n--citation-markers lists the strings that count as a citation (such as docs/ or RFC-); without it, citations are not checked.\nReads //! and /// comments only, not #[doc] attributes or block comments. No pass or fail.\nExample: cargo atlas comments src --population pub-ish"
     )]
     Comments(documentation::Options),
     /// Draw which files call each other or use each other's types.
@@ -175,7 +171,7 @@ pub(super) enum Command {
     /// Draw which functions take, return and build selected types.
     #[command(
         alias = "representations",
-        after_help = "Answers: for the selected types, which functions take them, return them and build them, and which types hold them in fields?\nSelect types with --type or a saved question (--query). Choose a view with --panel.\nEvidence: qualified signatures, fields and construction sites; not how values move at run time.\nExample: cargo atlas types --query examples/queries/atlas.json --panel all --as svg"
+        after_help = "Answers: for the selected types, which functions take them, return them and build them, and which types hold them in fields?\nName the types (Tree,Checked) or give a saved question (--query). Choose a view with --panel.\nEvidence: qualified signatures, fields and construction sites; not how values move at run time.\nExample: cargo atlas types --query examples/queries/atlas.json --panel all --as svg"
     )]
     Types(types::Options),
     /// Show the steps and branches inside one function.
@@ -204,7 +200,7 @@ pub(super) enum Command {
     Program(program::Options),
     /// Draw declared groups, or approximate type mentions between files (older view).
     #[command(
-        after_help = "Answers: how do the groups in an architecture profile connect, or which files mention each other's types?\nEvidence: declared permissions, or name matching (lexical). Neither shows what happens at run time. For exact file relationships, use dependencies.\nExample: cargo atlas map --scope src"
+        after_help = "Answers: how do the groups in an architecture profile connect, or which files mention each other's types?\nEvidence: declared permissions, or name matching (lexical). Neither shows what happens at run time. For exact file relationships, use dependencies.\nExample: cargo atlas map --in src"
     )]
     Map(map::Options),
     /// Check whether a change breaks the architecture policy.
@@ -230,28 +226,79 @@ pub(super) enum Command {
     Seams(stages::SeamOptions),
 }
 impl Command {
-    /// The positional ROOT, with the command's name for messages about it.
-    pub(super) fn root(&self) -> Option<(&'static str, &Path)> {
-        fn named<'a>(
-            name: &'static str,
-            root: Option<&'a PathBuf>,
-        ) -> Option<(&'static str, &'a Path)> {
-            root.map(|root| (name, root.as_path()))
-        }
+    fn name(&self) -> &'static str {
         match self {
-            Self::Types(a) => named("types", a.root.as_ref()),
-            Self::Dependencies(a) => named("dependencies", a.root.as_ref()),
-            Self::Overview(a) => named("overview", a.root.as_ref()),
-            Self::Compare(a) => named("compare", a.root.as_ref()),
-            Self::Program(a) => named("program", a.root.as_ref()),
-            Self::Map(a) => named("map", a.root.as_ref()),
-            Self::Flow(a) => named("flow", a.root.as_ref()),
-            Self::Census(a) => named("census", a.root.as_ref()),
-            Self::Name(a) => named("name", a.root.as_ref()),
-            Self::Module(a) => named("module", a.root.as_ref()),
-            Self::Related(a) => named("related", a.root.as_ref()),
-            Self::Dump(a) => named("dump", a.root.as_ref()),
-            _ => None,
+            Self::Orient(_) => "orient",
+            Self::Census(_) => "census",
+            Self::Name(_) => "name",
+            Self::Module(_) => "module",
+            Self::Related(_) => "related",
+            Self::Dump(_) => "dump",
+            Self::Facts(_) => "facts",
+            Self::Query(_) => "query",
+            Self::Diff(_) => "diff",
+            Self::Moved(_) => "moved",
+            Self::Visibility(_) => "visibility",
+            Self::Spans(_) => "spans",
+            Self::Concentration(_) => "concentration",
+            Self::NontestLoc(_) => "nontest-loc",
+            Self::Comments(_) => "comments",
+            Self::Dependencies(_) => "dependencies",
+            Self::Types(_) => "types",
+            Self::Flow(_) => "flow",
+            Self::Compare(_) => "compare",
+            Self::Overview(_) => "overview",
+            Self::Program(_) => "program",
+            Self::Map(_) => "map",
+            Self::Delta(_) => "delta",
+            Self::Stages(_) => "stages",
+            Self::Policy(_) => "policy",
+            Self::Seams(_) => "seams",
+        }
+    }
+    /// Read the bare words into the command's subject, returning the
+    /// positional ROOT among them, if any.
+    fn read_bare(&mut self, reader: &mut subject::Reader<'_>) -> Result<Option<PathBuf>> {
+        match self {
+            Self::Orient(a) => a.scope.read(reader),
+            Self::Census(a) => a.scope.read(reader),
+            Self::Spans(a) | Self::Concentration(a) | Self::NontestLoc(a) => a.scope.read(reader),
+            Self::Comments(a) => a.scope.read(reader),
+            Self::Dependencies(a) => a.scope.read(reader),
+            Self::Name(a) => a.name.read(reader),
+            Self::Module(a) => a.name.read(reader),
+            Self::Related(a) => a.name.read(reader),
+            Self::Types(a) => {
+                let flagged = !a.types.is_empty() || a.query.is_some();
+                a.words.read(reader, flagged)
+            }
+            Self::Dump(a) => a.root.read(reader),
+            Self::Compare(a) => a.words.read(reader),
+            Self::Overview(a) => a.words.read(reader),
+            Self::Program(a) => a.words.read(reader),
+            Self::Flow(a) => {
+                let root = a.words.read_anchor(reader, a.architecture.is_some())?;
+                if a.words.subject().is_some() && a.named_anchor.is_some() {
+                    return Err("give the anchor once: a bare ANCHOR or --anchor".into());
+                }
+                Ok(root)
+            }
+            Self::Map(a) => {
+                let root = a.words.read_focus(reader)?;
+                if a.words.subject().is_some() && (a.in_path.is_some() || a.scope.is_some()) {
+                    return Err("give the scope once: a bare argument or --in".into());
+                }
+                Ok(root)
+            }
+            Self::Facts(_)
+            | Self::Query(_)
+            | Self::Diff(_)
+            | Self::Moved(_)
+            | Self::Visibility(_)
+            | Self::Delta(_)
+            | Self::Stages(_)
+            | Self::Policy(_)
+            | Self::Seams(_) => Ok(None),
         }
     }
 }
@@ -259,6 +306,7 @@ impl Command {
 mod tests {
     use super::*;
     use cargo_atlas::diagram::{Level, View};
+    use std::path::Path;
     #[test]
     fn operational_commands_advertise_the_shared_root_control() {
         use clap::CommandFactory;
@@ -272,36 +320,38 @@ mod tests {
             assert!(help.contains("--root"), "{}", command.get_name());
         }
     }
+    /// Parse `args` and read their bare words, as `run` does.
+    fn read(args: &[&str]) -> Result<(Command, PathBuf)> {
+        let mut cli = Cli::try_parse_from(args)?;
+        let root = cli.selected_root(&mut Notices::default())?;
+        Ok((cli.command, root))
+    }
     #[test]
     fn named_root_does_not_consume_a_required_name() {
-        let cli =
-            Cli::try_parse_from(["atlas", "name", "--root", ".", "Graph"]).expect("canonical name");
-        assert!(cli.command.root().is_none());
-        let Command::Name(args) = cli.command else {
+        let (command, root) = read(&["atlas", "name", "--root", ".", "Graph"]).expect("name");
+        assert_eq!(root, Path::new("."));
+        let Command::Name(args) = command else {
             panic!("name command")
         };
-        assert_eq!(args.name, "Graph");
-        let cli = Cli::try_parse_from(["atlas", "--root", ".", "module", "src"])
-            .expect("canonical module");
-        assert!(cli.command.root().is_none());
-        let Command::Module(args) = cli.command else {
+        assert_eq!(args.name.subject(), "Graph");
+        let (command, _) = read(&["atlas", "--root", ".", "module", "src"]).expect("module");
+        let Command::Module(args) = command else {
             panic!("module command")
         };
-        assert_eq!(args.name, "src");
+        assert_eq!(args.name.subject(), "src");
     }
     #[test]
     fn named_selectors_keep_the_same_question_without_positional_ambiguity() {
-        let cli = Cli::try_parse_from(["atlas", "map", "--root", ".", "--scope", "admit"])
-            .expect("canonical map");
-        let Command::Map(args) = cli.command else {
+        let (command, _) = read(&["atlas", "map", "--root", ".", "--scope", "admit"]).expect("map");
+        let Command::Map(args) = command else {
             panic!("map command")
         };
         assert_eq!(args.query().focus.as_deref(), Some("admit"));
-        let cli = Cli::try_parse_from(["atlas", "census", "--root", ".", "--scope", "src"])
-            .expect("canonical census");
-        assert!(cli.command.root().is_none());
-        assert!(Cli::try_parse_from(["atlas", "census", ".", "src", "--scope", "src"]).is_err());
-        assert!(Cli::try_parse_from(["atlas", "flow", ".", "one", "--anchor", "two"]).is_err());
+        let (_, root) =
+            read(&["atlas", "census", "--root", ".", "--scope", "src"]).expect("census");
+        assert_eq!(root, Path::new("."));
+        assert!(read(&["atlas", "census", ".", "src", "--scope", "src"]).is_err());
+        assert!(read(&["atlas", "flow", ".", "one", "--anchor", "two"]).is_err());
     }
     #[test]
     fn defaults_and_removed_prototype_aliases() {
@@ -316,7 +366,7 @@ mod tests {
                 (Level::Modules, View::Types),
             ),
         ] {
-            let Command::Map(map) = Cli::try_parse_from(args).unwrap().command else {
+            let Command::Map(map) = read(&args).unwrap().0 else {
                 panic!()
             };
             assert_eq!((map.query().level, map.query().view), expected);

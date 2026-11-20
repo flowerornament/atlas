@@ -7,7 +7,7 @@ use cargo_atlas::{
     render::View,
 };
 use clap::Args;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 /// The evidence document, serialized from borrows rather than copied into a
 /// JSON value first.
 #[derive(serde::Serialize)]
@@ -17,14 +17,8 @@ struct Evidence<'a, V> {
 }
 #[derive(Args)]
 pub(crate) struct Options {
-    /// Compatibility positional project root; prefer --root.
-    pub root: Option<PathBuf>,
-    /// Physical file/directory; defaults to every package's production files.
-    scope: Option<String>,
-    /// File or directory to draw, such as `crates/core/src`; defaults to every
-    /// package's production files.
-    #[arg(long = "scope", conflicts_with = "scope")]
-    named_scope: Option<String>,
+    #[command(flatten)]
+    pub(super) scope: crate::cli::subject::Scope,
     #[arg(long, value_enum, default_value = "calls")]
     relation: Relation,
     /// Put the whole workspace's facts in the JSON evidence, not only those
@@ -41,8 +35,9 @@ pub(crate) fn run(
 ) -> Result<()> {
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let graph = snapshot.graph();
-    let requested = options.named_scope.as_deref().or(options.scope.as_deref());
-    let scope = discovery::resolve_scope(graph, requested)?;
+    let chosen = options.scope.choose(graph, metadata)?;
+    let requested = chosen.query();
+    let scope = discovery::resolve_scope(graph, Some(&chosen.path(metadata, "dependencies")?))?;
     let facts = atlas_lib::analysis::Analysis::new(&snapshot)?.representations()?;
     let view = dependencies::project(&facts, &scope, options.relation)?;
     let facts = if scope.is_empty() || options.all_facts {
@@ -91,7 +86,7 @@ fn narrowing_hint(metadata: &cargo_metadata::Metadata, graph: &cargo_atlas::mode
         .max_by_key(|(files, _)| *files);
     if let Some((_, src)) = largest {
         eprintln!(
-            "atlas: drew all {} packages; to draw one: cargo atlas dependencies --scope {}",
+            "atlas: drew all {} packages; to draw one: cargo atlas dependencies {}",
             packages.len(),
             src.display()
         );

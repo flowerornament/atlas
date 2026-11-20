@@ -14,7 +14,30 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  replaces `--format jsonl`. Each `--as` form prints exactly what its old
  spelling prints. `--as` beside an old spelling that asks for something
  else is refused (`atlas: --as svg conflicts with --backend ascii`).
-- Superseded spellings (`--backend`, output `--format`, the `representations`
+- **Behaviour change:** a bare argument is the command's subject. On
+ `orient`, `census`, `spans`, `concentration`, `nontest-loc`, `comments` and
+ `dependencies` it is a scope, read as a path, then a unique file or
+ directory name, then a package. 0.18 read a lone directory as the project
+ root, so `census crates/atlas-lib`, `census src` and `dependencies crates`
+ answered for the whole workspace and dropped what was typed; they now
+ answer for that scope. A lone directory is still the project root when it
+ holds a `Cargo.toml` and lies outside the workspace being read
+ (`census ../other-project`), and of two bare words the first is the root
+ (`census . src`, `name . Snapshot`), each with a notice. A name that is both
+ a path and a package elsewhere, or that matches several paths, is refused
+ with the choices and a command to run; so is a bare argument on a command
+ with no subject (`dump src`).
+- `--in PATH` (a path or unique name) and `-p PACKAGE` (a package) on the
+ scope commands; `--in` also on `diff`, `moved`, `visibility` and `map`.
+ `--scope` still works there with a notice; on `stages` and `seams` it names
+ a package and is unchanged.
+- `types` takes its types as the bare argument (`cargo atlas types
+ Tree,Checked`); `--type` still works with a notice. `types NAME --root DIR`
+ now reads DIR, where 0.18 failed to start `cargo metadata`.
+- `flow --format svg|html` without `--backend pele` still draws text, as in
+ 0.18; the notice points at `--as`, which draws the image.
+- Superseded spellings (`--backend`, output `--format`, `--scope`, `--type`,
+ a positional ROOT, `flow`'s positional ANCHOR, the `representations`
  alias) still work until 1.0 and print one line on stderr before any other
  output: `atlas: note: --backend is now --as (the old spellings work until
  1.0; ATLAS_NOTICES=off hides this)`. The note is never on stdout or in

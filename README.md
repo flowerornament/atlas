@@ -209,7 +209,7 @@ what its answer is based on, and gives an example.
 | What is in this file, directory or package? | `cargo atlas module src/parse.rs` |
 | What steps and branches does this function take? | `cargo atlas flow --path src/main.rs --function main` |
 | Which files call which, or use each other's types? | `cargo atlas dependencies --relation calls` |
-| Which functions take, return or build these types? | `cargo atlas types --type Tree,Checked` |
+| Which functions take, return or build these types? | `cargo atlas types Tree,Checked` |
 | What changed since an earlier commit? | `cargo atlas diff HEAD~1`, then `--items` for declarations |
 | Which bodies only moved, and which really changed? | `cargo atlas moved HEAD~1` |
 | What became more or less public? | `cargo atlas visibility HEAD~1` |
@@ -218,9 +218,10 @@ what its answer is based on, and gives an example.
 | Does this change break our architecture rules? | `cargo atlas delta HEAD~1 --policy .config/architecture.toml` |
 | Everything Atlas found, to query yourself | `cargo atlas facts` (or `dump` for the source graph) |
 
-To look at part of a project, add `--scope` with a file or directory, such as
-`--scope src/parse.rs` or `--scope crates/core/src`. A file or directory name
-that is unique in the project also works, such as `--scope parse.rs`.
+To look at part of a project, name it after the command: a file or directory,
+such as `cargo atlas census src/parse.rs` or `cargo atlas spans crates/core/src`,
+a file or directory name that is unique in the project, such as `parse.rs`, or a
+package name. Use `--in PATH` or `-p PACKAGE` to say which of these you mean.
 
 ### Choose the output
 

@@ -19,23 +19,21 @@ use std::{
 };
 #[derive(Args)]
 pub(super) struct Options {
-    /// Compatibility positional project root; prefer --root.
-    pub(super) root: Option<PathBuf>,
+    #[command(flatten)]
+    pub(super) words: super::subject::Root,
     /// Expand matched source calls; recursion/unknown bodies remain explicit (max 6).
     #[arg(long,default_value_t=0,value_parser=clap::value_parser!(u8).range(0..=i64::from(workflow::MAX_DEPTH)),requires="path")]
     depth: u8,
     /// Fold borrow operands and generated ? bridges; raw steps remain in evidence.
     #[arg(long, value_enum, default_value = "expressions")]
     detail: workflow::Detail,
-    /// Profile workflow name. Omit to show independent source bodies together.
-    anchor: Option<String>,
-    /// Select a declared workflow without a positional ROOT.
-    #[arg(long = "anchor", conflicts_with = "anchor")]
-    named_anchor: Option<String>,
+    /// A workflow the --architecture profile declares; omit to draw them all.
+    #[arg(long = "anchor")]
+    pub(super) named_anchor: Option<String>,
     /// An architecture profile (JSON) whose declared workflows to draw,
     /// instead of one function named with --path and --function.
     #[arg(long)]
-    architecture: Option<PathBuf>,
+    pub(super) architecture: Option<PathBuf>,
     /// The file that holds the function to draw, relative to the project
     /// root, such as `src/main.rs`; needs --function.
     #[arg(long, requires = "function")]
@@ -64,7 +62,12 @@ pub(super) fn run(
     cache: &super::semantic::IndexCache,
 ) -> Result<()> {
     let (profile_text, profile) = architecture(root, options.architecture.as_deref())?;
-    let selected_anchor = options.named_anchor.as_ref().or(options.anchor.as_ref());
+    let selected_anchor = options
+        .named_anchor
+        .as_deref()
+        .or(options.words.subject())
+        .map(str::to_owned);
+    let selected_anchor = selected_anchor.as_ref();
     let anchors = if let (Some(path), Some(function)) = (&options.path, &options.function) {
         if selected_anchor.is_some() {
             return Err("choose a named workflow or --path/--function, not both".into());

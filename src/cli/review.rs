@@ -9,10 +9,23 @@ pub(crate) struct Options {
     /// Published revision to compare against current source.
     reference: String,
     /// Physical source scope, including removed files or folders.
-    #[arg(long, default_value = ".")]
-    scope: String,
+    #[arg(
+        long = "in",
+        value_name = "PATH",
+        default_value = ".",
+        conflicts_with = "scope"
+    )]
+    in_path: String,
+    /// Superseded by --in.
+    #[arg(long, value_name = "PATH")]
+    scope: Option<String>,
     #[command(flatten)]
     output: crate::cli::output::form::Report,
+}
+impl Options {
+    fn scope(&self) -> &str {
+        self.scope.as_deref().unwrap_or(&self.in_path)
+    }
 }
 #[derive(Args)]
 pub(crate) struct DiffOptions {
@@ -52,7 +65,7 @@ pub(crate) fn run(
     match question {
         Question::Shape => {
             let report =
-                atlas_lib::review::diff(&before_snapshot, &after_snapshot, &options.scope)?;
+                atlas_lib::review::diff(&before_snapshot, &after_snapshot, options.scope())?;
             if options.output.json() {
                 print_json(&commit, question, &report)?;
             } else {
@@ -80,7 +93,7 @@ pub(crate) fn run(
             let report = atlas_lib::review::moves::visibility(
                 &before_snapshot,
                 &after_snapshot,
-                Some(&options.scope),
+                Some(options.scope()),
             )?;
             if options.output.json() {
                 print_json(&commit, question, &report)?;
@@ -122,7 +135,7 @@ pub(crate) fn run(
             let report = atlas_lib::review::moves::moved(
                 &before_snapshot,
                 &after_snapshot,
-                Some(&options.scope),
+                Some(options.scope()),
             )?;
             if options.output.json() {
                 print_json(&commit, question, &report)?;
@@ -256,8 +269,8 @@ pub(crate) fn diff(
     let prior = atlas_lib::queries::navigation::Navigation::new(&before, population)?;
     let current = atlas_lib::queries::navigation::Navigation::new(&after, population)?;
     let report = DeclarationReview {
-        shapes: atlas_lib::review::diff(&before, &after, &args.scope)?,
-        items: current.declaration_diff(&prior, &args.scope, options.graph)?,
+        shapes: atlas_lib::review::diff(&before, &after, args.scope())?,
+        items: current.declaration_diff(&prior, args.scope(), options.graph)?,
     };
     if args.output.json() {
         return print_json(&commit, Question::Shape, &report);
@@ -328,11 +341,8 @@ pub(crate) fn diff(
 
 #[derive(Args)]
 pub(super) struct SourceReviewArgs {
-    /// Compatibility positional source scope; defaults to the whole workspace.
-    path: Option<String>,
-    /// Physical source file or directory; no matches is an error.
-    #[arg(long, conflicts_with = "path")]
-    scope: Option<String>,
+    #[command(flatten)]
+    pub(super) scope: crate::cli::subject::Scope,
     #[command(flatten)]
     output: crate::cli::output::form::Report,
     /// Files shown in text; the rest are counted, with the command that lists
@@ -364,13 +374,8 @@ pub(super) fn source_review(
     question: SourceQuestion,
 ) -> Result<()> {
     let snapshot = atlas_lib::discovery::snapshot_metadata(metadata)?;
-    let report = atlas_lib::review::outline(
-        &snapshot,
-        args.scope
-            .as_deref()
-            .or(args.path.as_deref())
-            .unwrap_or("."),
-    )?;
+    let chosen = args.scope.choose(snapshot.graph(), metadata)?;
+    let report = atlas_lib::review::outline(&snapshot, &chosen.path(metadata, question.name())?)?;
     if args.output.json() {
         println!(
             "{}",
@@ -410,11 +415,9 @@ pub(super) fn source_review(
         }
         let hidden = report.files.len() - shown;
         if hidden > 0 {
-            let scope = args
-                .scope
-                .as_deref()
-                .or(args.path.as_deref())
-                .map_or_else(String::new, |scope| format!(" --scope {scope}"));
+            let scope = chosen
+                .flag()
+                .map_or_else(String::new, |flag| format!(" {flag}"));
             println!(
                 "... {hidden} more file{} ({} in all); to see them: cargo atlas {} --all{scope}",
                 if hidden == 1 { "" } else { "s" },

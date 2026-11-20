@@ -302,9 +302,12 @@ fn canonical_root_and_current_directory_preserve_existing_queries() {
         .expect("current directory invocation");
     assert!(default_root.status.success());
     assert_eq!(default_root.stdout, run(&f, &["census", "--json"]).stdout);
+    let other = fixture();
     let conflict = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
         .current_dir("/")
-        .args(["census", "/", "--root"])
+        .arg("census")
+        .arg(other.path())
+        .arg("--root")
         .arg(f.path())
         .output()
         .expect("root conflict");
@@ -465,11 +468,9 @@ fn census_reads_file_modules_inside_inline_modules() {
 }
 
 #[test]
-fn a_positional_root_that_is_a_subdirectory_says_to_use_scope() {
-    // Run inside a workspace, `dependencies crates` read `crates` as the
-    // project root. It is a directory of this project, not a project: say so
-    // and name the --scope spelling. A real positional root still works,
-    // with a warning.
+fn a_directory_inside_the_workspace_is_a_scope_not_a_root() {
+    // 0.18 read `dependencies crates` as the project root, so the scope the
+    // user typed was dropped. Inside the workspace a directory is a part of it.
     let f = Fixture::new(&[("crates/core/src/lib.rs", "pub fn run() {}\n")]);
     f.write(
         "Cargo.toml",
@@ -482,21 +483,32 @@ fn a_positional_root_that_is_a_subdirectory_says_to_use_scope() {
     let run_in = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
             .current_dir(f.path())
+            .env_remove("ATLAS_NOTICES")
             .args(args)
             .output()
             .unwrap()
     };
-    let refused = run_in(&["atlas", "dependencies", "crates"]);
-    assert!(!refused.status.success());
-    let message = String::from_utf8_lossy(&refused.stderr);
+    let scoped = run_in(&["atlas", "dependencies", "crates"]);
     assert!(
-        message.contains("cargo atlas dependencies --scope crates"),
-        "{message}"
+        scoped.status.success(),
+        "{}",
+        String::from_utf8_lossy(&scoped.stderr)
     );
-    let positional = run_in(&["atlas", "census", "."]);
-    assert!(positional.status.success());
-    let warning = String::from_utf8_lossy(&positional.stderr);
-    assert!(warning.contains("--root ."), "{warning}");
+    assert!(String::from_utf8_lossy(&scoped.stdout).starts_with("Source Calls: crates\n"));
+    assert!(
+        scoped.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&scoped.stderr)
+    );
+    // The workspace root named again is the whole workspace, with no notice.
+    let whole = run_in(&["atlas", "census", "."]);
+    assert!(whole.status.success());
+    assert!(String::from_utf8_lossy(&whole.stdout).starts_with("workspace: "));
+    assert!(
+        whole.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&whole.stderr)
+    );
 }
 
 #[test]
@@ -790,10 +802,7 @@ fn refusals_end_with_a_runnable_command_built_from_real_names() {
         "{scope}"
     );
     let types = refusal(&["types"]);
-    assert!(
-        types.contains("run: cargo atlas types --type Config"),
-        "{types}"
-    );
+    assert!(types.contains("run: cargo atlas types Config"), "{types}");
     let flow = refusal(&["flow"]);
     assert!(
         flow.contains("run: cargo atlas flow --path src/main.rs --function main"),

@@ -27,7 +27,7 @@ impl PopulationArgs {
 #[derive(Clone, Copy)]
 pub(crate) enum Question<'a> {
     Dump,
-    Census(Option<&'a str>),
+    Census(&'a super::subject::Scope),
     Name(&'a str),
     Module {
         path: &'a str,
@@ -46,7 +46,7 @@ fn selected(
     let text = match question {
         Question::Dump => report_json("dump", &navigation.dump()?)?,
         Question::Census(scope) => {
-            let report = navigation.census(scope)?;
+            let report = navigation.census(scope.choose(snapshot.graph(), metadata)?.query())?;
             if json {
                 report_json("census", &report)?
             } else {
@@ -277,22 +277,17 @@ fn diagnostics(text: &mut String, basis: &navigation::Basis) -> Result<()> {
 
 #[derive(Args)]
 pub(super) struct ScopeArgs {
-    /// Compatibility positional project root; prefer --root.
-    pub(super) root: Option<PathBuf>,
-    scope: Option<String>,
-    #[arg(long = "scope", conflicts_with = "scope")]
-    named_scope: Option<String>,
+    #[command(flatten)]
+    pub(super) scope: super::subject::Scope,
     #[command(flatten)]
     output: crate::cli::output::form::Report,
     #[command(flatten)]
     population: PopulationArgs,
 }
 #[derive(Args)]
-#[command(allow_missing_positional = true)]
 pub(super) struct RelatedNameArgs {
-    /// Compatibility positional project root; prefer --root.
-    pub(super) root: Option<PathBuf>,
-    pub(super) name: String,
+    #[command(flatten)]
+    pub(super) name: super::subject::Name,
     /// Include incoming/outgoing approximate lexical co-mentions, not qualified uses.
     #[arg(long)]
     relations: bool,
@@ -302,11 +297,9 @@ pub(super) struct RelatedNameArgs {
     population: PopulationArgs,
 }
 #[derive(Args)]
-#[command(allow_missing_positional = true)]
 pub(super) struct ModuleArgs {
-    /// Compatibility positional project root; prefer --root.
-    pub(super) root: Option<PathBuf>,
-    pub(super) name: String,
+    #[command(flatten)]
+    pub(super) name: super::subject::Name,
     #[command(flatten)]
     output: crate::cli::output::form::Report,
     #[command(flatten)]
@@ -319,11 +312,9 @@ pub(super) struct ModuleArgs {
     graph: bool,
 }
 #[derive(Args)]
-#[command(allow_missing_positional = true)]
 pub(super) struct NameArgs {
-    /// Compatibility positional project root; prefer --root.
-    pub(super) root: Option<PathBuf>,
-    pub(super) name: String,
+    #[command(flatten)]
+    pub(super) name: super::subject::Name,
     #[command(flatten)]
     output: crate::cli::output::form::Report,
     #[command(flatten)]
@@ -331,8 +322,8 @@ pub(super) struct NameArgs {
 }
 #[derive(Args)]
 pub(super) struct DumpArgs {
-    /// Compatibility positional project root; prefer --root.
-    pub(super) root: Option<PathBuf>,
+    #[command(flatten)]
+    pub(super) root: super::subject::Root,
     #[command(flatten)]
     output: crate::cli::output::form::Report,
     #[command(flatten)]
@@ -349,11 +340,10 @@ pub(super) struct DumpArgs {
 
 // Legacy lexical output and native selected populations intentionally have different schemas.
 pub(super) fn run_census(metadata: &cargo_metadata::Metadata, args: &ScopeArgs) -> Result<()> {
-    let question = Question::Census(args.named_scope.as_deref().or(args.scope.as_deref()));
     dispatch(
         metadata,
         args.population.selected(),
-        question,
+        Question::Census(&args.scope),
         args.output.json(),
         false,
     )
@@ -362,7 +352,7 @@ pub(super) fn run_name(metadata: &cargo_metadata::Metadata, args: &RelatedNameAr
     dispatch(
         metadata,
         args.population.selected(),
-        Question::Name(&args.name),
+        Question::Name(args.name.subject()),
         args.output.json(),
         args.relations,
     )
@@ -371,7 +361,7 @@ pub(super) fn run_related(metadata: &cargo_metadata::Metadata, args: &NameArgs) 
     dispatch(
         metadata,
         args.population.selected(),
-        Question::Name(&args.name),
+        Question::Name(args.name.subject()),
         args.output.json(),
         true,
     )
@@ -385,7 +375,7 @@ pub(super) fn run_module(metadata: &cargo_metadata::Metadata, args: &ModuleArgs)
         metadata,
         population,
         Question::Module {
-            path: &args.name,
+            path: args.name.subject(),
             items: args.items,
             graph: args.graph,
         },
@@ -462,7 +452,8 @@ fn legacy(
     let graph = cargo_atlas::discovery::scan_metadata(metadata)?;
     let text = match question {
         Question::Census(scope) => {
-            let result = cargo_atlas::queries::census(&graph, scope)?;
+            let chosen = scope.choose(&graph, metadata)?;
+            let result = cargo_atlas::queries::census(&graph, chosen.query())?;
             if json_output {
                 super::json(&result)?
             } else {

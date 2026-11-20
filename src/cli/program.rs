@@ -17,8 +17,8 @@ use std::{
 };
 #[derive(Args)]
 pub(super) struct Options {
-    /// Compatibility positional project root; prefer --root.
-    pub(super) root: Option<PathBuf>,
+    #[command(flatten)]
+    pub(super) words: super::subject::Root,
     #[arg(long)]
     architecture: PathBuf,
     #[arg(long, requires = "function")]

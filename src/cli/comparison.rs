@@ -8,8 +8,8 @@ use std::{
 };
 #[derive(Args)]
 pub(crate) struct Options {
-    /// Compatibility positional project root; prefer --root.
-    pub root: Option<PathBuf>,
+    #[command(flatten)]
+    pub(super) words: crate::cli::subject::Root,
     #[arg(long)]
     before: String,
     /// Defaults to current working source, without snapshotting or changing it.

@@ -20,6 +20,7 @@ mod query;
 mod review;
 mod semantic;
 mod stages;
+mod subject;
 mod types;
 use args::{Cli, Command};
 use cargo_atlas::Result;
@@ -31,7 +32,7 @@ pub(crate) fn run() -> Result<()> {
         args.remove(1);
     }
     let matches = Cli::command().get_matches_from(&args);
-    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    let mut cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     let options = matches.subcommand().map(|(_, options)| options);
     let mut notices = output::notice::Notices::default();
     if let Some(options) = options {
@@ -40,7 +41,11 @@ pub(crate) fn run() -> Result<()> {
     if args::command_word(&args).is_some_and(|word| word == "representations") {
         notices.superseded("representations", "types");
     }
+    // The bare words are read before the notice is printed, since a
+    // positional ROOT among them is itself a superseded spelling.
+    let selected_root = cli.selected_root(&mut notices);
     notices.print();
+    let selected_root = selected_root?;
     if let Some(options) = options {
         output::form::agree(options)?;
     }
@@ -49,7 +54,6 @@ pub(crate) fn run() -> Result<()> {
             "atlas: related is a compatibility alias; use name --relations (lexical co-mentions)."
         );
     }
-    let selected_root = cli.selected_root()?;
     let metadata = cargo_metadata::MetadataCommand::new()
         .current_dir(&selected_root)
         .no_deps()
@@ -102,15 +106,25 @@ pub(crate) fn run() -> Result<()> {
 fn with_scope_hint(
     error: Box<dyn std::error::Error + Send + Sync>,
 ) -> Box<dyn std::error::Error + Send + Sync> {
-    let Some(cargo_atlas::discovery::ScopeError::Ambiguous { scope, candidates }) =
+    let command = if let Some(subject::Ambiguous { word, candidates }) =
+        error.downcast_ref::<subject::Ambiguous>()
+    {
+        // A bare word becomes `--in`; a flag's value is replaced in place.
+        candidates.first().and_then(|first| {
+            args::this_command_with(word, first)
+                .filter(|_| args::follows_flag(word))
+                .or_else(|| args::this_command_with(word, &format!("--in {first}")))
+        })
+    } else if let Some(cargo_atlas::discovery::ScopeError::Ambiguous { scope, candidates }) =
         error.downcast_ref::<cargo_atlas::discovery::ScopeError>()
-    else {
+    {
+        candidates
+            .first()
+            .and_then(|first| args::this_command_with(scope, first))
+    } else {
         return error;
     };
-    match candidates
-        .first()
-        .and_then(|first| args::this_command_with(scope, first))
-    {
+    match command {
         Some(command) => format!("{error}; run: {command}").into(),
         None => error,
     }

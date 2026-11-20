@@ -181,7 +181,7 @@ pass, because it checks only part of the policy. Use `delta` to gate changes.
 ## Checking documentation with `comments`
 
 ```sh
-cargo atlas comments --scope src --population pub-ish
+cargo atlas comments src --population pub-ish
 cargo atlas comments --citation-markers docs/,RFC- --json
 ```
 

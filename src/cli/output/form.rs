@@ -49,9 +49,14 @@ impl Report {
 /// Note each superseded output spelling this invocation used. `--json` is a
 /// permanent alias for `--as json`, so it is never noted.
 pub(crate) fn note_superseded(matches: &ArgMatches, notices: &mut Notices) {
-    for (id, flag) in [("backend", "--backend"), ("format", "--format")] {
+    for (id, old, new) in [
+        ("backend", "--backend", "--as"),
+        ("format", "--format", "--as"),
+        ("scope", "--scope", "--in"),
+        ("types", "--type", "the bare TYPES argument"),
+    ] {
         if given(matches, id).is_some() {
-            notices.superseded(flag, "--as");
+            notices.superseded(old, new);
         }
     }
 }

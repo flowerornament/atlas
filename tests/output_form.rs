@@ -102,7 +102,7 @@ fn as_json_prints_the_bytes_json_prints_and_json_needs_no_notice() {
         &["nontest-loc"],
         &["comments"],
         &["dependencies"],
-        &["types", "--type", "Home"],
+        &["types", "Home"],
         &["compare", "--before", "HEAD", "--query", "question.json"],
         &[
             "program",
@@ -153,8 +153,8 @@ fn every_old_output_spelling_prints_what_its_as_form_prints() {
             &["dependencies", "--as", "text"][..],
         ),
         (
-            &["types", "--type", "Home", "--backend", "ascii"],
-            &["types", "--type", "Home", "--as", "text"],
+            &["types", "Home", "--backend", "ascii"],
+            &["types", "Home", "--as", "text"],
         ),
         (
             &[&flow[..], &["--backend", "ascii"]].concat(),
@@ -172,10 +172,7 @@ fn every_old_output_spelling_prints_what_its_as_form_prints() {
         ),
         (&["facts", "--format", "jsonl"], &["facts", "--as", "jsonl"]),
         (&["facts", "--format", "json"], &["facts", "--as", "json"]),
-        (
-            &["representations", "--type", "Home"],
-            &["types", "--type", "Home"],
-        ),
+        (&["representations", "Home"], &["types", "Home"]),
     ] {
         let before = atlas(&f, old, false);
         let after = atlas(&f, new, false);
@@ -253,7 +250,7 @@ fn old_spellings_print_one_notice_that_never_changes_the_answer() {
     assert_eq!(
         stderr.lines().next(),
         Some(
-            format!("atlas: note: --backend is now --as, representations is now types {NOTE}")
+            format!("atlas: note: --backend is now --as, --type is now the bare TYPES argument, representations is now types {NOTE}")
                 .as_str()
         ),
         "{stderr}"
@@ -287,7 +284,7 @@ fn old_spellings_print_one_notice_that_never_changes_the_answer() {
     );
 
     // A failing run fails the same way with or without the notice.
-    let failing = ["types", "--type", "Nowhere", "--backend", "ascii"];
+    let failing = ["types", "Nowhere", "--backend", "ascii"];
     let (shown, hidden) = (atlas(&f, &failing, true), atlas(&f, &failing, false));
     assert!(!shown.status.success());
     assert_eq!(shown.status.code(), hidden.status.code());

@@ -8,8 +8,8 @@ use cargo_atlas::Result;
 use clap::Args;
 #[derive(Args)]
 pub(crate) struct Options {
-    #[arg(long, default_value = ".")]
-    scope: String,
+    #[command(flatten)]
+    pub(super) scope: crate::cli::subject::Scope,
     /// Accepted for compatibility: the audit is all this command does.
     #[arg(long = "audit")]
     _audit: bool,
@@ -55,7 +55,11 @@ pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Res
         ],
         citation_markers: markers.as_deref(),
     };
-    let report = documentation::audit(&snapshot, &options.scope, &policy)?;
+    let scope = options
+        .scope
+        .choose(snapshot.graph(), metadata)?
+        .path(metadata, "comments")?;
+    let report = documentation::audit(&snapshot, &scope, &policy)?;
     if options.output.json() {
         println!(
             "{}",

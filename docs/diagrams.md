@@ -57,7 +57,7 @@ README. Text output is unchanged, and the notes stay in the JSON evidence.
 cargo atlas dependencies --relation calls
 cargo atlas dependencies --relation signatures
 cargo atlas dependencies --relation fields
-cargo atlas dependencies --relation all --scope src/backend
+cargo atlas dependencies src/backend --relation all
 ```
 
 `dependencies` draws one box per file and one arrow for each way a file uses
@@ -86,7 +86,7 @@ the code. A name the function body declares itself, with a nested `fn` or a
 module item of the same name. Calls Atlas cannot resolve are counted in the limits section and kept
 in the JSON. They are never treated as "no call".
 
-`--scope` selects which files to draw. Files with no arrows still appear, so
+The scope after the command (or `--in PATH`) selects which files to draw. Files with no arrows still appear, so
 you can see code that nothing else uses.
 
 With `--json`, the evidence lists the facts behind the drawing: the calls,
@@ -97,14 +97,14 @@ them. Add `--all-facts` to list every file's facts.
 ## Which functions handle a type
 
 ```sh
-cargo atlas types --type Tree --panel producers
-cargo atlas types --type Tree,Checked --panel contracts --as svg
+cargo atlas types Tree --panel producers
+cargo atlas types Tree,Checked --panel contracts --as svg
 cargo atlas types --query pipeline.json --panel all --as svg
 ```
 
 A *representation* is a type that carries data through your program. This view
 shows, for the types you choose, which functions take them, return them and
-build them. Choose the types with `--type`, or with a saved question
+build them. Name the types after the command, comma separated, or give a saved question
 (`--query`, described below).
 
 The view has several *panels*. Each shows a different side of the same types:

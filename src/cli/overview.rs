@@ -10,8 +10,8 @@ use clap::Args;
 use std::path::{Path, PathBuf};
 #[derive(Args)]
 pub(crate) struct Options {
-    /// Compatibility positional project root; prefer --root.
-    pub root: Option<PathBuf>,
+    #[command(flatten)]
+    pub(super) words: crate::cli::subject::Root,
     /// Normalized declaration source path supplied to the adapter.
     #[arg(long, default_value = "src/lib.rs")]
     declarations: String,

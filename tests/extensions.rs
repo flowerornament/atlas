@@ -516,3 +516,31 @@ fn overview_protects_a_relative_adapter_in_the_callers_directory() {
     assert_eq!(fs::read(&adapter).expect("adapter bytes"), before);
     assert!(!launch.path().join("adapter.json").exists());
 }
+
+#[test]
+fn overview_as_json_prints_the_bytes_json_prints() {
+    let adapter = plugin();
+    let f = project();
+    let run = |output: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .arg("overview")
+            .arg("--root")
+            .arg(f.path())
+            .arg("--adapter")
+            .arg(adapter)
+            .args(output)
+            .env_remove("ATLAS_NOTICES")
+            .output()
+            .unwrap()
+    };
+    let (old, new) = (run(&["--json"]), run(&["--as", "json"]));
+    assert!(
+        old.status.success(),
+        "{}",
+        String::from_utf8_lossy(&old.stderr)
+    );
+    assert!(!old.stdout.is_empty());
+    assert_eq!(old.stdout, new.stdout);
+    assert_eq!(old.stderr, new.stderr);
+    assert!(!String::from_utf8_lossy(&old.stderr).contains("note:"));
+}

@@ -90,12 +90,24 @@ one, pass `--root path/to/project`.
 
 ### Scope
 
-`--scope` narrows a command to part of the project.
+A scope narrows a command to part of the project. Name it after the command,
+as in `cargo atlas census crates/core/src`. Atlas reads the name as the first
+of these that matches:
 
-- Review and diagram commands take a path relative to the project root, such as
-  `--scope crates/core/src`.
-- Navigation commands also accept a package name or a directory name.
-- Stage and seam checks take a Cargo package name.
+1. a path relative to the project root, such as `crates/core/src`;
+2. a file or directory name that is unique in the project, such as `parse.rs`;
+3. a Cargo package name.
+
+A name that is both a path and a package somewhere else, or that matches
+several paths, is refused with the choices. `--in PATH` reads only a path or
+name, and `-p PACKAGE` only a package. A directory inside the project is
+always a scope; to read another project, use `--root`.
+
+- `diff`, `moved` and `visibility` take a path with `--in`, since their bare
+  argument is the revision.
+- Stage and seam checks take a Cargo package name with `--scope`.
+- The 0.18 spelling `--scope PATH` still works until 1.0, with a one-line
+  note on stderr.
 
 A scope that matches nothing is an error. Atlas does not report an empty result
 in that case, because an empty result would look like a real answer.

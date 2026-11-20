@@ -11,14 +11,14 @@ use std::{
 };
 #[derive(Args)]
 pub(crate) struct Options {
-    /// Compatibility positional project root; prefer --root.
-    pub root: Option<PathBuf>,
+    #[command(flatten)]
+    pub(super) words: crate::cli::subject::Types,
     /// Saved selection: title, types, optional apis and preparation_files; no edges.
     #[arg(long, conflicts_with = "types")]
-    query: Option<PathBuf>,
-    /// Select types without a query file (repeat or comma separate).
+    pub(super) query: Option<PathBuf>,
+    /// Superseded by the bare TYPES; still accepted (repeat or comma separate).
     #[arg(long = "type", value_delimiter = ',')]
-    types: Vec<String>,
+    pub(super) types: Vec<String>,
     #[arg(long, value_enum, default_value = "all")]
     panel: Panel,
     #[command(flatten)]
@@ -37,19 +37,23 @@ pub(crate) fn run(
     let query: Query = if let Some(p) = &query_path {
         serde_json::from_str(&fs::read_to_string(p)?)?
     } else {
-        if options.types.is_empty() {
+        let names = if options.types.is_empty() {
+            options.words.names()
+        } else {
+            options.types.clone()
+        };
+        if names.is_empty() {
             let example = most_mentioned_type(metadata).map_or_else(String::new, |name| {
-                format!("; run: cargo atlas types --type {name}")
+                format!("; run: cargo atlas types {name}")
             });
             return Err(format!(
-                "choose --query FILE or --type NAME; use overview for source-declared defaults{example}"
+                "name the types (cargo atlas types NAME[,NAME]) or give --query FILE; use overview for source-declared defaults{example}"
             )
             .into());
         }
         Query {
-            title: format!("Types: {}", options.types.join(", ")),
-            types: options
-                .types
+            title: format!("Types: {}", names.join(", ")),
+            types: names
                 .iter()
                 .map(|n| types::Selector {
                     name: n.clone(),

@@ -7,9 +7,8 @@ use std::path::Path;
 
 #[derive(Args)]
 pub(crate) struct Options {
-    /// Package name or physical source path; defaults to the whole workspace.
-    #[arg(long)]
-    scope: Option<String>,
+    #[command(flatten)]
+    pub(super) scope: crate::cli::subject::Scope,
     /// Rows shown in each list; every list reports what it left out.
     #[arg(long, default_value_t = 5)]
     rows: usize,
@@ -25,7 +24,8 @@ pub(crate) fn run(
     options: &Options,
 ) -> Result<()> {
     let snapshot = discovery::snapshot_metadata(metadata)?;
-    let report = orient::orient(&snapshot, options.scope.as_deref(), options.rows)?;
+    let chosen = options.scope.choose(snapshot.graph(), metadata)?;
+    let report = orient::orient(&snapshot, chosen.query(), options.rows)?;
     if options.output.json() {
         print!("{}", json(&report)?);
     } else {
