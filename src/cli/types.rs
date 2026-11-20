@@ -38,10 +38,13 @@ pub(crate) fn run(
         serde_json::from_str(&fs::read_to_string(p)?)?
     } else {
         if options.types.is_empty() {
-            return Err(
-                "choose --query FILE or --type NAME; use overview for source-declared defaults"
-                    .into(),
-            );
+            let example = most_mentioned_type(metadata).map_or_else(String::new, |name| {
+                format!("; run: cargo atlas types --type {name}")
+            });
+            return Err(format!(
+                "choose --query FILE or --type NAME; use overview for source-declared defaults{example}"
+            )
+            .into());
         }
         Query {
             title: format!("Types: {}", options.types.join(", ")),
@@ -73,4 +76,31 @@ pub(crate) fn run(
                 .render_view(View::Types(&views, options.panel))
         },
     )
+}
+
+/// The struct or enum the most declarations mention, for an example that
+/// names a real type: ties go to the first name.
+fn most_mentioned_type(metadata: &cargo_metadata::Metadata) -> Option<String> {
+    use atlas_lib::{model::Resolution, source::ItemKind};
+    let snapshot = discovery::snapshot_metadata(metadata).ok()?;
+    let graph = snapshot.graph();
+    let types: std::collections::BTreeMap<&str, &str> = graph
+        .files
+        .iter()
+        .flat_map(|file| &file.declarations)
+        .filter(|d| matches!(d.item_kind(), Some(ItemKind::Struct | ItemKind::Enum)))
+        .map(|d| (d.id.as_str(), d.name.as_str()))
+        .collect();
+    let mut mentions = std::collections::BTreeMap::<&str, std::collections::BTreeSet<&str>>::new();
+    for relation in &graph.relationships {
+        if let Resolution::Unique(id) = &relation.target
+            && let Some(name) = types.get(id.as_str())
+        {
+            mentions.entry(name).or_default().insert(&relation.source);
+        }
+    }
+    mentions
+        .into_iter()
+        .max_by(|(a, x), (b, y)| x.len().cmp(&y.len()).then_with(|| b.cmp(a)))
+        .map(|(name, _)| name.to_owned())
 }

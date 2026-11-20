@@ -6,6 +6,11 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Refusals end with a command to run, built from real names: an ambiguous
+ scope suggests this run with the first candidate (`...; run: cargo atlas
+ dependencies --scope src/cli`), `types` without a selection suggests the
+ struct or enum the most declarations mention, and `flow` without a body
+ suggests a binary's `main` (or the first function in the library root).
 - `spans`, `concentration` and `nontest-loc` text show the first 20 files
  (`--rows N` for another number), then `... 1285 more files (1305 in all);
  to see them: cargo atlas spans --all`. `--all` lists every file as before,

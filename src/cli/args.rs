@@ -59,18 +59,20 @@ impl Cli {
 }
 /// This run's command line with the positional `root` as `--scope`.
 fn scoped_command(command: &str, root: &Path) -> String {
+    let root = root.to_string_lossy();
+    this_command_with(&root, &format!("--scope {root}"))
+        .unwrap_or_else(|| format!("cargo atlas {command} --scope {root}"))
+}
+/// This run's command line, as `cargo atlas ...`, with the first argument
+/// equal to `from` replaced by `to`; `None` when no argument is `from`.
+pub(super) fn this_command_with(from: &str, to: &str) -> Option<String> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|arg| arg == "atlas") {
         args.remove(0);
     }
-    let root = root.to_string_lossy();
-    match args.iter().position(|arg| *arg == root) {
-        Some(at) => {
-            args[at] = format!("--scope {root}");
-            format!("cargo atlas {}", args.join(" "))
-        }
-        None => format!("cargo atlas {command} --scope {root}"),
-    }
+    let at = args.iter().position(|arg| arg == from)?;
+    to.clone_into(&mut args[at]);
+    Some(format!("cargo atlas {}", args.join(" ")))
 }
 #[derive(Subcommand)]
 pub(super) enum Command {

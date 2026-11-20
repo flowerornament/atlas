@@ -75,9 +75,15 @@ pub(super) fn run(
             function: function.clone(),
         }]
     } else {
-        let profile = profile
-            .as_ref()
-            .ok_or("flow needs --architecture or both --path and --function")?;
+        let Some(profile) = profile.as_ref() else {
+            let example = entry_function(metadata).map_or_else(String::new, |(path, function)| {
+                format!("; run: cargo atlas flow --path {path} --function {function}")
+            });
+            return Err(format!(
+                "flow needs --architecture or both --path and --function{example}"
+            )
+            .into());
+        };
         let anchors: Vec<_> = profile
             .workflows
             .iter()
@@ -255,4 +261,48 @@ fn workflow_diagram(
     combined.inventory.dedup();
     combined.validate()?;
     Ok(combined)
+}
+
+/// A function to suggest: a binary's `main`, else the first function written
+/// in a library root. Names come from Cargo targets and captured source.
+fn entry_function(metadata: &cargo_metadata::Metadata) -> Option<(String, String)> {
+    let root = metadata.workspace_root.as_std_path();
+    let relative = |target: &cargo_metadata::Target| {
+        target
+            .src_path
+            .as_std_path()
+            .strip_prefix(root)
+            .ok()
+            .map(|path| path.to_string_lossy().replace('\\', "/"))
+    };
+    let targets: Vec<_> = metadata
+        .workspace_packages()
+        .into_iter()
+        .flat_map(|package| &package.targets)
+        .collect();
+    if let Some(path) = targets
+        .iter()
+        .filter(|target| target.is_bin())
+        .filter_map(|target| relative(target))
+        .min()
+    {
+        return Some((path, "main".to_owned()));
+    }
+    let lib = targets
+        .iter()
+        .filter(|target| target.is_lib())
+        .filter_map(|target| relative(target))
+        .min()?;
+    let snapshot = discovery::snapshot_metadata(metadata).ok()?;
+    let function = snapshot
+        .graph()
+        .files
+        .iter()
+        .filter(|file| file.path == lib)
+        .flat_map(|file| &file.declarations)
+        .filter(|d| !d.test_only && d.item_kind() == Some(atlas_lib::source::ItemKind::Fn))
+        .min_by_key(|d| d.line)?
+        .name
+        .clone();
+    Some((lib, function))
 }

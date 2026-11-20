@@ -759,3 +759,44 @@ fn per_file_listings_are_bounded_with_a_tail_that_says_how_to_see_more() {
         assert!(!all.contains("more files"), "{all}");
     }
 }
+
+#[test]
+fn refusals_end_with_a_runnable_command_built_from_real_names() {
+    let f = Fixture::new(&[
+        (
+            "src/main.rs",
+            "mod cli;\nuse cli::Config;\nfn main() { let _ = cli::load(); }\n",
+        ),
+        (
+            "src/cli/mod.rs",
+            "pub struct Config;\npub fn load() -> Config { Config }\n",
+        ),
+        ("tests/cli.rs", "#[test]\nfn t() {}\n"),
+    ]);
+    let refusal = |args: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .arg("atlas")
+            .args(args)
+            .arg("--root")
+            .arg(f.path())
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{args:?} should refuse");
+        String::from_utf8_lossy(&output.stderr).into_owned()
+    };
+    let scope = refusal(&["census", "--scope", "cli"]);
+    assert!(
+        scope.contains("run: cargo atlas census --scope src/cli"),
+        "{scope}"
+    );
+    let types = refusal(&["types"]);
+    assert!(
+        types.contains("run: cargo atlas types --type Config"),
+        "{types}"
+    );
+    let flow = refusal(&["flow"]);
+    assert!(
+        flow.contains("run: cargo atlas flow --path src/main.rs --function main"),
+        "{flow}"
+    );
+}

@@ -81,7 +81,26 @@ pub(crate) fn run() -> Result<()> {
         Command::Module(args) => navigation::run_module(&metadata, &args),
         Command::Related(args) => navigation::run_related(&metadata, &args),
     };
-    cache.finish(result)
+    cache.finish(result.map_err(with_scope_hint))
+}
+
+/// An ambiguous scope names its candidates; end the refusal with this run's
+/// command narrowed to the first of them, ready to run.
+fn with_scope_hint(
+    error: Box<dyn std::error::Error + Send + Sync>,
+) -> Box<dyn std::error::Error + Send + Sync> {
+    let Some(cargo_atlas::discovery::ScopeError::Ambiguous { scope, candidates }) =
+        error.downcast_ref::<cargo_atlas::discovery::ScopeError>()
+    else {
+        return error;
+    };
+    match candidates
+        .first()
+        .and_then(|first| args::this_command_with(scope, first))
+    {
+        Some(command) => format!("{error}; run: {command}").into(),
+        None => error,
+    }
 }
 
 fn json(value: &impl serde::Serialize) -> Result<String> {
