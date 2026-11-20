@@ -463,6 +463,41 @@ fn census_reads_file_modules_inside_inline_modules() {
 }
 
 #[test]
+fn a_positional_root_that_is_a_subdirectory_says_to_use_scope() {
+    // Run inside a workspace, `dependencies crates` read `crates` as the
+    // project root. It is a directory of this project, not a project: say so
+    // and name the --scope spelling. A real positional root still works,
+    // with a warning.
+    let f = Fixture::new(&[("crates/core/src/lib.rs", "pub fn run() {}\n")]);
+    f.write(
+        "Cargo.toml",
+        "[workspace]\nmembers=['crates/core']\nresolver='3'\n",
+    );
+    f.write(
+        "crates/core/Cargo.toml",
+        "[package]\nname='core'\nversion='0.0.0'\nedition='2024'\n",
+    );
+    let run_in = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .current_dir(f.path())
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let refused = run_in(&["atlas", "dependencies", "crates"]);
+    assert!(!refused.status.success());
+    let message = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        message.contains("cargo atlas dependencies --scope crates"),
+        "{message}"
+    );
+    let positional = run_in(&["atlas", "census", "."]);
+    assert!(positional.status.success());
+    let warning = String::from_utf8_lossy(&positional.stderr);
+    assert!(warning.contains("--root ."), "{warning}");
+}
+
+#[test]
 fn dependencies_draws_every_package_by_default() {
     // A virtual workspace has no root `src`, and a root package's `src` is not
     // the whole project: by default every package's files are drawn.

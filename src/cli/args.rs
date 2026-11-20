@@ -25,12 +25,28 @@ pub(super) struct Cli {
 }
 impl Cli {
     pub(super) fn selected_root(&self) -> Result<PathBuf> {
-        let positional = self.command.root();
+        let given = self.command.root();
+        let positional = given.map(|(_, root)| root);
         if let (Some(named), Some(positional)) = (self.project_root.as_deref(), positional)
             && named.canonicalize()? != positional.canonicalize()?
         {
             return Err(
                 "positional ROOT conflicts with --root; choose one project directory".into(),
+            );
+        }
+        if let (None, Some((command, root))) = (self.project_root.as_deref(), given) {
+            let shown = root.display();
+            // A directory without a manifest is part of the enclosing
+            // project, which Cargo would read instead: that is a scope.
+            if root.is_dir() && !root.join("Cargo.toml").is_file() {
+                return Err(format!(
+                    "{shown} is not a Cargo project (it has no Cargo.toml), so it cannot be the project root; to read part of this project, run: {}",
+                    scoped_command(command, root)
+                )
+                .into());
+            }
+            eprintln!(
+                "atlas: reading {shown} as the project root; a positional ROOT is deprecated, so use --root {shown} (or --scope for part of a project)"
             );
         }
         Ok(self
@@ -39,6 +55,21 @@ impl Cli {
             .or(positional)
             .unwrap_or_else(|| Path::new("."))
             .to_owned())
+    }
+}
+/// This run's command line with the positional `root` as `--scope`.
+fn scoped_command(command: &str, root: &Path) -> String {
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "atlas") {
+        args.remove(0);
+    }
+    let root = root.to_string_lossy();
+    match args.iter().position(|arg| *arg == root) {
+        Some(at) => {
+            args[at] = format!("--scope {root}");
+            format!("cargo atlas {}", args.join(" "))
+        }
+        None => format!("cargo atlas {command} --scope {root}"),
     }
 }
 #[derive(Subcommand)]
@@ -172,20 +203,27 @@ pub(super) enum Command {
     Seams(stages::SeamOptions),
 }
 impl Command {
-    pub(super) fn root(&self) -> Option<&Path> {
+    /// The positional ROOT, with the command's name for messages about it.
+    pub(super) fn root(&self) -> Option<(&'static str, &Path)> {
+        fn named<'a>(
+            name: &'static str,
+            root: Option<&'a PathBuf>,
+        ) -> Option<(&'static str, &'a Path)> {
+            root.map(|root| (name, root.as_path()))
+        }
         match self {
-            Self::Types(a) => a.root.as_deref(),
-            Self::Dependencies(a) => a.root.as_deref(),
-            Self::Overview(a) => a.root.as_deref(),
-            Self::Compare(a) => a.root.as_deref(),
-            Self::Program(a) => a.root.as_deref(),
-            Self::Map(a) => a.root.as_deref(),
-            Self::Flow(a) => a.root.as_deref(),
-            Self::Census(a) => a.root.as_deref(),
-            Self::Name(a) => a.root.as_deref(),
-            Self::Module(a) => a.root.as_deref(),
-            Self::Related(a) => a.root.as_deref(),
-            Self::Dump(a) => a.root.as_deref(),
+            Self::Types(a) => named("types", a.root.as_ref()),
+            Self::Dependencies(a) => named("dependencies", a.root.as_ref()),
+            Self::Overview(a) => named("overview", a.root.as_ref()),
+            Self::Compare(a) => named("compare", a.root.as_ref()),
+            Self::Program(a) => named("program", a.root.as_ref()),
+            Self::Map(a) => named("map", a.root.as_ref()),
+            Self::Flow(a) => named("flow", a.root.as_ref()),
+            Self::Census(a) => named("census", a.root.as_ref()),
+            Self::Name(a) => named("name", a.root.as_ref()),
+            Self::Module(a) => named("module", a.root.as_ref()),
+            Self::Related(a) => named("related", a.root.as_ref()),
+            Self::Dump(a) => named("dump", a.root.as_ref()),
             _ => None,
         }
     }

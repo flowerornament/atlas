@@ -6,6 +6,13 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- A positional project root (`cargo atlas census path/to/project`) still
+ works but prints a warning naming `--root`. One that is a directory without
+ a `Cargo.toml`, such as `cargo atlas dependencies crates` inside a
+ workspace, is refused with the command to run instead (`cargo atlas
+ dependencies --scope crates ...`). Before, Cargo found the enclosing
+ workspace, the directory was silently ignored and the whole default scope
+ was read.
 - `dependencies` without a scope draws every package's production files.
  Before, it drew `src` only, which left out a workspace's member packages
  (atlas-lib on Atlas), and refused on a workspace with no root `src` (`scope
