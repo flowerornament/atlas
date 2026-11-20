@@ -48,12 +48,16 @@ pub enum FactsCacheMode {
 /// The syntax-facts cache of one executable, under one directory.
 #[derive(Debug)]
 pub struct FactsCache {
-    /// The canonical cache directory that holds every build's entries.
+    /// The cache directory that holds every build's entries, absolute and
+    /// resolved through its nearest existing ancestor; it may not exist yet.
     base: PathBuf,
     /// `base/facts/<build>`: this executable's entries.
     entries: PathBuf,
     build: [u8; 32],
     mode: FactsCacheMode,
+    /// Whether the directories exist, created and pruned on first use by a
+    /// workspace this cache may serve; the error otherwise.
+    prepared: OnceLock<Result<(), String>>,
 }
 
 /// What the installed cache did in this process so far.
@@ -69,6 +73,9 @@ pub struct FactsCacheStats {
     pub bypassed: usize,
     /// Verify mode only: files whose entry differed from a fresh parse.
     pub mismatches: Vec<String>,
+    /// Why the installed cache could not be used, when its directory could
+    /// not be created on first use.
+    pub unavailable: Option<String>,
 }
 
 static INSTALLED: OnceLock<FactsCache> = OnceLock::new();
@@ -79,8 +86,10 @@ static BYPASSED: AtomicUsize = AtomicUsize::new(0);
 static MISMATCHES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 impl FactsCache {
-    /// Open the cache under `dir` for the running executable, creating the
-    /// directory (owner-only on Unix) and pruning old entries at most hourly.
+    /// Open the cache under `dir` for the running executable. Nothing is
+    /// written until a capture of a workspace that does not contain `dir`
+    /// first uses it: then the directory is created (owner-only on Unix) and
+    /// old entries are pruned, at most hourly.
     ///
     /// The build identity is a hash of the executable file, so any rebuild,
     /// including a development build of an unchanged version, starts cold.
@@ -93,18 +102,34 @@ impl FactsCache {
     #[doc(hidden)]
     pub fn open_for_build(dir: &Path, build: &[u8], mode: FactsCacheMode) -> io::Result<Self> {
         let build: [u8; 32] = Sha256::digest(build).into();
-        create_private_dir(dir)?;
-        let base = dir.canonicalize()?;
+        let base = resolved(dir)?;
         let entries = base.join("facts").join(hex(&build[..8]));
-        create_private_dir(&entries)?;
-        let cache = Self {
+        Ok(Self {
             base,
             entries,
             build,
             mode,
-        };
-        cache.mark_used_and_prune();
-        Ok(cache)
+            prepared: OnceLock::new(),
+        })
+    }
+
+    /// Create the directories and prune, once; `false` if they cannot be made.
+    pub(super) fn prepare(&self) -> bool {
+        self.prepared
+            .get_or_init(|| {
+                create_private_dir(&self.entries).map_err(|error| {
+                    format!("cannot create {}: {error}", self.entries.display())
+                })?;
+                self.mark_used_and_prune();
+                Ok(())
+            })
+            .is_ok()
+    }
+
+    /// Whether `dir` lies inside the workspace at the canonical `root`, so
+    /// that capturing it never uses this cache.
+    pub fn is_inside(&self, root: &Path) -> bool {
+        self.base.starts_with(root)
     }
 
     /// Use this cache for every capture in this process. Only the first
@@ -149,6 +174,9 @@ impl FactsCache {
                 .lock()
                 .map(|found| found.clone())
                 .unwrap_or_default(),
+            unavailable: Self::installed()
+                .and_then(|cache| cache.prepared.get())
+                .and_then(|prepared| prepared.clone().err()),
         }
     }
 
@@ -159,7 +187,7 @@ impl FactsCache {
     /// Whether reading a workspace at `root` may use this cache: never when
     /// the cache directory is inside it.
     pub(super) fn serves(&self, root: &Path) -> bool {
-        let serves = !self.base.starts_with(root);
+        let serves = !self.is_inside(root);
         if !serves {
             BYPASSED.fetch_add(1, Relaxed);
         }
@@ -301,7 +329,10 @@ pub(super) enum Lookup {
 /// Look up one file's facts in the installed cache, when it may serve `root`.
 pub(super) fn lookup(root: &Path, path: &Path, text: String) -> Lookup {
     let projection = RustSourceProjection::of(text);
-    let Some(cache) = FactsCache::installed().filter(|cache| cache.serves(root)) else {
+    let Some(cache) = FactsCache::installed()
+        .filter(|cache| cache.serves(root))
+        .filter(|cache| cache.prepare())
+    else {
         return Lookup::Parse {
             projection,
             entry: None,
@@ -405,6 +436,27 @@ fn executable_identity() -> io::Result<Vec<u8>> {
             return Ok(hash.finalize().to_vec());
         }
         hash.update(&buffer[..read]);
+    }
+}
+
+/// `dir` made absolute through its nearest existing ancestor, creating
+/// nothing, so a directory not yet made compares like one that exists.
+fn resolved(dir: &Path) -> io::Result<PathBuf> {
+    let absolute = std::path::absolute(dir)?;
+    let mut missing = Vec::new();
+    let mut existing = absolute.as_path();
+    loop {
+        if let Ok(found) = existing.canonicalize() {
+            return Ok(missing
+                .iter()
+                .rev()
+                .fold(found, |path, part| path.join(part)));
+        }
+        let (Some(parent), Some(name)) = (existing.parent(), existing.file_name()) else {
+            return Ok(absolute);
+        };
+        missing.push(name.to_owned());
+        existing = parent;
     }
 }
 

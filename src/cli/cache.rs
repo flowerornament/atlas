@@ -6,7 +6,8 @@
 //! `ATLAS_CACHE` is `on` (the default), `off`, `stats` (on, plus a count on
 //! stderr) or `verify` (parse every file anyway and fail the run if an entry
 //! differs). `ATLAS_CACHE_DIR` replaces the directory; `--no-cache` is `off`.
-//! A directory inside the inspected workspace is never created or used.
+//! A directory inside the inspected workspace is never created or used; the
+//! library checks that, and creates the directory only on first use.
 use atlas_lib::source::{FactsCache, FactsCacheMode};
 use cargo_atlas::Result;
 use std::path::{Path, PathBuf};
@@ -40,11 +41,11 @@ pub(super) fn open(no_cache: bool, root: &Path) -> Result<Session> {
     let place = match (mode, dir) {
         (None, _) => Err("off".to_owned()),
         (Some(_), None) => Err("no user cache directory; set ATLAS_CACHE_DIR".to_owned()),
-        (Some(_), Some(dir)) if resolved(&dir).starts_with(root) => Err(format!(
-            "not used: {} is inside the inspected workspace",
-            dir.display()
-        )),
         (Some(mode), Some(dir)) => match FactsCache::open(&dir, mode) {
+            Ok(cache) if cache.is_inside(root) => Err(format!(
+                "not used: {} is inside the inspected workspace",
+                dir.display()
+            )),
             Ok(cache) => {
                 let opened = cache.dir().to_owned();
                 cache
@@ -62,27 +63,6 @@ pub(super) fn open(no_cache: bool, root: &Path) -> Result<Session> {
     })
 }
 
-/// `dir` made absolute through its nearest existing ancestor, without
-/// creating anything.
-fn resolved(dir: &Path) -> PathBuf {
-    let absolute = std::path::absolute(dir).unwrap_or_else(|_| dir.to_owned());
-    let mut missing = Vec::new();
-    let mut existing = absolute.as_path();
-    loop {
-        if let Ok(found) = existing.canonicalize() {
-            return missing
-                .iter()
-                .rev()
-                .fold(found, |path, part| path.join(part));
-        }
-        let (Some(parent), Some(name)) = (existing.parent(), existing.file_name()) else {
-            return absolute;
-        };
-        missing.push(name.to_owned());
-        existing = parent;
-    }
-}
-
 impl Session {
     /// Report the cache's use if asked, and in verify mode turn a differing
     /// entry into the run's failure.
@@ -90,6 +70,10 @@ impl Session {
         let counts = FactsCache::stats();
         if self.stats {
             match &self.place {
+                Ok(_) if counts.unavailable.is_some() => eprintln!(
+                    "atlas: facts cache: {}",
+                    counts.unavailable.as_deref().unwrap_or_default()
+                ),
                 Ok(dir) => eprintln!(
                     "atlas: facts cache: {} hits, {} misses, {} unwritten, {} files read uncached inside the workspace ({})",
                     counts.hits,

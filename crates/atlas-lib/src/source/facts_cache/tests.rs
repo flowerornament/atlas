@@ -148,6 +148,11 @@ fn a_cache_inside_the_workspace_is_not_used() {
     let inside = FactsCache::open_for_build(&root.join("cache"), b"build", FactsCacheMode::Reuse)
         .expect("open cache");
     assert!(!inside.serves(&root));
+    // Opening, or declining to serve, writes nothing into the workspace.
+    assert!(
+        !root.join("cache").exists(),
+        "opening created the directory"
+    );
     let elsewhere = tempfile::tempdir().expect("cache directory");
     let outside = FactsCache::open_for_build(elsewhere.path(), b"build", FactsCacheMode::Reuse)
         .expect("open cache");
@@ -169,7 +174,10 @@ fn pruning_removes_builds_unused_for_a_week() {
         .open(stale.join(".used"))
         .and_then(|file| file.set_modified(SystemTime::UNIX_EPOCH))
         .expect("age marker");
-    FactsCache::open_for_build(dir.path(), b"build", FactsCacheMode::Reuse).expect("open cache");
+    let cache = FactsCache::open_for_build(dir.path(), b"build", FactsCacheMode::Reuse)
+        .expect("open cache");
+    assert!(stale.exists(), "opening alone prunes nothing");
+    assert!(cache.prepare());
     assert!(!stale.exists(), "a build unused for a week is removed");
     assert!(recent.join("aa/entry").exists(), "a recent build is kept");
 }

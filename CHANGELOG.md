@@ -6,6 +6,11 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- **Library:** `FactsCache::open` no longer creates the cache directory or
+ prunes it. That happens on first use by a capture of a workspace that does
+ not contain the directory, so a library caller can no longer create a
+ directory inside the project it reads. New: `FactsCache::is_inside`, and
+ `FactsCacheStats::unavailable` for a directory that could not be created.
 - Diagnostics have stable codes. Every diagnostic in graph JSON, report
  bases and check `unavailable` lists carries `code` (such as `mount-missing`
  or `self-unresolved`) beside `message`, whose wording may change; JSON
