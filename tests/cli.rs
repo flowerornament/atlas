@@ -672,3 +672,50 @@ fn name_text_counts_impls_under_their_type_and_uses_rust_spellings() {
         "{text}"
     );
 }
+
+#[test]
+fn visibility_text_says_plainly_when_nothing_changed() {
+    // No change is said in words, not as a row of zero counts.
+    let f = Fixture::new(&[(
+        "src/lib.rs",
+        "pub struct A;\nimpl A { pub fn new() {} }\npub struct B;\nimpl B { pub fn new() {} }\n",
+    )]);
+    let git = |args: &[&str]| {
+        let output = Command::new("git")
+            .current_dir(f.path())
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    git(&["init", "-q"]);
+    git(&["add", "."]);
+    git(&[
+        "-c",
+        "user.name=Atlas Test",
+        "-c",
+        "user.email=atlas@example.invalid",
+        "commit",
+        "-qm",
+        "before",
+    ]);
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .args(["atlas", "visibility", "HEAD", "--root"])
+        .arg(f.path())
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&output.stdout);
+    let first = text.lines().next().unwrap_or_default();
+    assert!(
+        first.starts_with("No visibility changes against "),
+        "{text}"
+    );
+    assert!(
+        first.ends_with('.') && !first.contains("0 widened"),
+        "{text}"
+    );
+}

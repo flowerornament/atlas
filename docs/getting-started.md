@@ -241,7 +241,7 @@ Token bodies against a0914cf...: 7 exact; 0 rerooted; 1 changed; 0 only before; 
 changed: tutorial item check · src/check.rs:10 (pub) -> src/check.rs:10 (pub)
 
 $ cargo atlas visibility HEAD~1
-Written visibility against a0914cf...: 0 widened; 0 rescoped; 1 narrowed; 3 ambiguous keys
+Written visibility against a0914cf...: 0 widened; 0 rescoped; 1 narrowed (3 items share a name and were paired approximately; --json lists them)
 narrowed: tutorial field Tree.words · src/parse.rs:5 (pub) -> src/parse.rs:5 (pub(crate))
 ```
 
@@ -254,8 +254,8 @@ narrowed: tutorial field Tree.words · src/parse.rs:5 (pub) -> src/parse.rs:5 (p
   usually happens when code moves between modules.
 - `visibility` lists items that became more public ("widened"), less public
   ("narrowed"), or public to a different module path ("rescoped"). Items are
-  matched by package, kind and name; "ambiguous keys" counts names that appear
-  more than once, which can only be matched approximately.
+  matched by package, kind and name; the note in brackets counts names that
+  appear more than once, which can only be matched approximately.
 
 Atlas reads the old commit into a temporary directory. It never checks out
 commits or touches your working files.

@@ -6,6 +6,10 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `visibility` text says `No visibility changes against <commit>.` when
+ there are none, instead of a row of zero counts, and states repeated keys
+ as a caveat: `(422 items share a name and were paired approximately;
+ --json lists them)`. JSON is unchanged.
 - `name` text counts impl blocks apart from the declarations they belong
  to (`Snapshot: 2 declaration sites (ambiguous), and 2 impl blocks`, not
  `4 declaration sites`), so one type with an impl is no longer ambiguous.

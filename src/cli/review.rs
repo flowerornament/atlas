@@ -86,14 +86,25 @@ pub(crate) fn run(
             if options.json {
                 print_json(&commit, question, &report)?;
             } else {
-                println!(
-                    "Written visibility against {}: {} widened; {} rescoped; {} narrowed; {} ambiguous keys",
-                    commit,
-                    report.widened.len(),
-                    report.rescoped.len(),
-                    report.narrowed.len(),
-                    report.ambiguous_keys
-                );
+                // Repeated keys matter only as a caveat: say how many, once.
+                let approximate = match report.ambiguous_keys {
+                    0 => String::new(),
+                    1 => " (1 item shares a name with another and was paired approximately; --json lists it)".to_owned(),
+                    n => format!(
+                        " ({n} items share a name and were paired approximately; --json lists them)"
+                    ),
+                };
+                let changes = report.widened.len() + report.rescoped.len() + report.narrowed.len();
+                if changes == 0 {
+                    println!("No visibility changes against {commit}{approximate}.");
+                } else {
+                    println!(
+                        "Written visibility against {commit}: {} widened; {} rescoped; {} narrowed{approximate}",
+                        report.widened.len(),
+                        report.rescoped.len(),
+                        report.narrowed.len(),
+                    );
+                }
                 for (label, rows) in [
                     ("widened", &report.widened),
                     ("rescoped", &report.rescoped),
