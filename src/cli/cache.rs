@@ -64,6 +64,22 @@ pub(super) fn open(no_cache: bool, root: &Path) -> Result<Session> {
 }
 
 impl Session {
+    /// Where `--semantic` keeps the indexes it produces: `semantic/` beside
+    /// this run's facts entries, under the same rules (never inside the
+    /// inspected workspace; nothing with `--no-cache` or `ATLAS_CACHE=off`).
+    /// An index cannot be reproduced byte for byte, so verify mode stores a
+    /// new one without reusing an old one.
+    pub(super) fn semantic(&self) -> super::semantic::IndexCache {
+        super::semantic::IndexCache {
+            dir: self
+                .place
+                .as_ref()
+                .map(|dir| dir.join("semantic"))
+                .map_err(Clone::clone),
+            reuse: !self.verify,
+        }
+    }
+
     /// Report the cache's use if asked, and in verify mode turn a differing
     /// entry into the run's failure.
     pub(super) fn finish(self, result: Result<()>) -> Result<()> {

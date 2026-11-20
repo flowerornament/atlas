@@ -31,8 +31,11 @@ use declaration spellings and approximate mentions; **qualified** views follow
 supported Cargo/import/signature syntax and retain unresolved targets; **native**
 reports keep fixed line-based population and counting units for review and checks.
 A fourth, **semantic**, is a compiler front end's resolution for one build
-configuration, read from a supplied SCIP index; it sits beside each qualified
-target and never changes one. They share source and grammar without claiming
+configuration, read from a SCIP index; it sits beside each qualified target and
+never changes one. The index is supplied, or produced by `cli/semantic/indexer.rs`
+under `--semantic`: the only place Atlas executes inspected code (rust-analyzer
+runs build scripts and proc macros). That runner owns the child's deadline, its
+build directory, the before/after input digest and the index cache. They share source and grammar without claiming
 interchangeable meanings.
 Depth-zero flow deliberately reads explicitly selected bodies, including tests;
 it publishes their own workflow evidence and protects those source paths. Expanded

@@ -286,6 +286,15 @@ doesn't:
 When it can't work something out, it tells you instead of leaving it out. A
 missing answer is reported as unknown, never as "nothing found".
 
+For a compiler front end's reading of each call beside Atlas's own, `dump
+--json` and `flow` take `--scip FILE`, an index you made with
+`rust-analyzer scip`, or `--semantic`, which has Atlas run rust-analyzer
+for you. **`--semantic` runs your project's build scripts and procedural
+macros**, takes minutes and several GB of memory on a large workspace, and is
+never on unless you ask; its index is cached, so asking again is fast. See
+[concepts](https://github.com/flowerornament/atlas/blob/main/docs/concepts.md)
+for what it checks before trusting an index.
+
 ## Documentation
 
 - [Getting started](https://github.com/flowerornament/atlas/blob/main/docs/getting-started.md): a guided tour of the example project

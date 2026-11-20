@@ -36,6 +36,8 @@ pub const SCHEMA: u32 = 1;
 #[non_exhaustive]
 pub struct Provenance {
     /// `supplied`: the caller gave Atlas an index file it did not produce.
+    /// `indexed`: the caller ran an indexer on the inspected workspace for
+    /// this reading (the command line's `--semantic`).
     pub origin: &'static str,
     /// SHA-256 of the index bytes, in hex.
     pub index_digest: String,
@@ -219,6 +221,14 @@ impl SemanticIndex {
                 Tables::new(&index)
             });
         Self { provenance, tables }
+    }
+    /// [`SemanticIndex::read`] for an index the caller produced from the
+    /// inspected workspace itself, so its provenance says `indexed`. The
+    /// caller is responsible for that claim: Atlas cannot tell from the bytes.
+    pub fn read_indexed(bytes: &[u8]) -> Self {
+        let mut index = Self::read(bytes);
+        index.provenance.origin = "indexed";
+        index
     }
     /// An index that could not be obtained, such as an unreadable file: every
     /// reading from it is unavailable with `reason`.

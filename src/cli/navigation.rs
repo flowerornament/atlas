@@ -343,6 +343,8 @@ pub(super) struct DumpArgs {
     /// runs no indexer.
     #[arg(long, value_name = "FILE")]
     scip: Option<PathBuf>,
+    #[command(flatten)]
+    indexer: super::semantic::IndexerArgs,
 }
 
 // Legacy lexical output and native selected populations intentionally have different schemas.
@@ -391,10 +393,23 @@ pub(super) fn run_module(metadata: &cargo_metadata::Metadata, args: &ModuleArgs)
         false,
     )
 }
-pub(super) fn run_dump(metadata: &cargo_metadata::Metadata, args: &DumpArgs) -> Result<()> {
-    if let Some(file) = &args.scip {
+pub(super) fn run_dump(
+    root: &std::path::Path,
+    metadata: &cargo_metadata::Metadata,
+    args: &DumpArgs,
+    cache: &super::semantic::IndexCache,
+) -> Result<()> {
+    if args.scip.is_some() || args.indexer.semantic {
         let snapshot = discovery::snapshot_metadata(metadata)?;
-        let index = super::semantic::index(metadata.workspace_root.as_std_path(), file);
+        let (index, indexing) = super::semantic::obtain(
+            root,
+            metadata,
+            args.scip.as_deref(),
+            &args.indexer,
+            cache,
+            || super::output::graph_sources(metadata, snapshot.graph()).collect(),
+        )?
+        .ok_or("no semantic index was asked for")?;
         let semantic = atlas_lib::analysis::Analysis::new(&snapshot)?.semantic(&index)?;
         let text = if let Some(population) = args.population.selected() {
             let dump = Navigation::new(&snapshot, population)?.dump()?;
@@ -403,6 +418,7 @@ pub(super) fn run_dump(metadata: &cargo_metadata::Metadata, args: &DumpArgs) -> 
                 &super::semantic::WithSemantic {
                     report: &dump,
                     semantic: &semantic,
+                    semantic_indexing: indexing.as_ref(),
                 },
             )?
         } else {
@@ -410,6 +426,7 @@ pub(super) fn run_dump(metadata: &cargo_metadata::Metadata, args: &DumpArgs) -> 
                 // The graph the semantic reading was made from.
                 report: snapshot.graph(),
                 semantic: &semantic,
+                semantic_indexing: indexing.as_ref(),
             })?
         };
         print!("{text}");

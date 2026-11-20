@@ -59,7 +59,7 @@ pub(crate) fn run() -> Result<()> {
         Command::Overview(options) => overview::run(&root, &metadata, options),
         Command::Dependencies(options) => dependencies::run(&root, &metadata, &options),
         Command::Types(options) => types::run(&root, &metadata, &options),
-        Command::Flow(options) => flow::run(&root, &metadata, &options),
+        Command::Flow(options) => flow::run(&root, &metadata, &options, &cache.semantic()),
         Command::Spans(options) => {
             review::source_review(&metadata, &options, review::SourceQuestion::Spans)
         }
@@ -72,7 +72,7 @@ pub(crate) fn run() -> Result<()> {
         Command::Program(options) => program::run(&root, &metadata, &options),
         Command::Map(options) => map::run(&root, &metadata, &options),
         Command::Orient(options) => orient::run(&metadata, &selected_root, &options),
-        Command::Dump(args) => navigation::run_dump(&metadata, &args),
+        Command::Dump(args) => navigation::run_dump(&root, &metadata, &args, &cache.semantic()),
         Command::Facts(options) => facts::run(&metadata, &options),
         Command::Census(args) => navigation::run_census(&metadata, &args),
         Command::Name(args) => navigation::run_name(&metadata, &args),

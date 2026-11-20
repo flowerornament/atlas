@@ -48,6 +48,8 @@ pub(super) struct Options {
     #[arg(long, value_name = "FILE")]
     scip: Option<PathBuf>,
     #[command(flatten)]
+    indexer: super::semantic::IndexerArgs,
+    #[command(flatten)]
     render: RenderOptions,
 }
 
@@ -55,6 +57,7 @@ pub(super) fn run(
     root: &Path,
     metadata: &cargo_metadata::Metadata,
     options: &Options,
+    cache: &super::semantic::IndexCache,
 ) -> Result<()> {
     let (profile_text, profile) = architecture(root, options.architecture.as_deref())?;
     let selected_anchor = options.named_anchor.as_ref().or(options.anchor.as_ref());
@@ -127,7 +130,7 @@ pub(super) fn run(
         &query,
         protected_paths(
             metadata,
-            sources,
+            sources.iter().cloned(),
             options
                 .architecture
                 .iter()
@@ -136,29 +139,35 @@ pub(super) fn run(
                 .chain(options.scip.iter().map(|path| root.join(path))),
         ),
     );
-    let semantic = options
-        .scip
-        .as_deref()
-        .map(|file| {
-            json(&super::semantic::read_workflows(
-                root,
-                &super::semantic::index(root, file),
-                &flows,
-            ))
+    let semantic = super::semantic::obtain(
+        root,
+        metadata,
+        options.scip.as_deref(),
+        &options.indexer,
+        cache,
+        || sources,
+    )?
+    .map(|(index, indexing)| {
+        let source = if indexing.is_some() {
+            "semantic call evidence (rust-analyzer run by Atlas, host cfg)"
+        } else {
+            "semantic call evidence (supplied SCIP index, host cfg)"
+        };
+        json(&super::semantic::Evidence {
+            reading: &super::semantic::read_workflows(root, &index, &flows),
+            indexing: indexing.as_ref(),
         })
-        .transpose()?;
+        .map(|text| (source, text))
+    })
+    .transpose()?;
     let pending = destination.prepare_with(
         None,
         &mut diagram,
         profile_text.as_deref(),
         Some(("workflow", &json(&flows)?)),
-        semantic.as_deref().map(|json| {
-            (
-                "semantic",
-                "semantic call evidence (supplied SCIP index, host cfg)",
-                json,
-            )
-        }),
+        semantic
+            .as_ref()
+            .map(|(source, json)| ("semantic", *source, json.as_str())),
     )?;
     let artifact = if options.render.backend == Backend::Ascii
         && (options.depth > 0 || options.detail == workflow::Detail::Control)

@@ -15,6 +15,21 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 - `orient` scoped to a package counts the same diagnostics as `census` and
  `module`: on a file another package also reads, only this package's (and
  the file's own) diagnostics. Before, it also counted the other package's.
+- `dump --json --semantic` and `flow --semantic` run `rust-analyzer scip` on
+ the workspace and read its index as semantic call evidence, as `--scip FILE`
+ does for an index you supply. This runs the workspace's build scripts and
+ procedural macros, so it is opt-in only. The indexer is an owned child that
+ builds under `<target>/atlas/semantic` and is stopped, with every process it
+ started, after `--semantic-timeout` seconds (default 1800). Atlas refuses
+ before running anything when rust-analyzer (`ATLAS_RUST_ANALYZER`, or
+ `rust-analyzer` on `PATH`) cannot report its version or the toolchain has no
+ `rust-src`, and refuses an index made while the workspace's manifests,
+ configuration, build scripts or sources changed. Produced indexes are cached
+ in the user cache directory, keyed by those inputs, the indexer and
+ toolchain versions and the Atlas executable; `--no-cache` turns that off.
+ The output gains a `semantic_indexing` record (`indexing` in `flow`'s
+ evidence file); `--scip` output is unchanged. **Library:**
+ `SemanticIndex::read_indexed`, whose provenance `origin` is `indexed`.
 
 ## cargo-atlas 0.18.0 / atlas-lib 0.8.0
 

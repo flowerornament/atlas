@@ -45,8 +45,24 @@ it with `--scip FILE` to `dump --json` or `flow`, and each call gets a second,
 labelled reading beside Atlas's own: which item the indexer resolved it to, a
 trait method whose implementation is chosen at run time, an item of another
 package, or nothing usable. `dump` also says whether the two readings agree.
-Atlas does not run the indexer, so producing the index is your step, and it
-runs your project's build scripts and procedural macros. The index reflects
+With `--scip` Atlas does not run the indexer: producing the index is your
+step, and it runs your project's build scripts and procedural macros.
+
+`--semantic` instead of `--scip FILE` asks Atlas to run `rust-analyzer scip`
+itself. That is the one Atlas option that **executes your project's code**:
+rust-analyzer builds and runs its build scripts and procedural macros, so use
+it only on code you would build. On a large workspace of 26 crates it took one
+to four minutes and over 6 GB of memory; a small crate takes seconds. Atlas builds under `<target>/atlas/semantic`, never in your normal
+build directories, and stops the indexer (and everything it started) after
+`--semantic-timeout` seconds (default 1800). It digests your manifests,
+configuration, build scripts and sources before and after the run and
+refuses an index made while any of them changed. It also refuses, before
+running anything, when rust-analyzer is not installed (`ATLAS_RUST_ANALYZER`
+names it if it is not `rust-analyzer` on `PATH`) or the toolchain has no
+`rust-src`. The index is kept in the user cache directory, keyed by those
+inputs and the indexer and toolchain versions, so asking again about an
+unchanged workspace takes a second; `--no-cache` turns that off. Its
+`semantic_indexing` record says how the index was obtained. The index reflects
 one build configuration, the indexer's host target and default features, and
 every reading says so. Atlas checks each call's name against the source it
 read; an index of different text reads as *not indexed* there. An index that
