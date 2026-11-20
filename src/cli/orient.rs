@@ -9,9 +9,8 @@ use std::path::Path;
 pub(crate) struct Options {
     #[command(flatten)]
     pub(super) scope: crate::cli::subject::Scope,
-    /// Rows shown in each list; every list reports what it left out.
-    #[arg(long, default_value_t = 5)]
-    rows: usize,
+    #[command(flatten)]
+    rows: crate::cli::output::rows::Rows,
     #[command(flatten)]
     output: crate::cli::output::form::Report,
 }
@@ -25,7 +24,7 @@ pub(crate) fn run(
 ) -> Result<()> {
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let chosen = options.scope.choose(snapshot.graph(), metadata)?;
-    let report = orient::orient(&snapshot, chosen.query(), options.rows)?;
+    let report = orient::orient(&snapshot, chosen.query(), options.rows.limit(5))?;
     if options.output.json() {
         print!("{}", json(&report)?);
     } else {

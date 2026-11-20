@@ -153,6 +153,9 @@ Atlas does not look for a repository in a parent directory.
 Output is text by default. Long lists are shortened, and Atlas says how much
 it left out.
 
+- Text lists are bounded so a page stays short: each list shows a few rows,
+  and a list that leaves rows out ends with `… N more;` and a command that
+  shows them. `--rows N` chooses how many; `--all` shows every row.
 - `--as json` (or `--json`) prints everything, including ambiguous and unresolved items. Each
   JSON report has a `schema` number and describes what it selected and which
   source it read.

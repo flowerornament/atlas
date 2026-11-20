@@ -354,7 +354,7 @@ pub fn orient(snapshot: &Snapshot, scope: Option<&str>, rows: usize) -> Result<O
     let scoped = |command: &[&str]| -> Vec<String> {
         let mut args: Vec<String> = command.iter().map(|&a| a.to_owned()).collect();
         if let Some(scope) = &physical_scope {
-            args.extend(["--scope".to_owned(), scope.clone()]);
+            args.extend(["--in".to_owned(), scope.clone()]);
         }
         args
     };
@@ -394,7 +394,7 @@ pub fn orient(snapshot: &Snapshot, scope: Option<&str>, rows: usize) -> Result<O
                 total_unit: "functions with a resolved caller",
                 all: vec![
                     "dependencies".into(),
-                    "--scope".into(),
+                    "--in".into(),
                     physical_scope.clone().unwrap_or_else(|| ".".to_owned()),
                     "--relation".into(),
                     "calls".into(),
@@ -631,14 +631,14 @@ fn next_commands(
     }
     if let Some(dir) = &directory {
         next.push(command(
-            &["dependencies", "--scope", dir],
+            &["dependencies", "--in", dir],
             "which files in that directory call each other",
             true,
         ));
     }
     if let Some(row) = by_id("blocks").and_then(leader) {
         next.push(command(
-            &["spans", "--scope", &row.path],
+            &["spans", "--in", &row.path],
             "item boundaries in the file holding the largest block",
             true,
         ));

@@ -1,5 +1,6 @@
 //! Revision review over one immutable-before/current-after snapshot pair.
 use super::json;
+use super::output::rows::{Rows, narrower, print_bounded, rerun_all, tail};
 use cargo_atlas::{Result, discovery, revision::Revision};
 use clap::Args;
 use std::path::Path;
@@ -21,6 +22,8 @@ pub(crate) struct Options {
     scope: Option<String>,
     #[command(flatten)]
     output: crate::cli::output::form::Report,
+    #[command(flatten)]
+    rows: Rows,
 }
 impl Options {
     fn scope(&self) -> &str {
@@ -72,7 +75,9 @@ pub(crate) fn run(
             } else {
                 println!("Module shape against {commit} (current source)");
                 let content_only = report.changes.iter().filter(|c| !c.shape_changed).count();
-                for change in report.changes.iter().filter(|c| c.shape_changed) {
+                let changed: Vec<_> = report.changes.iter().filter(|c| c.shape_changed).collect();
+                let limit = options.rows.limit(15);
+                for change in changed.iter().take(limit) {
                     println!("{}", change.file);
                     for (side, shape) in [("before", &change.before), ("after", &change.after)] {
                         if let Some(shape) = shape {
@@ -86,6 +91,9 @@ pub(crate) fn run(
                             println!("  {side}: absent");
                         }
                     }
+                }
+                if changed.len() > limit {
+                    println!("{}", tail("", changed.len() - limit, &rerun_all(None)));
                 }
                 same_shape_note(content_only);
             }
@@ -123,9 +131,13 @@ pub(crate) fn run(
                     ("rescoped", &report.rescoped),
                     ("narrowed", &report.narrowed),
                 ] {
-                    for row in rows {
-                        pair(label, row);
-                    }
+                    print_bounded(
+                        rows,
+                        options.rows.limit(15),
+                        "",
+                        || rerun_all(None),
+                        |row| pair(label, row),
+                    );
                 }
                 for limit in &report.limits {
                     println!("limit: {limit}");
@@ -152,26 +164,31 @@ pub(crate) fn run(
                     report.unreadable.len(),
                     report.relocated
                 );
-                for row in &report.exact_relocated {
-                    pair("relocated", row);
-                }
-                for row in &report.rerooted {
-                    pair("rerooted (review)", row);
-                }
-                for row in &report.changed {
-                    pair("changed", row);
+                let limit = options.rows.limit(8);
+                for (label, rows) in [
+                    ("relocated", &report.exact_relocated),
+                    ("rerooted (review)", &report.rerooted),
+                    ("changed", &report.changed),
+                ] {
+                    print_bounded(rows, limit, "", || rerun_all(None), |row| pair(label, row));
                 }
                 for (label, rows) in [
                     ("only before", &report.only_before),
                     ("only after", &report.only_after),
                     ("unreadable", &report.unreadable),
                 ] {
-                    for row in rows {
-                        println!(
-                            "{label}: {} {} {} at {}:{}",
-                            row.crate_name, row.class, row.name, row.site.file, row.site.line
-                        );
-                    }
+                    print_bounded(
+                        rows,
+                        limit,
+                        "",
+                        || rerun_all(None),
+                        |row| {
+                            println!(
+                                "{label}: {} {} {} at {}:{}",
+                                row.crate_name, row.class, row.name, row.site.file, row.site.line
+                            );
+                        },
+                    );
                 }
                 for limit in &report.limits {
                     println!("limit: {limit}");
@@ -280,9 +297,22 @@ pub(crate) fn diff(
         "Declaration review against {commit} · {} subjects",
         population.label()
     );
-    for module in report.shapes.changes.iter().filter(|c| c.shape_changed) {
-        println!("module shape: {}", module.file);
-    }
+    let rows = args.rows;
+    let shaped: Vec<_> = report
+        .shapes
+        .changes
+        .iter()
+        .filter(|c| c.shape_changed)
+        .collect();
+    print_bounded(
+        &shaped,
+        rows.limit(10),
+        "",
+        || rerun_all(None),
+        |module| {
+            println!("module shape: {}", module.file);
+        },
+    );
     let content_only = report
         .shapes
         .changes
@@ -290,7 +320,8 @@ pub(crate) fn diff(
         .filter(|c| !c.shape_changed)
         .count();
     same_shape_note(content_only);
-    for change in &report.items.declarations {
+    let limit = rows.limit(12);
+    for change in report.items.declarations.iter().take(limit) {
         use atlas_lib::queries::navigation::ChangedDeclaration;
         let (label, version) = match change {
             ChangedDeclaration::Added { after } => ("added", after),
@@ -309,33 +340,59 @@ pub(crate) fn diff(
             "{label}: {}:{} {} [{}]",
             version.site.file, version.site.line, version.site.name, version.owner
         );
-        println!("  {}", version.declaration_block);
+        // The first line names the item; --json holds the whole block.
+        println!(
+            "  {}",
+            version.declaration_block.lines().next().unwrap_or_default()
+        );
+    }
+    if report.items.declarations.len() > limit {
+        println!(
+            "{}",
+            tail(
+                "",
+                report.items.declarations.len() - limit,
+                &rerun_all(None)
+            )
+        );
     }
     if let Some(relationships) = &report.items.relationships {
-        for incident in relationships {
-            println!(
-                "{:?}: {}:{} {} -{}-> {} [{:?}]",
-                incident.side,
-                incident.edge.source.file,
-                incident.edge.source.line,
-                incident.edge.source.name,
-                incident.edge.evidence.label(),
-                incident.edge.target,
-                incident.edge.resolution
-            );
-        }
+        print_bounded(
+            relationships,
+            rows.limit(5),
+            "",
+            || rerun_all(None),
+            |incident| {
+                println!(
+                    "{:?}: {}:{} {} -{}-> {} [{:?}]",
+                    incident.side,
+                    incident.edge.source.file,
+                    incident.edge.source.line,
+                    incident.edge.source.name,
+                    incident.edge.evidence.label(),
+                    incident.edge.target,
+                    incident.edge.resolution
+                );
+            },
+        );
     }
     println!("{}", report.items.limits);
     for (side, basis) in [
         ("prior", &report.items.before),
         ("current", &report.items.after),
     ] {
-        for diagnostic in &basis.diagnostics {
-            println!(
-                "{side} source limit: {}: {}",
-                diagnostic.file, diagnostic.message
-            );
-        }
+        print_bounded(
+            &basis.diagnostics,
+            rows.limit(5),
+            "",
+            || rerun_all(None),
+            |diagnostic| {
+                println!(
+                    "{side} source limit: {}: {}",
+                    diagnostic.file, diagnostic.message
+                );
+            },
+        );
     }
     Ok(())
 }
@@ -346,13 +403,8 @@ pub(super) struct SourceReviewArgs {
     pub(super) scope: crate::cli::subject::Scope,
     #[command(flatten)]
     output: crate::cli::output::form::Report,
-    /// Files shown in text; the rest are counted, with the command that lists
-    /// them. JSON always holds every file.
-    #[arg(long, default_value_t = 20)]
-    rows: usize,
-    /// Show every file in text.
-    #[arg(long, conflicts_with = "rows")]
-    all: bool,
+    #[command(flatten)]
+    rows: Rows,
 }
 #[derive(Clone, Copy)]
 pub(super) enum SourceQuestion {
@@ -387,11 +439,16 @@ pub(super) fn source_review(
             }))?
         );
     } else {
-        let shown = if args.all {
-            report.files.len()
-        } else {
-            args.rows.min(report.files.len())
-        };
+        // spans lists each file's items, so it shows fewer files and shares
+        // the page between their item lists.
+        let limit = args
+            .rows
+            .limit(if matches!(question, SourceQuestion::Spans) {
+                8
+            } else {
+                20
+            });
+        let shown = limit.min(report.files.len());
         for file in &report.files[..shown] {
             if matches!(question, SourceQuestion::Loc) {
                 println!("{} {}", file.non_test_lines, file.file);
@@ -403,28 +460,26 @@ pub(super) fn source_review(
                 );
             } else {
                 println!("{}", file.file);
-                for item in &file.items {
-                    println!(
-                        "  {}:{}-{} {} {}",
-                        item.declaration, item.first, item.last, item.kind, item.name
-                    );
-                }
+                let items = args.rows.nested(shown, 45);
+                print_bounded(
+                    &file.items,
+                    items,
+                    "  ",
+                    || narrower("spans", &file.file),
+                    |item| {
+                        println!(
+                            "  {}:{}-{} {} {}",
+                            item.declaration, item.first, item.last, item.kind, item.name
+                        );
+                    },
+                );
                 if !file.uncovered_code.is_empty() {
                     println!("  uncovered code: {:?}", file.uncovered_code);
                 }
             }
         }
-        let hidden = report.files.len() - shown;
-        if hidden > 0 {
-            let scope = chosen
-                .flag()
-                .map_or_else(String::new, |flag| format!(" {flag}"));
-            println!(
-                "... {hidden} more file{} ({} in all); to see them: cargo atlas {} --all{scope}",
-                if hidden == 1 { "" } else { "s" },
-                report.files.len(),
-                question.name()
-            );
+        if report.files.len() > shown {
+            println!("{}", tail("", report.files.len() - shown, &rerun_all(None)));
         }
     }
     Ok(())

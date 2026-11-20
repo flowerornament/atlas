@@ -1,6 +1,7 @@
 //! Navigation owns legacy lexical and explicit-population command routing.
 //! The two report schemas are intentional compatibility contracts. Both read the
 //! shared capture/grammar; selected native output is formatted only after selection.
+use super::output::rows::{Rows, narrower, rerun_all, tail};
 use atlas_lib::{
     Result, discovery,
     population::VisibilitySelection,
@@ -40,6 +41,7 @@ fn selected(
     population: VisibilitySelection,
     question: Question<'_>,
     json: bool,
+    rows: Rows,
 ) -> Result<()> {
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let navigation = Navigation::new(&snapshot, population)?;
@@ -50,7 +52,7 @@ fn selected(
             if json {
                 report_json("census", &report)?
             } else {
-                census(&report)?
+                census(&report, rows)?
             }
         }
         Question::Name(query) => {
@@ -58,7 +60,7 @@ fn selected(
             if json {
                 report_json("name", &report)?
             } else {
-                name(&report)?
+                name(&report, rows)?
             }
         }
         Question::Module { path, items, graph } => {
@@ -66,7 +68,7 @@ fn selected(
             if json {
                 report_json("module", &report)?
             } else {
-                module(&report, items, graph)?
+                module(&report, items, graph, rows)?
             }
         }
     };
@@ -86,23 +88,25 @@ fn report_json<T: serde::Serialize>(question: &str, report: &T) -> Result<String
     })
 }
 
-fn census(report: &navigation::Census) -> Result<String> {
+fn census(report: &navigation::Census, rows: Rows) -> Result<String> {
     let navigation::Census::Rows(report) = report else {
         let navigation::Census::Module(report) = report else {
             return Err("unsupported census rung".into());
         };
-        return module(report, false, false);
+        return module(report, false, false, rows);
     };
     let mut text = format!(
         "cargo atlas census — {} · {} subjects; native source-tree lines\n",
         report.scope,
         report.population.label()
     );
-    for row in &report.rows {
+    let limit = rows.limit(20);
+    for row in report.rows.iter().take(limit) {
         tally(&mut text, &row.key, row.tally)?;
     }
+    more(&mut text, "", report.rows.len(), limit)?;
     tally(&mut text, "TOTAL", report.total)?;
-    diagnostics(&mut text, &report.basis)?;
+    diagnostics(&mut text, &report.basis, rows)?;
     Ok(text)
 }
 fn tally(text: &mut String, key: &str, tally: navigation::Tally) -> Result<()> {
@@ -116,7 +120,7 @@ fn tally(text: &mut String, key: &str, tally: navigation::Tally) -> Result<()> {
     )?;
     Ok(())
 }
-fn name(report: &navigation::Name) -> Result<String> {
+fn name(report: &navigation::Name, rows: Rows) -> Result<String> {
     let mut text = format!(
         "cargo atlas name — {} · {} {} in population {}, {} hidden; ~{} textual references\n",
         report.query,
@@ -130,7 +134,8 @@ fn name(report: &navigation::Name) -> Result<String> {
         report.hidden,
         report.refs_approx
     );
-    for site in report.matches.iter().take(30) {
+    let limit = rows.limit(10);
+    for site in report.matches.iter().take(limit) {
         writeln!(
             text,
             "{}:{} ({}) {} {} {}",
@@ -156,27 +161,22 @@ fn name(report: &navigation::Name) -> Result<String> {
             site.doc.as_deref().unwrap_or("MISSING doc comment")
         )?;
     }
-    if report.matches.len() > 30 {
-        writeln!(
-            text,
-            "{} more matches; narrow with path::Name or use --json",
-            report.matches.len() - 30
-        )?;
-    }
+    more(&mut text, "", report.matches.len(), limit)?;
     for (label, sites) in [("reexport", &report.reexports), ("impl", &report.impls)] {
-        for site in sites {
+        for site in sites.iter().take(limit) {
             writeln!(
                 text,
                 "{label}: {}:{} ({})",
                 site.file, site.line, site.package
             )?;
         }
+        more(&mut text, "", sites.len(), limit)?;
     }
-    edges(&mut text, &report.edges)?;
-    diagnostics(&mut text, &report.basis)?;
+    edges(&mut text, &report.edges, rows)?;
+    diagnostics(&mut text, &report.basis, rows)?;
     Ok(text)
 }
-fn module(report: &navigation::Module, items: bool, graph: bool) -> Result<String> {
+fn module(report: &navigation::Module, items: bool, graph: bool, rows: Rows) -> Result<String> {
     let mut text = format!(
         "cargo atlas module — {} · {} subjects\n",
         report.path,
@@ -187,9 +187,11 @@ fn module(report: &navigation::Module, items: bool, graph: bool) -> Result<Strin
         if context.header.is_empty() {
             writeln!(text, "MISSING module header")?;
         }
-        for line in &context.header {
+        let limit = rows.limit(5);
+        for line in context.header.iter().take(limit) {
             writeln!(text, "//! {line}")?;
         }
+        more(&mut text, "", context.header.len(), limit)?;
         tally(&mut text, &report.path, context.tally)?;
         writeln!(
             text,
@@ -211,10 +213,11 @@ fn module(report: &navigation::Module, items: bool, graph: bool) -> Result<Strin
             context.unmentioned_names.join(", ")
         )?;
         if graph {
-            edges(&mut text, &context.edges)?;
+            edges(&mut text, &context.edges, rows)?;
         }
         if items {
-            for item in &context.items {
+            let limit = rows.limit(30);
+            for item in context.items.iter().take(limit) {
                 writeln!(
                     text,
                     "  {} {} {} {} · {}",
@@ -225,18 +228,16 @@ fn module(report: &navigation::Module, items: bool, graph: bool) -> Result<Strin
                     item.doc.as_deref().unwrap_or("MISSING doc comment")
                 )?;
             }
+            more(&mut text, "  ", context.items.len(), limit)?;
         }
     }
-    diagnostics(&mut text, &report.basis)?;
+    diagnostics(&mut text, &report.basis, rows)?;
     Ok(text)
 }
-fn edges(text: &mut String, edges: &[navigation::Edge]) -> Result<()> {
-    writeln!(
-        text,
-        "{} declaration co-mentions (first 8 shown):",
-        edges.len()
-    )?;
-    for edge in edges.iter().take(8) {
+fn edges(text: &mut String, edges: &[navigation::Edge], rows: Rows) -> Result<()> {
+    let limit = rows.limit(8);
+    writeln!(text, "{} declaration co-mentions:", edges.len())?;
+    for edge in edges.iter().take(limit) {
         writeln!(
             text,
             "  {}:{} {} -{}-> {} [{}]",
@@ -248,31 +249,28 @@ fn edges(text: &mut String, edges: &[navigation::Edge]) -> Result<()> {
             edge.resolution
         )?;
     }
-    if edges.len() > 8 {
-        writeln!(
-            text,
-            "  {} more; use --json for all observations",
-            edges.len() - 8
-        )?;
+    more(text, "  ", edges.len(), limit)
+}
+/// The tail of a text list of `total` rows that showed `limit`.
+fn more(text: &mut String, indent: &str, total: usize, limit: usize) -> Result<()> {
+    if total > limit {
+        writeln!(text, "{}", tail(indent, total - limit, &rerun_all(None)))?;
     }
     Ok(())
 }
-fn diagnostics(text: &mut String, basis: &navigation::Basis) -> Result<()> {
+fn diagnostics(text: &mut String, basis: &navigation::Basis, rows: Rows) -> Result<()> {
+    let limit = rows.limit(8);
     if !basis.diagnostics.is_empty() {
-        writeln!(
-            text,
-            "{} source limits (first 8 shown; --json retains all):",
-            basis.diagnostics.len()
-        )?;
+        writeln!(text, "{} source limits:", basis.diagnostics.len())?;
     }
-    for diagnostic in basis.diagnostics.iter().take(8) {
+    for diagnostic in basis.diagnostics.iter().take(limit) {
         let location = diagnostic.line.map_or_else(
             || diagnostic.file.clone(),
             |line| format!("{}:{line}", diagnostic.file),
         );
         writeln!(text, "source limit: {location}: {}", diagnostic.message)?;
     }
-    Ok(())
+    more(text, "", basis.diagnostics.len(), limit)
 }
 
 #[derive(Args)]
@@ -283,6 +281,8 @@ pub(super) struct ScopeArgs {
     output: crate::cli::output::form::Report,
     #[command(flatten)]
     population: PopulationArgs,
+    #[command(flatten)]
+    rows: Rows,
 }
 #[derive(Args)]
 pub(super) struct RelatedNameArgs {
@@ -295,6 +295,8 @@ pub(super) struct RelatedNameArgs {
     output: crate::cli::output::form::Report,
     #[command(flatten)]
     population: PopulationArgs,
+    #[command(flatten)]
+    rows: Rows,
 }
 #[derive(Args)]
 pub(super) struct ModuleArgs {
@@ -310,6 +312,8 @@ pub(super) struct ModuleArgs {
     /// Show declaration co-mentions; lexical, not a resolved call graph.
     #[arg(long)]
     graph: bool,
+    #[command(flatten)]
+    rows: Rows,
 }
 #[derive(Args)]
 pub(super) struct NameArgs {
@@ -319,6 +323,8 @@ pub(super) struct NameArgs {
     output: crate::cli::output::form::Report,
     #[command(flatten)]
     population: PopulationArgs,
+    #[command(flatten)]
+    rows: Rows,
 }
 #[derive(Args)]
 pub(super) struct DumpArgs {
@@ -346,6 +352,7 @@ pub(super) fn run_census(metadata: &cargo_metadata::Metadata, args: &ScopeArgs) 
         Question::Census(&args.scope),
         args.output.json(),
         false,
+        args.rows,
     )
 }
 pub(super) fn run_name(metadata: &cargo_metadata::Metadata, args: &RelatedNameArgs) -> Result<()> {
@@ -355,6 +362,7 @@ pub(super) fn run_name(metadata: &cargo_metadata::Metadata, args: &RelatedNameAr
         Question::Name(args.name.subject()),
         args.output.json(),
         args.relations,
+        args.rows,
     )
 }
 pub(super) fn run_related(metadata: &cargo_metadata::Metadata, args: &NameArgs) -> Result<()> {
@@ -364,6 +372,7 @@ pub(super) fn run_related(metadata: &cargo_metadata::Metadata, args: &NameArgs) 
         Question::Name(args.name.subject()),
         args.output.json(),
         true,
+        args.rows,
     )
 }
 pub(super) fn run_module(metadata: &cargo_metadata::Metadata, args: &ModuleArgs) -> Result<()> {
@@ -381,6 +390,7 @@ pub(super) fn run_module(metadata: &cargo_metadata::Metadata, args: &ModuleArgs)
         },
         args.output.json(),
         false,
+        args.rows,
     )
 }
 pub(super) fn run_dump(
@@ -428,6 +438,7 @@ pub(super) fn run_dump(
         Question::Dump,
         true,
         false,
+        Rows::default(),
     )
 }
 fn dispatch(
@@ -436,11 +447,12 @@ fn dispatch(
     question: Question<'_>,
     json: bool,
     relations: bool,
+    rows: Rows,
 ) -> Result<()> {
     if let Some(population) = population {
-        selected(metadata, population, question, json)
+        selected(metadata, population, question, json, rows)
     } else {
-        legacy(metadata, question, json, relations)
+        legacy(metadata, question, json, relations, rows)
     }
 }
 fn legacy(
@@ -448,6 +460,7 @@ fn legacy(
     question: Question<'_>,
     json_output: bool,
     relations: bool,
+    rows: Rows,
 ) -> Result<()> {
     let graph = cargo_atlas::discovery::scan_metadata(metadata)?;
     let text = match question {
@@ -465,7 +478,16 @@ fn legacy(
             if json_output {
                 report_json("name", &result)?
             } else {
-                result.text(relations)
+                // With --relations each declaration carries a list, so fewer
+                // declarations share the page.
+                let cards = rows.limit(if relations { 4 } else { 10 });
+                let shown = cards.min(result.matches.len());
+                result.text_bounded(relations, cards, rows.nested(shown, 40), &|id| {
+                    id.map_or_else(
+                        || rerun_all(None),
+                        |id| narrower("name", &format!("{id} --relations")),
+                    )
+                })
             }
         }
         Question::Module { path, .. } => {
@@ -473,7 +495,12 @@ fn legacy(
             if json_output {
                 super::json(&result)?
             } else {
-                result.text()
+                let files = rows.limit(8);
+                let shown = files.min(result.files.len());
+                // 8 files of 3 declarations, or one file of 24, fill a page.
+                result.text_bounded(files, rows.nested(shown, 24), &|file| {
+                    file.map_or_else(|| rerun_all(None), |file| narrower("module", file))
+                })
             }
         }
         Question::Dump => super::json(&graph)?,

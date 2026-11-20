@@ -40,6 +40,19 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  bare revision, which stays first-class; two different revisions are
  refused (`atlas: give the revision once: REV or --vs REV`). `compare` takes
  `--vs REV` and `--at REV` for `--before` and `--after`.
+- Text output is bounded: each list shows at most `--rows N` rows (a default
+ per command, chosen so a default page stays within about 60 lines on Atlas
+ and on syn), and a list that leaves rows out ends with one line,
+ `… N more; <command>`, whose command shows the rest: the same run with
+ `--all`, or a narrower subject (`cargo atlas spans src/lib.rs --all`).
+ `--all` prints every row; `--rows` and `--all` conflict. Bounded: `orient`
+ (adds `--all`), `census`, `name`, `module`, `spans`, `concentration`,
+ `nontest-loc`, `comments`, `diff`, `moved`, `visibility`. JSON is never
+ bounded. `spans` now shows 8 files by default, with the items of each
+ sharing the page; `diff --items` shows each declaration's first line, not
+ its whole body. `orient`'s suggested commands say `--in`, not `--scope`.
+ **Library:** `Names::text_bounded`, `ModuleCard::text_bounded` and the
+ `queries::More` alias; `text()` is unchanged.
 - Superseded spellings (`--backend`, output `--format`, `--scope`, `--type`,
  `compare --before/--after`,
  a positional ROOT, `flow`'s positional ANCHOR, the `representations`

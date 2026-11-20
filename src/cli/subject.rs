@@ -393,15 +393,6 @@ impl Chosen {
             Self::Path(text) | Self::Package(text) | Self::Written(text) => Some(text),
         }
     }
-    /// The flag that selects this scope again, as the reader wrote it.
-    pub(crate) fn flag(&self) -> Option<String> {
-        match self {
-            Self::Workspace => None,
-            Self::Path(path) => Some(format!("--in {path}")),
-            Self::Package(name) => Some(format!("-p {name}")),
-            Self::Written(text) => Some(format!("--scope {text}")),
-        }
-    }
     /// For queries that read a path. A package reads as its directory when no
     /// other package's files are inside it; otherwise it is refused, since a
     /// path would read more than the package.

@@ -266,7 +266,7 @@ fn scope_and_its_old_spelling_read_the_same() {
     // A tail names the spelling that shows the rest.
     let tail = stdout(&atlas(dir, &["spans", "src", "--rows", "1"]));
     assert!(
-        tail.ends_with("to see them: cargo atlas spans --all --in src\n"),
+        tail.ends_with("… 2 more; cargo atlas spans src --all\n"),
         "{tail}"
     );
 }

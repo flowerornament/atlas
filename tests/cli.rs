@@ -757,9 +757,10 @@ fn per_file_listings_are_bounded_with_a_tail_that_says_how_to_see_more() {
     };
     for command in ["spans", "concentration", "nontest-loc"] {
         let bounded = run_with(&[command, "--rows", "2"]);
+        let root = f.path().display();
         assert!(
-            bounded.contains(&format!(
-                "2 more files (4 in all); to see them: cargo atlas {command} --all"
+            bounded.ends_with(&format!(
+                "… 2 more; cargo atlas {command} --root {root} --all\n"
             )),
             "{command}: {bounded}"
         );
@@ -768,7 +769,7 @@ fn per_file_listings_are_bounded_with_a_tail_that_says_how_to_see_more() {
             all.contains("src/lib.rs") && all.contains("src/c.rs"),
             "{all}"
         );
-        assert!(!all.contains("more files"), "{all}");
+        assert!(!all.contains(" more; "), "{all}");
     }
 }
 

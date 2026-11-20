@@ -247,8 +247,40 @@ impl Census {
         out
     }
 }
+/// Where a bounded text list sends the reader for the rows it left out: the
+/// command for the whole list (`None`), or for one entry (`Some(id or path)`).
+pub type More<'a> = &'a dyn Fn(Option<&str>) -> String;
 impl Names<'_> {
     pub fn text(&self, related: bool) -> String {
+        self.render(related, usize::MAX, 30, &|_, hidden| {
+            format!("  ... {hidden} more; --json retains all relationships")
+        })
+    }
+    /// As `text`, with at most `cards` declarations and `relations`
+    /// relationships under each; a cut list ends with `… N more; ` and the
+    /// command `more` names.
+    pub fn text_bounded(
+        &self,
+        related: bool,
+        cards: usize,
+        relations: usize,
+        more: More<'_>,
+    ) -> String {
+        self.render(related, cards, relations, &|id, hidden| {
+            format!(
+                "{}… {hidden} more; {}",
+                if id.is_some() { "  " } else { "" },
+                more(id)
+            )
+        })
+    }
+    fn render(
+        &self,
+        related: bool,
+        cards: usize,
+        relations: usize,
+        tail: &dyn Fn(Option<&str>, usize) -> String,
+    ) -> String {
         // An impl block is not another thing with this name: count it under
         // the declarations, so one type and its impl are not "ambiguous".
         let impls = self
@@ -268,7 +300,7 @@ impl Names<'_> {
                 n => format!(", and {n} impl blocks"),
             }
         );
-        for card in &self.matches {
+        for card in self.matches.iter().take(cards) {
             let declaration = card.declaration;
             let kind: &str = match declaration.item_kind() {
                 Some(kind) => kind.keyword(),
@@ -302,7 +334,7 @@ impl Names<'_> {
                     .chain(card.incoming.iter().map(|r| ("incoming", *r)))
                     .chain(card.possible_incoming.iter().map(|r| ("possible", *r)))
                     .collect::<Vec<_>>();
-                for (direction, relation) in all.iter().take(30) {
+                for (direction, relation) in all.iter().take(relations) {
                     let _ = writeln!(
                         out,
                         "  {direction}: {} --{}--> {} [{}]",
@@ -312,11 +344,11 @@ impl Names<'_> {
                         relation.target
                     );
                 }
-                if all.len() > 30 {
+                if all.len() > relations {
                     let _ = writeln!(
                         out,
-                        "  ... {} more; --json retains all relationships",
-                        all.len() - 30
+                        "{}",
+                        tail(Some(&declaration.id), all.len() - relations)
                     );
                 }
             } else {
@@ -327,40 +359,68 @@ impl Names<'_> {
                 );
             }
         }
+        if self.matches.len() > cards {
+            let _ = writeln!(out, "\n{}", tail(None, self.matches.len() - cards));
+        }
         let _ = writeln!(out, "\n{}", self.basis);
         out
     }
 }
 impl ModuleCard<'_> {
     pub fn text(&self) -> String {
+        self.render(usize::MAX, 15, &|_, hidden| {
+            format!("  ... {hidden} more; --json retains all sites")
+        })
+    }
+    /// As `text`, with at most `files` files and `declarations` declarations
+    /// under each; a cut list ends with `… N more; ` and the command `more`
+    /// names (`Some(path)` for one file's declarations).
+    pub fn text_bounded(&self, files: usize, declarations: usize, more: More<'_>) -> String {
+        self.render(files, declarations, &|path, hidden| {
+            format!(
+                "{}… {hidden} more; {}",
+                if path.is_some() { "  " } else { "" },
+                more(path)
+            )
+        })
+    }
+    fn render(
+        &self,
+        files: usize,
+        declarations: usize,
+        tail: &dyn Fn(Option<&str>, usize) -> String,
+    ) -> String {
         let mut out = format!(
             "{}: {} physical files, {} incident lexical relationships\n",
             self.scope,
             self.files.len(),
             self.relationships.len()
         );
-        for file in &self.files {
-            let declarations: Vec<_> = file.declarations.iter().filter(|d| !d.test_only).collect();
+        for file in self.files.iter().take(files) {
+            let shown: Vec<_> = file.declarations.iter().filter(|d| !d.test_only).collect();
             let _ = writeln!(
                 out,
                 "\n{} ({} production declarations)",
                 file.path,
-                declarations.len()
+                shown.len()
             );
-            for declaration in declarations.iter().take(15) {
+            for declaration in shown.iter().take(declarations) {
                 let _ = writeln!(
                     out,
                     "  {}:{} {} {}",
                     file.path, declaration.line, declaration.kind, declaration.name
                 );
             }
-            if declarations.len() > 15 {
+            if shown.len() > declarations {
                 let _ = writeln!(
                     out,
-                    "  ... {} more; --json retains all sites",
-                    declarations.len() - 15
+                    "{}",
+                    tail(Some(&file.path), shown.len() - declarations)
                 );
             }
+        }
+        if self.files.len() > files {
+            let _ = writeln!(out, "\n{}", tail(None, self.files.len() - files));
         }
         let _ = writeln!(out, "\n{}", self.basis);
         out

@@ -3,6 +3,7 @@ pub(super) mod artifact;
 mod files;
 pub(super) mod form;
 pub(super) mod notice;
+pub(super) mod rows;
 
 use self::{
     files::{absolute, preflight, publish},

@@ -27,6 +27,8 @@ pub(crate) struct Options {
     citation_markers: Option<Vec<String>>,
     #[command(flatten)]
     output: crate::cli::output::form::Report,
+    #[command(flatten)]
+    rows: crate::cli::output::rows::Rows,
 }
 pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Result<()> {
     let snapshot = atlas_lib::discovery::snapshot_metadata(metadata)?;
@@ -75,7 +77,8 @@ pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Res
         if report.citation_markers.is_none() {
             println!("Citation checking not requested; pass --citation-markers to apply it.");
         }
-        for finding in &report.findings {
+        let limit = options.rows.limit(40);
+        for finding in report.findings.iter().take(limit) {
             match finding {
                 documentation::Finding::MissingHeader { file } => {
                     println!("{file}: no //! line documentation in the selected header scope");
@@ -91,6 +94,16 @@ pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Res
                 // A finding this text output does not know is still shown.
                 other => println!("{other:?}"),
             }
+        }
+        if report.findings.len() > limit {
+            println!(
+                "{}",
+                crate::cli::output::rows::tail(
+                    "",
+                    report.findings.len() - limit,
+                    &crate::cli::output::rows::rerun_all(None)
+                )
+            );
         }
     }
     Ok(())

@@ -256,7 +256,7 @@ fn a_package_scope_counts_that_package_and_follow_ups_use_its_directory() {
     assert_eq!(report["packages"].as_array().unwrap().len(), 1);
     assert_eq!(
         strings(&section(&report, "mass")["all"]),
-        ["nontest-loc", "--scope", "base"]
+        ["nontest-loc", "--in", "base"]
     );
     for row in section(&report, "mass")["rows"].as_array().unwrap() {
         assert!(row["path"].as_str().unwrap().starts_with("base/"), "{row}");
