@@ -4,7 +4,7 @@ resolver = "3"
 
 [package]
 name = "cargo-atlas"
-version = "0.17.1"
+version = "0.18.0"
 edition = "2024"
 rust-version = "1.99.1"
 description = "Answer questions about how a Rust codebase is put together: navigation, change review, diagrams and architecture checks"
@@ -37,7 +37,7 @@ include = [
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-atlas-lib = { version = "0.7.1", path = "crates/atlas-lib", features = ["clap"] }
+atlas-lib = { version = "0.8.0", path = "crates/atlas-lib", features = ["clap"] }
 cargo_metadata = "0.23.1"
 clap = { version = "4.6.7", features = ["derive"] }
 serde = { version = "1.0.229", features = ["derive"] }

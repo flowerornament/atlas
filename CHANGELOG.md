@@ -4,8 +4,19 @@ Atlas has two packages: `cargo-atlas` (the `cargo atlas` command and its
 library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 `atlas-core`. Versions below name the package they apply to.
 
-## Unreleased
+## cargo-atlas 0.18.0 / atlas-lib 0.8.0
 
+- **Breaking (library):** `source_index::Target::Summarized` holds a
+ `Summary { kind, subject, message }` instead of a `String`; its `Display`
+ is the message. New: `model::DiagnosticCode`, `Diagnostic::code`,
+ `source_index::{Summary, SummaryKind}`, `UnknownCall::reasons`.
+- **Breaking (CLI):** the `representations` command is now `types`, and its
+ Pele output defaults to `target/atlas/types.svg`. `representations` still
+ works as an alias.
+- **Breaking (library):** cargo-atlas's `representations` view module is now
+ `types` (the old path remains as a hidden re-export), and
+ `render::View::Representations` is `View::Types`. atlas-lib's
+ `representations` module and `Analysis::representations()` are unchanged.
 - **Library:** `FactsCache::open` no longer creates the cache directory or
  prunes it. That happens on first use by a capture of a workspace that does
  not contain the directory, so a library caller can no longer create a
@@ -21,10 +32,6 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  `unknown_call.kind` and `subject`. docs/facts.md lists every code.
 - `orient` groups diagnostics and unknown-call reasons by these codes, each
  with its first message as an example, instead of by message text.
-- **Breaking (library):** `source_index::Target::Summarized` holds a
- `Summary { kind, subject, message }` instead of a `String`; its `Display`
- is the message. New: `model::DiagnosticCode`, `Diagnostic::code`,
- `source_index::{Summary, SummaryKind}`, `UnknownCall::reasons`.
 - `Self` in a lexical mention now means the type it names: in an impl's
  items, the impl's self type (by the name it ends in); in a struct or enum,
  that type. It becomes a mention with spelling `Self`, resolved as if that
@@ -63,13 +70,6 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  as `modules`, when it has any, so a graph read back from JSON keeps them and
  `MODULE::NAME` selectors match through them. **Library:**
  `model::Declaration::modules` is public.
-- **Breaking (CLI):** the `representations` command is now `types`, and its
- Pele output defaults to `target/atlas/types.svg`. `representations` still
- works as an alias.
-- **Breaking (library):** cargo-atlas's `representations` view module is now
- `types` (the old path remains as a hidden re-export), and
- `render::View::Representations` is `View::Types`. atlas-lib's
- `representations` module and `Analysis::representations()` are unchanged.
 - New `orient` command, the place to start on an unfamiliar project. One page
  lists the Cargo targets, non-test lines by directory, the largest blocks, the
  most-called functions (resolved calls only, a lower bound) and the
