@@ -9,6 +9,7 @@ mod documentation;
 mod flow;
 mod map;
 mod navigation;
+mod orient;
 mod output;
 mod overview;
 mod policy;
@@ -34,7 +35,7 @@ pub(crate) fn run() -> Result<()> {
     }
     let selected_root = cli.selected_root()?;
     let metadata = cargo_metadata::MetadataCommand::new()
-        .current_dir(selected_root)
+        .current_dir(&selected_root)
         .no_deps()
         .exec()?;
     let root = metadata.workspace_root.as_std_path().canonicalize()?;
@@ -68,6 +69,7 @@ pub(crate) fn run() -> Result<()> {
         }
         Command::Program(options) => program::run(&root, &metadata, &options),
         Command::Map(options) => map::run(&root, &metadata, &options),
+        Command::Orient(options) => orient::run(&metadata, &selected_root, &options),
         Command::Dump(args) => navigation::run_dump(&metadata, &args),
         Command::Census(args) => navigation::run_census(&metadata, &args),
         Command::Name(args) => navigation::run_name(&metadata, &args),

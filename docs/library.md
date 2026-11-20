@@ -59,6 +59,7 @@ new changes.
 | Read a workspace | `discovery::snapshot_workspace(root)`, or `snapshot_metadata(&metadata)` if you already ran `cargo metadata` |
 | Ask qualified questions | `analysis::Analysis::new(&snapshot)` |
 | Look up names and modules | `queries::navigation::Navigation` |
+| Get a one-page arrival report | `queries::orient::orient(&snapshot, scope, rows)` |
 | Measure files | `review::outline` |
 | Compare two versions | `review::diff`, `review::moves::moved`, `review::moves::visibility` |
 | Read an earlier commit | `revision::Revision::read` |

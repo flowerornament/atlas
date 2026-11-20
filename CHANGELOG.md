@@ -13,6 +13,18 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  `types` (the old path remains as a hidden re-export), and
  `render::View::Representations` is `View::Types`. atlas-lib's
  `representations` module and `Analysis::representations()` are unchanged.
+- New `orient` command, the place to start on an unfamiliar project. One page
+ lists the Cargo targets, non-test lines by directory, the largest blocks, the
+ most-called functions (resolved calls only, a lower bound) and the
+ most-mentioned types, then what Atlas could not resolve, including the share
+ of call sites it resolved. Each list states its unit, order and total, and
+ ends with the command that shows the rest. The page closes with follow-up
+ commands built from the names it found; a tie or several binaries get a
+ placeholder instead of a pick. `--scope` takes a package or a path, `--rows`
+ sets the list length, `--json` gives the same report with a stable section
+ `id`. `cargo atlas --help` now starts with it and a question-to-command map.
+- **Library:** `queries::orient::orient` builds the same report.
+
 - A trait impl for a type the workspace does not declare, such as
  `impl From<Slot> for usize` or `impl Root for f64`, no longer makes a call
  like `usize::from(port)` or `self.sqrt()` resolve to the workspace's impl.

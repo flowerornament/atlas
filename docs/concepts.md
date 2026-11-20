@@ -131,11 +131,18 @@ no half-finished image is left behind.
 
 | Task | Commands |
 | --- | --- |
-| Find your way around | `census`, `name`, `module`, `dump` |
+| Find your way around | `orient`, `census`, `name`, `module`, `dump` |
 | Review a change | `diff`, `moved`, `visibility`, `compare` |
 | Measure | `spans`, `concentration`, `nontest-loc`, `comments` |
 | Draw diagrams | `dependencies`, `types`, `flow`, `overview`, `program`, `map` |
 | Check architecture | `delta`, `stages`, `policy`, `seams` |
+
+`cargo atlas orient` is the place to start on an unfamiliar project. It prints
+one page: the Cargo targets, where the non-test lines are, the largest blocks,
+the most-called functions and most-mentioned types, and how many calls Atlas
+could resolve. Each list states its unit and order and names the command that
+shows the rest, and the page ends with commands to run next. Tied rows and
+several binaries get a placeholder rather than an arbitrary pick.
 
 `cargo atlas --help` lists every command. Each command's `--help` ends with a short
 note: the question it answers, what it counts or what evidence it uses, and an

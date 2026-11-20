@@ -299,6 +299,8 @@ each check.
 
 ## Next steps
 
+- Run `cargo atlas orient` in your own project: one page of where its code is
+  and what to run next.
 - Run `cargo atlas census` and `cargo atlas dependencies --relation calls` in your own
   project.
 - Read [how Atlas works](concepts.md) to understand scopes, populations and the

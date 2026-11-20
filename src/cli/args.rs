@@ -1,7 +1,7 @@
 //! Command grammar and compatibility positional roots; operational work belongs to each command.
 use super::{
-    comparison, delta, dependencies, documentation, flow, map, navigation, overview, policy,
-    program, review, stages, types,
+    comparison, delta, dependencies, documentation, flow, map, navigation, orient, overview,
+    policy, program, review, stages, types,
 };
 use cargo_atlas::Result;
 use clap::{Parser, Subcommand};
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
     version,
     bin_name = "cargo atlas",
     about = "Answer questions about how a Rust codebase is put together",
-    after_help = "Find your way around: census, name, module, dump\nReview a change: diff, moved, visibility, compare\nMeasure: spans, concentration, nontest-loc, comments\nDraw diagrams: dependencies, types, flow, overview, program, map\nCheck architecture: delta, stages, policy, seams\n\nCommands read the Cargo project in the current directory, or the one given with --root.\nAdd --json for machine-readable output; flow and map write their JSON evidence beside the drawing instead. Atlas never changes the code it reads.\nGuides: https://github.com/flowerornament/atlas#documentation"
+    after_help = "Start here: orient (entry points, where the code is, and what Atlas could not resolve)\nAsk by question: what is X, who names X: name · what is in a directory: module · steps in a function: flow · who calls whom: dependencies · what takes or returns a type: types · what changed: diff, moved, visibility · rules: policy, delta\n\nFind your way around: orient, census, name, module, dump\nReview a change: diff, moved, visibility, compare\nMeasure: spans, concentration, nontest-loc, comments\nDraw diagrams: dependencies, types, flow, overview, program, map\nCheck architecture: delta, stages, policy, seams\n\nCommands read the Cargo project in the current directory, or the one given with --root.\nAdd --json for machine-readable output; flow and map write their JSON evidence beside the drawing instead. Atlas never changes the code it reads.\nGuides: https://github.com/flowerornament/atlas#documentation"
 )]
 pub(super) struct Cli {
     /// Cargo project directory; defaults to the current directory. Positional ROOT remains supported.
@@ -43,6 +43,11 @@ impl Cli {
 }
 #[derive(Subcommand)]
 pub(super) enum Command {
+    /// Start here: entry points, where the code is, and what Atlas could not resolve.
+    #[command(
+        after_help = "Answers: what is this project, where is its code, and how far can Atlas resolve it?\nOne page of measured lists. Each states its unit, its order and its total, and names the command that shows the rest; tied rows are reported, never picked. It ends with commands to run next, built from the names it found.\nEvidence: Cargo targets, non-test lines, resolved calls (a lower bound) and lexical type mentions. Nothing is ranked by importance.\nExample: cargo atlas orient --scope src --rows 8"
+    )]
+    Orient(orient::Options),
     /// Count the files and declarations in a project.
     #[command(
         after_help = "Answers: what does this project contain?\nCounts: files and declarations, by kind. Without --population, every declaration Atlas found; with it, only items of that visibility outside test modules.\nEvidence: names written in the source (lexical). Counts are not proof that code is used.\nExample: cargo atlas census --scope src --population pub-ish"

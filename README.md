@@ -177,6 +177,7 @@ git clone https://github.com/flowerornament/atlas.git
 cp -r atlas/examples/tutorial /tmp/tutorial
 cd /tmp/tutorial
 
+cargo atlas orient                 # where do I start? targets, code mass, what Atlas can't resolve
 cargo atlas census                 # what does this project contain?
 cargo atlas name Tree              # where is Tree defined, and what uses it?
 cargo atlas module src/check.rs    # what is in this file?

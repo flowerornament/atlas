@@ -12,6 +12,7 @@ use std::{
 };
 pub mod documentation;
 pub mod navigation;
+pub mod orient;
 pub mod review;
 pub(crate) mod selector;
 
