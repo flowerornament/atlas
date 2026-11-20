@@ -16,7 +16,7 @@ dispatch), it is reported as unknown rather than as absent.
 
 ```toml
 [dependencies]
-atlas-lib = "0.8"
+atlas-lib = "0.9"
 ```
 
 ```rust,no_run

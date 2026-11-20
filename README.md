@@ -141,7 +141,7 @@ You need Rust 1.99.1 or newer.
 
 ```sh
 cargo install --locked cargo-atlas
-cargo atlas --version    # should print "cargo-atlas 0.18.1" or later
+cargo atlas --version    # should print "cargo-atlas 0.19.0" or later
 ```
 
 Atlas is a Cargo subcommand: run it as `cargo atlas` from inside your project.

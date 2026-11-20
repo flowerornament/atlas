@@ -4,7 +4,7 @@ Atlas has two packages: `cargo-atlas` (the `cargo atlas` command and its
 library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 `atlas-core`. Versions below name the package they apply to.
 
-## Unreleased
+## cargo-atlas 0.19.0 / atlas-lib 0.9.0
 
 0.19 gives every command one grammar. The bare argument is the command's
 subject (a scope, a name, a function, the types or a revision), `--in` and
