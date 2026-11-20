@@ -10,7 +10,7 @@ pub(crate) mod scan;
 mod syntax;
 pub(crate) mod text;
 pub(crate) mod workspace;
-pub(crate) use items::enclosing_modules;
+pub(crate) use items::InlineModules;
 pub use items::{Field, Item, ItemKind, TestRegions, Visibility};
 pub use lexical::RustSourceProjection;
 pub use scan::non_test_loc;

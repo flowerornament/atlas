@@ -53,11 +53,17 @@ struct LoopTarget {
     name: Option<String>,
     header: String,
     exit: String,
+    kind: TargetKind,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TargetKind {
+    /// A loop body: any `break` or `continue` may reach it.
+    Loop,
     /// A `while` condition: only a labelled transfer may name this loop, and
     /// an unlabelled one there is not valid Rust, so it reaches no target.
-    labelled_only: bool,
+    WhileHeader,
     /// A labelled block: only `break 'label` leaves it; it has no `continue`.
-    block: bool,
+    Block,
 }
 impl<'a> Builder<'a> {
     fn new(index: Option<&'a Index>, budget: usize, detail: Detail) -> Self {
@@ -255,27 +261,17 @@ impl<'a> Builder<'a> {
                 return vec![];
             }
             let label = match step {
-                Step::Action {
-                    label, fallible, ..
+                Step::Action { fallible, .. } => {
+                    format!("{}{}", step.label(), if *fallible { " ?" } else { "" })
                 }
-                | Step::Opaque {
-                    label, fallible, ..
-                } => format!(
-                    "{}{}{}",
-                    if matches!(step, Step::Opaque { .. }) {
-                        "[opaque] "
-                    } else {
-                        ""
-                    },
-                    label,
-                    if *fallible { " ?" } else { "" }
-                ),
-                Step::Borrow { label, .. }
-                | Step::Branch { label, .. }
-                | Step::Match { label, .. }
-                | Step::Loop { label, .. }
-                | Step::Block { label, .. }
-                | Step::Exit { label, .. } => label.clone(),
+                Step::Opaque { fallible, .. } => {
+                    format!(
+                        "[opaque] {}{}",
+                        step.label(),
+                        if *fallible { " ?" } else { "" }
+                    )
+                }
+                _ => step.label().to_owned(),
             };
             let id = self.node(&label, step.site());
             self.connect(tails, &id);
@@ -356,8 +352,7 @@ impl<'a> Builder<'a> {
                             name: target.clone(),
                             header: id.clone(),
                             exit: exit.clone(),
-                            labelled_only: true,
-                            block: false,
+                            kind: TargetKind::WhileHeader,
                         });
                     }
                     let tested = self.steps(head, vec![id.clone()]);
@@ -383,8 +378,7 @@ impl<'a> Builder<'a> {
                         name: target.clone(),
                         header: id.clone(),
                         exit: exit.clone(),
-                        labelled_only: false,
-                        block: false,
+                        kind: TargetKind::Loop,
                     });
                     let ends = self.steps(body, vec![gate]);
                     self.loops.pop();
@@ -399,8 +393,7 @@ impl<'a> Builder<'a> {
                         name: Some(target.clone()),
                         header: id.clone(),
                         exit: exit.clone(),
-                        labelled_only: true,
-                        block: true,
+                        kind: TargetKind::Block,
                     });
                     let ends = self.steps(body, vec![id.clone()]);
                     self.loops.pop();
@@ -417,11 +410,16 @@ impl<'a> Builder<'a> {
                             // An unlabelled transfer never names a block.
                             .find(|t| match name {
                                 Some(n) => t.name.as_ref() == Some(n),
-                                None => !t.block,
+                                None => t.kind != TargetKind::Block,
                             })
-                            .filter(|t| name.is_some() || !t.labelled_only)
                             // `continue 'label` cannot name a block.
-                            .filter(|t| !(t.block && matches!(control, ExitKind::Continue(_))))
+                            .filter(|t| {
+                                !matches!(
+                                    (name, t.kind, control),
+                                    (None, TargetKind::WhileHeader, _)
+                                        | (_, TargetKind::Block, ExitKind::Continue(_))
+                                )
+                            })
                             .map(|t| {
                                 if matches!(control, ExitKind::Break(_)) {
                                     t.exit.clone()

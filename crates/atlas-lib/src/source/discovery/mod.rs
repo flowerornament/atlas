@@ -361,6 +361,7 @@ fn read_metadata(
             for item in source.outline().iter().filter(|item| item.kind.declares()) {
                 *sites.entry((item.line, &item.name)).or_insert(0usize) += 1;
             }
+            let inline = crate::source::InlineModules::of(source.outline());
             let declarations = source
                 .outline()
                 .iter()
@@ -384,7 +385,8 @@ fn read_metadata(
                         || !crate::population::TestSelection::Production
                             .admits_offset(source, item.syntax_span.start),
                     block: Arc::clone(&item.declaration_block),
-                    modules: crate::source::enclosing_modules(source.outline(), item)
+                    modules: inline
+                        .enclosing(item)
                         .into_iter()
                         .map(str::to_owned)
                         .collect(),

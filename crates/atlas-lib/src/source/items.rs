@@ -213,21 +213,28 @@ impl Item {
     }
 }
 
-/// The inline `mod` blocks in `outline` that enclose `item`, outermost first.
-pub(crate) fn enclosing_modules<'a>(outline: &'a [Item], item: &Item) -> Vec<&'a str> {
-    let mut found: Vec<_> = outline
-        .iter()
-        .filter(|module| {
-            module.kind == ItemKind::Mod
-                && module.syntax_span.start < item.syntax_span.start
-                && item.syntax_span.end <= module.syntax_span.end
-        })
-        .collect();
-    found.sort_by_key(|module| module.syntax_span.start);
-    found
-        .into_iter()
-        .map(|module| module.name.as_str())
-        .collect()
+/// A file's inline `mod` blocks, in source order, read once per file.
+pub(crate) struct InlineModules<'a>(Vec<&'a Item>);
+impl<'a> InlineModules<'a> {
+    pub(crate) fn of(outline: &'a [Item]) -> Self {
+        let mut modules: Vec<_> = outline
+            .iter()
+            .filter(|item| item.kind == ItemKind::Mod)
+            .collect();
+        modules.sort_by_key(|module| module.syntax_span.start);
+        Self(modules)
+    }
+    /// The inline `mod` blocks that enclose `item`, outermost first.
+    pub(crate) fn enclosing(&self, item: &Item) -> Vec<&'a str> {
+        self.0
+            .iter()
+            .filter(|module| {
+                module.syntax_span.start < item.syntax_span.start
+                    && item.syntax_span.end <= module.syntax_span.end
+            })
+            .map(|module| module.name.as_str())
+            .collect()
+    }
 }
 
 #[non_exhaustive]

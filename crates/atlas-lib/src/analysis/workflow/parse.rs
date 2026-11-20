@@ -115,16 +115,7 @@ impl Reader<'_> {
                         if let Step::Action { binding, .. } = step {
                             *binding = Some(self.text(local.pat.span()));
                         }
-                        let label = match step {
-                            Step::Borrow { label, .. }
-                            | Step::Action { label, .. }
-                            | Step::Match { label, .. }
-                            | Step::Branch { label, .. }
-                            | Step::Loop { label, .. }
-                            | Step::Block { label, .. }
-                            | Step::Exit { label, .. }
-                            | Step::Opaque { label, .. } => label,
-                        };
+                        let label = step.label_mut();
                         *label = format!("{} = {label}", self.text(local.pat.span()));
                     }
                     out.extend(steps);

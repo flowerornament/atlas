@@ -153,6 +153,31 @@ impl Step {
             | Self::Opaque { site, .. } => site,
         }
     }
+    /// The step's own label, without the fallibility or opaque markers.
+    pub fn label(&self) -> &str {
+        match self {
+            Self::Borrow { label, .. }
+            | Self::Action { label, .. }
+            | Self::Branch { label, .. }
+            | Self::Match { label, .. }
+            | Self::Loop { label, .. }
+            | Self::Block { label, .. }
+            | Self::Exit { label, .. }
+            | Self::Opaque { label, .. } => label,
+        }
+    }
+    pub(super) fn label_mut(&mut self) -> &mut String {
+        match self {
+            Self::Borrow { label, .. }
+            | Self::Action { label, .. }
+            | Self::Branch { label, .. }
+            | Self::Match { label, .. }
+            | Self::Loop { label, .. }
+            | Self::Block { label, .. }
+            | Self::Exit { label, .. }
+            | Self::Opaque { label, .. } => label,
+        }
+    }
 }
 /// A source call observation. Receiver dispatch is unresolved until supported by source types.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -304,28 +329,18 @@ impl Workflow {
 fn write_steps(out: &mut String, steps: &[Step], depth: usize) {
     for step in steps {
         let pad = "  ".repeat(depth);
-        let (label, marker) = match step {
-            Step::Action {
-                label, fallible, ..
-            } => (label.as_str(), if *fallible { " ?" } else { "" }),
-            Step::Borrow { label, .. }
-            | Step::Branch { label, .. }
-            | Step::Match { label, .. }
-            | Step::Loop { label, .. }
-            | Step::Block { label, .. }
-            | Step::Exit { label, .. } => (label.as_str(), ""),
-            Step::Opaque {
-                label, fallible, ..
-            } => (
-                label.as_str(),
-                if *fallible {
-                    " ? [opaque]"
-                } else {
-                    " [opaque]"
-                },
-            ),
+        let marker = match step {
+            Step::Action { fallible: true, .. } => " ?",
+            Step::Opaque { fallible: true, .. } => " ? [opaque]",
+            Step::Opaque { .. } => " [opaque]",
+            _ => "",
         };
-        let _ = writeln!(out, "{pad}-> {label}{marker} [{}]", step.site().link());
+        let _ = writeln!(
+            out,
+            "{pad}-> {}{marker} [{}]",
+            step.label(),
+            step.site().link()
+        );
         match step {
             Step::Branch { arms, .. } => {
                 for arm in arms {

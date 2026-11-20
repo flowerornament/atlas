@@ -17,12 +17,13 @@ impl CachedSource {
     pub(super) fn source(&self) -> &crate::source::Source {
         &self.source
     }
+    fn parse(&self, path: &str) -> std::result::Result<syn::File, String> {
+        crate::source::parse_file(self.source.text())
+            .map_err(|error| format!("parse source {path}: {error}"))
+    }
     pub(super) fn ast(&self, path: &str) -> Result<&syn::File> {
         self.ast
-            .get_or_init(|| {
-                crate::source::parse_file(self.source.text())
-                    .map_err(|error| format!("parse source {path}: {error}"))
-            })
+            .get_or_init(|| self.parse(path))
             .as_ref()
             .map_err(|error| error.clone().into())
     }
@@ -42,8 +43,6 @@ impl CachedSource {
             .workflow
             .get_or_init(|| workflow::read_ast(&self.source, path, ast, tests)))
     }
-}
-impl CachedSource {
     /// Run `visit` over this file's syntax and cache its workflow facts. A file
     /// not parsed before is parsed for this call only, so a pass over every
     /// file holds one syntax tree at a time instead of all of them.
@@ -57,13 +56,9 @@ impl CachedSource {
             self.workflow(path, tests)?;
             return Ok(visit(self.ast(path)?));
         }
-        let ast = crate::source::parse_file(self.source.text())
-            .map_err(|error| format!("parse source {path}: {error}"))?;
-        if self.workflow.get().is_none() {
-            let _ = self
-                .workflow
-                .set(workflow::read_ast(&self.source, path, &ast, tests));
-        }
+        let ast = self.parse(path)?;
+        self.workflow
+            .get_or_init(|| workflow::read_ast(&self.source, path, &ast, tests));
         Ok(visit(&ast))
     }
 }

@@ -1,7 +1,7 @@
 //! Source-body control and bounded expansion; raw workflow evidence stays distinct from presentation.
 use super::{
     json,
-    output::{self, Backend, RenderOptions, protected_paths, render},
+    output::{self, Backend, RenderOptions, graph_sources, protected_paths, render},
     profile::architecture,
 };
 use cargo_atlas::{
@@ -78,8 +78,7 @@ pub(super) fn run(
     };
     // Depth zero reads only the selected bodies; its inputs are protected
     // from a path walk rather than a capture of the whole workspace.
-    let mut sources = Vec::new();
-    let (flows, mut diagram) = if options.depth > 0 {
+    let (flows, mut diagram, sources) = if options.depth > 0 {
         let path = options
             .path
             .as_deref()
@@ -89,19 +88,13 @@ pub(super) fn run(
             .as_deref()
             .ok_or("--depth needs --function")?;
         let snapshot = discovery::snapshot_metadata(metadata)?;
-        sources.extend(
-            snapshot
-                .graph()
-                .files
-                .iter()
-                .map(|file| metadata.workspace_root.join(&file.path).into_std_path_buf()),
-        );
+        let sources: Vec<_> = graph_sources(metadata, snapshot.graph()).collect();
         let analysis = atlas_lib::analysis::Analysis::new(&snapshot)?;
         let (flow, diagram) =
             analysis.expanded_with_detail(path, function, options.depth, options.detail)?;
-        (vec![(function.to_owned(), flow)], diagram)
+        (vec![(function.to_owned(), flow)], diagram, sources)
     } else {
-        sources = discovery::source_paths(metadata)?;
+        let sources = discovery::source_paths(metadata)?;
         let selections: Vec<_> = anchors
             .iter()
             .map(|a| (a.path.as_str(), a.function.as_str()))
@@ -112,7 +105,7 @@ pub(super) fn run(
             .map(|(a, f)| (a.name.clone(), f))
             .collect();
         let diagram = workflow_diagram(&flows, options.detail)?;
-        (flows, diagram)
+        (flows, diagram, sources)
     };
     let query = Query {
         focus: selected_anchor

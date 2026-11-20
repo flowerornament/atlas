@@ -110,15 +110,15 @@ impl Navigation<'_> {
         let mut defining = BTreeSet::new();
         for package in &self.workspace.crates {
             for file in &package.files {
-                let outline = file.source.outline();
+                let modules = crate::source::InlineModules::of(file.source.outline());
                 for item in file.items(TestSelection::OutsideTestModules) {
-                    let inline = crate::source::enclosing_modules(outline, item);
+                    let inline = || modules.enclosing(item);
                     if item.kind == ItemKind::PubUse {
                         let Some(name) = selector.name() else {
                             continue;
                         };
                         // A re-export is selected by its own module path.
-                        if selector.admits(name, &file.rel, item.line, None, &inline)
+                        if selector.admits(name, &file.rel, item.line, None, inline)
                             && file.source.import_for(item).is_some_and(|import| {
                                 import.bindings.as_ref().is_ok_and(|bindings| {
                                     bindings.iter().any(|binding| {
@@ -129,7 +129,7 @@ impl Navigation<'_> {
                         {
                             reexports.push(Site::of(&package.name, &file.rel, item));
                         }
-                    } else if selector.admits(&item.name, &file.rel, item.line, None, &inline) {
+                    } else if selector.admits(&item.name, &file.rel, item.line, None, inline) {
                         let site = Site::of(&package.name, &file.rel, item);
                         if item.kind == ItemKind::Impl {
                             impls.push(site);

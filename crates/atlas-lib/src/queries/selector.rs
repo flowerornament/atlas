@@ -48,14 +48,15 @@ impl<'a> Selector<'a> {
     }
 
     /// Whether a declaration named `name` at `file:line:column`, inside the
-    /// inline modules `inline` (outermost first), is selected.
-    pub(crate) fn admits(
+    /// inline modules `inline` returns (outermost first), is selected.
+    /// `inline` runs only for a declaration whose name matches.
+    pub(crate) fn admits<'s>(
         &self,
         name: &str,
-        file: &str,
+        file: &'s str,
         line: usize,
         column: Option<usize>,
-        inline: &[&str],
+        inline: impl FnOnce() -> Vec<&'s str>,
     ) -> bool {
         match self {
             Self::Path {
@@ -65,7 +66,7 @@ impl<'a> Selector<'a> {
                 if name != *wanted {
                     return false;
                 }
-                let path: Vec<&str> = file_modules(file).chain(inline.iter().copied()).collect();
+                let path: Vec<&str> = file_modules(file).chain(inline()).collect();
                 path.ends_with(modules)
             }
             Self::Site {
@@ -122,21 +123,21 @@ mod tests {
     #[test]
     fn paths_match_the_end_of_the_module_path() {
         let s = Selector::parse("parse::Tree").expect("selector");
-        assert!(s.admits("Tree", "src/parse.rs", 4, None, &[]));
-        assert!(s.admits("Tree", "src/parse/mod.rs", 4, None, &[]));
-        assert!(!s.admits("Tree", "src/check.rs", 4, None, &[]));
+        assert!(s.admits("Tree", "src/parse.rs", 4, None, Vec::new));
+        assert!(s.admits("Tree", "src/parse/mod.rs", 4, None, Vec::new));
+        assert!(!s.admits("Tree", "src/check.rs", 4, None, Vec::new));
         let s = Selector::parse("duplicate::a::repeated").expect("selector");
-        assert!(s.admits("repeated", "src/lib.rs", 7, None, &["duplicate", "a"]));
-        assert!(!s.admits("repeated", "src/lib.rs", 7, None, &["duplicate", "b"]));
+        assert!(s.admits("repeated", "src/lib.rs", 7, None, || vec!["duplicate", "a"]));
+        assert!(!s.admits("repeated", "src/lib.rs", 7, None, || vec!["duplicate", "b"]));
     }
 
     #[test]
     fn sites_and_bad_selectors() {
         let s = Selector::parse("src/s1.rs:1:11").expect("selector");
-        assert!(s.admits("x", "src/s1.rs", 1, Some(11), &[]));
-        assert!(!s.admits("x", "src/s1.rs", 1, Some(12), &[]));
+        assert!(s.admits("x", "src/s1.rs", 1, Some(11), Vec::new));
+        assert!(!s.admits("x", "src/s1.rs", 1, Some(12), Vec::new));
         let s = Selector::parse("src/s1.rs:3").expect("selector");
-        assert!(s.admits("x", "src/s1.rs", 3, Some(5), &[]));
+        assert!(s.admits("x", "src/s1.rs", 3, Some(5), Vec::new));
         for bad in ["", "a::", "::a", "a::::b"] {
             assert!(Selector::parse(bad).is_err(), "{bad:?}");
         }

@@ -281,14 +281,17 @@ pub(super) fn protected_inputs(
     graph: &cargo_atlas::model::SourceGraph,
     extra: impl IntoIterator<Item = PathBuf>,
 ) -> Vec<PathBuf> {
-    protected_paths(
-        metadata,
-        graph
-            .files
-            .iter()
-            .map(|file| metadata.workspace_root.join(&file.path).into_std_path_buf()),
-        extra,
-    )
+    protected_paths(metadata, graph_sources(metadata, graph), extra)
+}
+/// The captured graph's source files, as paths under the workspace root.
+pub(super) fn graph_sources<'a>(
+    metadata: &'a cargo_metadata::Metadata,
+    graph: &'a cargo_atlas::model::SourceGraph,
+) -> impl Iterator<Item = PathBuf> + 'a {
+    graph
+        .files
+        .iter()
+        .map(|file| metadata.workspace_root.join(&file.path).into_std_path_buf())
 }
 /// The manifests and configuration every command protects, plus `sources`
 /// and `extra`.

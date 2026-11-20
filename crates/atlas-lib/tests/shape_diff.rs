@@ -4,12 +4,7 @@ use atlas_lib::{discovery, review};
 use support::Fixture;
 
 fn capture(f: &Fixture) -> discovery::Snapshot {
-    let metadata = cargo_metadata::MetadataCommand::new()
-        .current_dir(f.path())
-        .no_deps()
-        .exec()
-        .expect("fixture metadata");
-    discovery::snapshot_metadata(&metadata).expect("snapshot")
+    discovery::snapshot_workspace(f.path()).expect("snapshot")
 }
 
 #[test]

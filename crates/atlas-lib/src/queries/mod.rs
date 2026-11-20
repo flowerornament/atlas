@@ -126,9 +126,11 @@ pub fn name<'a>(graph: &'a SourceGraph, name: &str) -> Result<Names<'a>> {
     let mut matches = Vec::new();
     for file in &graph.files {
         for declaration in file.declarations.iter().filter(|d| {
-            let inline: Vec<&str> = d.modules.iter().map(String::as_str).collect();
             !d.test_only
-                && (d.id == name || selector.admits(&d.name, &file.path, d.line, None, &inline))
+                && (d.id == name
+                    || selector.admits(&d.name, &file.path, d.line, None, || {
+                        d.modules.iter().map(String::as_str).collect()
+                    }))
         }) {
             let mut card = NameCard {
                 file: &file.path,
