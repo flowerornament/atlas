@@ -15,9 +15,8 @@ pub(crate) struct Options {
     /// Native schema-1 authored policy, relative to the workspace or absolute.
     #[arg(long)]
     policy: PathBuf,
-    /// Print the same answer as JSON, for scripts and agents.
-    #[arg(long)]
-    json: bool,
+    #[command(flatten)]
+    output: crate::cli::output::form::Report,
 }
 pub(crate) fn run(
     root: &Path,
@@ -36,7 +35,7 @@ pub(crate) fn run(
         .files(FileSelection::SourceTree)
         .map(|file| (&file.crate_name, &file.path, &file.content_fingerprint))
         .collect();
-    if options.json {
+    if options.output.json() {
         println!(
             "{}",
             crate::cli::json(&serde_json::json!({

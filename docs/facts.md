@@ -17,15 +17,15 @@ that `dump` (the lexical graph) and `dependencies`, `types` and `overview`
 
 ```sh
 cargo atlas facts                                   # one JSON document on stdout
-cargo atlas facts --format jsonl --out facts.jsonl  # one object per row
+cargo atlas facts --as jsonl --out facts.jsonl      # one object per row
 cargo atlas facts --families lexical                # skip the slower qualified analysis
 ```
 
-- **JSON** (`--format json`, the default) is one document: `schema`,
+- **JSON** (`--as json`, the default) is one document: `schema`,
   `families`, `limitations`, and `relations`, an object with one entry per
   relation holding its `family`, `columns`, `basis`, `unknowns` and `rows`.
   Each row is an array in column order.
-- **JSON Lines** (`--format jsonl`) starts with a header object (`schema`,
+- **JSON Lines** (`--as jsonl`) starts with a header object (`schema`,
   `families`, `limitations`); every later line is one row, an object with a
   `relation` key and one key per column.
 - `--out FILE` writes the export to a file. Atlas refuses a destination that
@@ -76,7 +76,7 @@ own source that answer overstates "unused" severalfold. Split it three ways
 instead:
 
 ```sh
-cargo atlas facts --format jsonl --out facts.jsonl
+cargo atlas facts --as jsonl --out facts.jsonl
 jq -s '
   (map(select(.relation == "call") | {key: .to, value: true}) | from_entries) as $called
   | (map(select(.relation == "unknown_call") | {key: (.spelling | split("::") | last), value: true}) | from_entries) as $spelled

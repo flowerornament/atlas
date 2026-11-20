@@ -62,7 +62,7 @@ pub(crate) fn run(
         &crate::cli::output::protected_inputs(metadata, graph, []),
         || options.output.render_view(View::Graph(&view.diagram)),
     )?;
-    if requested.is_none() && !options.output.json {
+    if requested.is_none() && !options.output.json() {
         narrowing_hint(metadata, graph);
     }
     Ok(())

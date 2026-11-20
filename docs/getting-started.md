@@ -180,7 +180,7 @@ RELATIONSHIPS
   [emit.rs] --signature names: emit.program : &Checked (1 site)--> [check.rs]
 ```
 
-If you have Node.js installed, add `--backend pele` to draw the same diagram
+If you have Node.js installed, add `--as svg` to draw the same diagram
 as an SVG image. Atlas saves it under `target/atlas/` and prints the path.
 
 ## 6. Follow a type

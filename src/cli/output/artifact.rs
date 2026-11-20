@@ -1,5 +1,9 @@
 //! Explicit artifacts and evidence share one collision check before any writes.
-use super::{Backend, files::publish};
+use super::{
+    Backend,
+    files::publish,
+    form::{As, formats},
+};
 use cargo_atlas::{
     Result,
     render::{Artifact, Theme, View},
@@ -12,10 +16,18 @@ use std::{
 #[derive(Args)]
 #[group(id = "artifact_output")]
 pub(crate) struct Options {
-    /// `ascii` draws in the terminal; `pele` draws an SVG image (needs
-    /// Node.js 20 or newer).
+    /// `text` draws in the terminal; `svg` draws an image (needs Node.js 20
+    /// or newer); `json` prints the evidence. --json is the same as --as json.
+    #[arg(
+        long = "as",
+        id = "as",
+        value_name = "FORMAT",
+        value_parser = formats(&[As::Text, As::Json, As::Svg])
+    )]
+    form: Option<As>,
+    /// Superseded by --as: `ascii` is --as text and `pele` is --as svg.
     #[arg(long, value_enum, default_value = "ascii")]
-    pub backend: Backend,
+    backend: Backend,
     /// Colours for Pele images.
     #[arg(long, value_enum, default_value_t)]
     pub theme: Theme,
@@ -29,11 +41,21 @@ pub(crate) struct Options {
     pub out: Option<PathBuf>,
     /// Print the same answer as JSON, for scripts and agents.
     #[arg(long)]
-    pub json: bool,
+    json: bool,
 }
 impl Options {
+    pub fn json(&self) -> bool {
+        self.json || self.form == Some(As::Json)
+    }
+    fn backend(&self) -> Backend {
+        match self.form {
+            Some(As::Svg | As::Html) => Backend::Pele,
+            Some(As::Text | As::Json | As::Jsonl) => Backend::Ascii,
+            None => self.backend,
+        }
+    }
     pub fn render_view(&self, view: View<'_>) -> Result<Artifact> {
-        self.backend.render_view(view, self.theme, self.bare)
+        self.backend().render_view(view, self.theme, self.bare)
     }
     pub fn emit(
         &self,
@@ -43,7 +65,7 @@ impl Options {
         protected: &[PathBuf],
         render: impl FnOnce() -> Result<Artifact>,
     ) -> Result<()> {
-        if self.json {
+        if self.json() {
             if self.out.is_some() {
                 return Err("--json writes stdout; omit --out".into());
             }
@@ -56,7 +78,7 @@ impl Options {
         }
         let artifact = render()?;
         let output = self.out.as_ref().map(|p| root.join(p)).or_else(|| {
-            matches!(self.backend, Backend::Pele)
+            matches!(self.backend(), Backend::Pele)
                 .then(|| root.join("target/atlas").join(format!("{name}.svg")))
         });
         let Some(output) = output else {

@@ -1,8 +1,13 @@
 //! Keep source payloads in ignored evidence, publish only bounded diagram artifacts.
 pub(super) mod artifact;
 mod files;
+pub(super) mod form;
+pub(super) mod notice;
 
-use self::files::{absolute, preflight, publish};
+use self::{
+    files::{absolute, preflight, publish},
+    form::{As, formats},
+};
 use cargo_atlas::{
     Result,
     diagram::{Diagram, Query},
@@ -59,10 +64,10 @@ impl Destination {
             query.view.label()
         );
         let path = options.out.as_ref().map(|p| root.join(p)).or_else(|| {
-            (options.backend == Backend::Pele).then(|| {
+            (options.backend() == Backend::Pele).then(|| {
                 root.join("target/atlas").join(format!(
                     "{base}.{}",
-                    if options.format == Format::Html {
+                    if options.format() == Format::Html {
                         "html"
                     } else {
                         "svg"
@@ -92,8 +97,8 @@ impl Destination {
             base,
             reference,
             protected,
-            pele: options.backend == Backend::Pele,
-            svg_companion: options.backend == Backend::Pele && options.format == Format::Html,
+            pele: options.backend() == Backend::Pele,
+            svg_companion: options.backend() == Backend::Pele && options.format() == Format::Html,
         }
     }
     pub fn prepare(
@@ -270,13 +275,23 @@ pub(super) enum Format {
 }
 #[derive(Args)]
 pub(super) struct RenderOptions {
-    /// `ascii` draws in the terminal; `pele` draws an image (needs Node.js 20
-    /// or newer).
+    /// `text` draws in the terminal; `svg` draws an image and `html` a page
+    /// with the image and its evidence (both need Node.js 20 or newer).
+    #[arg(
+        long = "as",
+        id = "as",
+        value_name = "FORMAT",
+        value_parser = formats(&[As::Text, As::Svg, As::Html])
+    )]
+    form: Option<As>,
+    /// Superseded by --as: `ascii` is --as text; `pele` is --as html, or
+    /// --as svg with --format svg.
     #[arg(long, value_enum, default_value = "ascii")]
-    pub(super) backend: Backend,
-    /// For `--backend pele`: an HTML page with the evidence, or the SVG alone.
+    backend: Backend,
+    /// Superseded by --as: for --backend pele, an HTML page with the
+    /// evidence, or the SVG alone.
     #[arg(long, value_enum, default_value = "html")]
-    pub(super) format: Format,
+    format: Format,
     /// Colours for Pele images and pages.
     #[arg(long, value_enum, default_value_t)]
     pub(super) theme: Theme,
@@ -289,11 +304,32 @@ pub(super) struct RenderOptions {
     pub(super) evidence_dir: Option<PathBuf>,
 }
 
+impl RenderOptions {
+    pub(super) fn backend(&self) -> Backend {
+        match self.form {
+            Some(As::Text) => Backend::Ascii,
+            Some(As::Svg | As::Html) => Backend::Pele,
+            Some(As::Json | As::Jsonl) | None => self.backend,
+        }
+    }
+    pub(super) fn format(&self) -> Format {
+        match self.form {
+            Some(As::Svg) => Format::Svg,
+            Some(As::Html) => Format::Html,
+            Some(As::Text | As::Json | As::Jsonl) | None => self.format,
+        }
+    }
+    /// `--as json`, where the command offers it (program).
+    pub(super) fn json(&self) -> bool {
+        self.form == Some(As::Json)
+    }
+}
+
 pub(super) fn render(options: &RenderOptions, diagram: &Diagram) -> Result<Artifact> {
-    match options.backend {
+    match options.backend() {
         Backend::Ascii => Ascii.render(diagram),
         Backend::Pele => Pele {
-            html: options.format == Format::Html,
+            html: options.format() == Format::Html,
             theme: options.theme,
             bare: false,
         }

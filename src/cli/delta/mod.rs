@@ -33,9 +33,8 @@ pub(crate) struct Options {
     /// Explicit features whose module remaps are permitted as project test support.
     #[arg(long, value_delimiter = ',')]
     test_support_features: Vec<String>,
-    /// Print the report as JSON. A REFUSE verdict is then data and exits successfully; UNAVAILABLE still fails.
-    #[arg(long)]
-    json: bool,
+    #[command(flatten)]
+    output: crate::cli::output::form::Report,
 }
 pub(crate) fn run(
     root: &Path,
@@ -111,7 +110,7 @@ pub(crate) fn run(
         &display,
         started.elapsed().as_millis(),
     );
-    if options.json {
+    if options.output.json() {
         println!("{}", crate::cli::json(&output)?);
         if report.status() == Status::Unavailable {
             return Err(

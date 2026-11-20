@@ -282,9 +282,8 @@ pub(super) struct ScopeArgs {
     scope: Option<String>,
     #[arg(long = "scope", conflicts_with = "scope")]
     named_scope: Option<String>,
-    /// Print the same answer as JSON, for scripts and agents.
-    #[arg(long)]
-    json: bool,
+    #[command(flatten)]
+    output: crate::cli::output::form::Report,
     #[command(flatten)]
     population: PopulationArgs,
 }
@@ -297,9 +296,8 @@ pub(super) struct RelatedNameArgs {
     /// Include incoming/outgoing approximate lexical co-mentions, not qualified uses.
     #[arg(long)]
     relations: bool,
-    /// Print the same answer as JSON, for scripts and agents.
-    #[arg(long)]
-    json: bool,
+    #[command(flatten)]
+    output: crate::cli::output::form::Report,
     #[command(flatten)]
     population: PopulationArgs,
 }
@@ -309,9 +307,8 @@ pub(super) struct ModuleArgs {
     /// Compatibility positional project root; prefer --root.
     pub(super) root: Option<PathBuf>,
     pub(super) name: String,
-    /// Print the same answer as JSON, for scripts and agents.
-    #[arg(long)]
-    json: bool,
+    #[command(flatten)]
+    output: crate::cli::output::form::Report,
     #[command(flatten)]
     population: PopulationArgs,
     /// Show every captured production item instead of the module summary alone.
@@ -327,9 +324,8 @@ pub(super) struct NameArgs {
     /// Compatibility positional project root; prefer --root.
     pub(super) root: Option<PathBuf>,
     pub(super) name: String,
-    /// Print the same answer as JSON, for scripts and agents.
-    #[arg(long)]
-    json: bool,
+    #[command(flatten)]
+    output: crate::cli::output::form::Report,
     #[command(flatten)]
     population: PopulationArgs,
 }
@@ -337,9 +333,8 @@ pub(super) struct NameArgs {
 pub(super) struct DumpArgs {
     /// Compatibility positional project root; prefer --root.
     pub(super) root: Option<PathBuf>,
-    /// Print the same answer as JSON, for scripts and agents.
-    #[arg(long)]
-    json: bool,
+    #[command(flatten)]
+    output: crate::cli::output::form::Report,
     #[command(flatten)]
     population: PopulationArgs,
     /// Add a `semantic` field: every production call read against this SCIP
@@ -359,7 +354,7 @@ pub(super) fn run_census(metadata: &cargo_metadata::Metadata, args: &ScopeArgs) 
         metadata,
         args.population.selected(),
         question,
-        args.json,
+        args.output.json(),
         false,
     )
 }
@@ -368,7 +363,7 @@ pub(super) fn run_name(metadata: &cargo_metadata::Metadata, args: &RelatedNameAr
         metadata,
         args.population.selected(),
         Question::Name(&args.name),
-        args.json,
+        args.output.json(),
         args.relations,
     )
 }
@@ -377,7 +372,7 @@ pub(super) fn run_related(metadata: &cargo_metadata::Metadata, args: &NameArgs) 
         metadata,
         args.population.selected(),
         Question::Name(&args.name),
-        args.json,
+        args.output.json(),
         true,
     )
 }
@@ -394,7 +389,7 @@ pub(super) fn run_module(metadata: &cargo_metadata::Metadata, args: &ModuleArgs)
             items: args.items,
             graph: args.graph,
         },
-        args.json,
+        args.output.json(),
         false,
     )
 }

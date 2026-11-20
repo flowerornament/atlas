@@ -19,10 +19,10 @@ The examples on this page use the [tutorial project](getting-started.md).
 ## Text and images
 
 Every diagram prints as text by default. To draw an image, add
-`--backend pele` (this needs Node.js 20 or newer):
+`--as svg` (this needs Node.js 20 or newer):
 
 ```sh
-cargo atlas dependencies --relation calls --backend pele
+cargo atlas dependencies --relation calls --as svg
 ```
 
 Atlas saves the image under `target/atlas/`; use `--out path/to/file.svg` to
@@ -33,14 +33,14 @@ choose another location. Atlas also saves:
 - a `.json` file with all the evidence, including things it could not resolve.
   `flow` and `map` write it under `target/atlas/`, or to `--evidence-dir`.
 
-`flow`, `map` and `program` wrap the image in an HTML page by default. Add
-`--format svg` to get the image alone.
+`flow`, `map` and `program` can also wrap the image in an HTML page with its
+evidence: use `--as html`.
 
 Images are dark by default. Add `--theme light` for dark text on a white
 background, for example to print a diagram or embed it in a light page:
 
 ```sh
-cargo atlas dependencies --relation calls --backend pele --theme light
+cargo atlas dependencies --relation calls --as svg --theme light
 ```
 
 The colours are written into the SVG itself, so the image looks the same in
@@ -98,8 +98,8 @@ them. Add `--all-facts` to list every file's facts.
 
 ```sh
 cargo atlas types --type Tree --panel producers
-cargo atlas types --type Tree,Checked --panel contracts --backend pele
-cargo atlas types --query pipeline.json --panel all --backend pele
+cargo atlas types --type Tree,Checked --panel contracts --as svg
+cargo atlas types --query pipeline.json --panel all --as svg
 ```
 
 A *representation* is a type that carries data through your program. This view
@@ -179,8 +179,8 @@ recursively.
 
 ```sh
 cargo atlas flow --path src/main.rs --function main
-cargo atlas flow --path src/main.rs --function main --depth 1 --backend pele
-cargo atlas flow --path src/main.rs --function main --detail control --backend pele
+cargo atlas flow --path src/main.rs --function main --depth 1 --as html
+cargo atlas flow --path src/main.rs --function main --detail control --as html
 ```
 
 `--function` takes the function's name, or a qualified name when the file has
@@ -244,7 +244,7 @@ operator overload does. The test file
 
 ```sh
 cargo atlas compare --before HEAD~1 --query pipeline.json
-cargo atlas compare --before v1.0.0 --after v1.1.0 --query pipeline.json --backend pele
+cargo atlas compare --before v1.0.0 --after v1.1.0 --query pipeline.json --as svg
 ```
 
 `compare` applies the same saved question to two versions of the code and
@@ -275,7 +275,7 @@ read.
 ## An overview from declared stages
 
 ```sh
-cargo atlas overview --adapter path/to/adapter --backend pele
+cargo atlas overview --adapter path/to/adapter --as svg
 cargo atlas overview --adapter path/to/adapter --declarations src/stages.rs --json
 ```
 

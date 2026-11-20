@@ -141,12 +141,14 @@ Atlas does not look for a repository in a parent directory.
 Output is text by default. Long lists are shortened, and Atlas says how much
 it left out.
 
-- `--json` prints everything, including ambiguous and unresolved items. Each
+- `--as json` (or `--json`) prints everything, including ambiguous and unresolved items. Each
   JSON report has a `schema` number and describes what it selected and which
   source it read.
-- `--backend pele` draws an SVG image. Drawing needs Node.js 20 or newer; the
-  drawing code is built into Atlas. `flow`, `map` and `program` wrap the image
-  in an HTML page by default; add `--format svg` to get the image alone.
+- `--as svg` draws an SVG image, and `--as html` (on `flow`, `map` and
+  `program`) an HTML page around it. Drawing needs Node.js 20 or newer; the
+  drawing code is built into Atlas. The 0.18 spellings `--backend` and output
+  `--format` still work until 1.0, with a one-line note on stderr
+  (`ATLAS_NOTICES=off` hides it).
 - `--out path` chooses the output file. Relative paths start at the project
   root. Without it, text goes to the terminal and images go under
   `target/atlas/`.

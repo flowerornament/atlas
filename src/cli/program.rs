@@ -37,7 +37,8 @@ pub(super) fn run(
     metadata: &cargo_metadata::Metadata,
     options: &Options,
 ) -> Result<()> {
-    if options.json && (options.render.out.is_some() || options.render.evidence_dir.is_some()) {
+    let as_json = options.json || options.render.json();
+    if as_json && (options.render.out.is_some() || options.render.evidence_dir.is_some()) {
         return Err("--json writes stdout; omit --out and --evidence-dir".into());
     }
     let (text, architecture) = architecture(root, Some(&options.architecture))?;
@@ -48,7 +49,7 @@ pub(super) fn run(
     let entry = options.path.as_deref().zip(options.function.as_deref());
     let program = program::from_analysis(&analysis, &architecture, entry)?;
     let overview = program.overview();
-    if options.json {
+    if as_json {
         print!(
             "{}",
             json(&serde_json::json!({"program": &program, "overview": &overview}))?
@@ -76,7 +77,7 @@ pub(super) fn run(
             &json(&serde_json::json!({"program": &program, "overview": &overview}))?,
         )),
     )?;
-    let artifact = if options.render.backend == Backend::Ascii {
+    let artifact = if options.render.backend() == Backend::Ascii {
         let mut text = program.ascii(&overview);
         for (label, url) in &diagram.evidence_links {
             write!(text, "\n{label}: {url}").expect("formatting into a String cannot fail");

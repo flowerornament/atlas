@@ -13,9 +13,8 @@ pub(crate) struct Options {
     /// Rows shown in each list; every list reports what it left out.
     #[arg(long, default_value_t = 5)]
     rows: usize,
-    /// Print the same answer as JSON, for scripts and agents.
-    #[arg(long)]
-    json: bool,
+    #[command(flatten)]
+    output: crate::cli::output::form::Report,
 }
 
 /// `root` is the project directory as the caller gave it, so printed commands
@@ -27,7 +26,7 @@ pub(crate) fn run(
 ) -> Result<()> {
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let report = orient::orient(&snapshot, options.scope.as_deref(), options.rows)?;
-    if options.json {
+    if options.output.json() {
         print!("{}", json(&report)?);
     } else {
         let suffix = if root == Path::new(".") {

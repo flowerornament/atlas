@@ -25,9 +25,8 @@ pub(crate) struct Options {
     /// Citation substrings; omission leaves citation checking explicitly unrequested.
     #[arg(long, value_delimiter = ',')]
     citation_markers: Option<Vec<String>>,
-    /// Print the same answer as JSON, for scripts and agents.
-    #[arg(long)]
-    json: bool,
+    #[command(flatten)]
+    output: crate::cli::output::form::Report,
 }
 pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Result<()> {
     let snapshot = atlas_lib::discovery::snapshot_metadata(metadata)?;
@@ -57,7 +56,7 @@ pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Res
         citation_markers: markers.as_deref(),
     };
     let report = documentation::audit(&snapshot, &options.scope, &policy)?;
-    if options.json {
+    if options.output.json() {
         println!(
             "{}",
             serde_json::to_string_pretty(

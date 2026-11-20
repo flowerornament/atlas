@@ -1,4 +1,5 @@
 //! Command grammar and compatibility positional roots; operational work belongs to each command.
+use super::output::form::{As, formats};
 use super::{
     comparison, delta, dependencies, documentation, facts, flow, map, navigation, orient, overview,
     policy, program, query, review, stages, types,
@@ -11,7 +12,7 @@ use std::path::{Path, PathBuf};
     version,
     bin_name = "cargo atlas",
     about = "Answer questions about how a Rust codebase is put together",
-    after_help = "Start here: orient (entry points, where the code is, and what Atlas could not resolve)\nAsk by question: what is X, who names X: name · what is in a directory: module · steps in a function: flow · who calls whom: dependencies · what takes or returns a type: types · what changed: diff, moved, visibility · rules: policy, delta · every fact as tables: facts · your own question over the facts: query\n\nFind your way around: orient, census, name, module, dump, facts, query\nReview a change: diff, moved, visibility, compare\nMeasure: spans, concentration, nontest-loc, comments\nDraw diagrams: dependencies, types, flow, overview, program, map\nCheck architecture: delta, stages, policy, seams\n\nCommands read the Cargo project in the current directory, or the one given with --root.\nAdd --json for machine-readable output; flow and map write their JSON evidence beside the drawing instead. Atlas never changes the code it reads.\nGuides: https://github.com/flowerornament/atlas#documentation"
+    after_help = "Start here: orient (entry points, where the code is, and what Atlas could not resolve)\nAsk by question: what is X, who names X: name · what is in a directory: module · steps in a function: flow · who calls whom: dependencies · what takes or returns a type: types · what changed: diff, moved, visibility · rules: policy, delta · every fact as tables: facts · your own question over the facts: query\n\nFind your way around: orient, census, name, module, dump, facts, query\nReview a change: diff, moved, visibility, compare\nMeasure: spans, concentration, nontest-loc, comments\nDraw diagrams: dependencies, types, flow, overview, program, map\nCheck architecture: delta, stages, policy, seams\n\nCommands read the Cargo project in the current directory, or the one given with --root.\nAdd --as json (or --json) for machine-readable output, or --as svg for an image; flow and map write their JSON evidence beside the drawing instead. Atlas never changes the code it reads.\nGuides: https://github.com/flowerornament/atlas#documentation"
 )]
 pub(super) struct Cli {
     /// Cargo project directory; defaults to the current directory. Positional ROOT remains supported.
@@ -56,6 +57,19 @@ impl Cli {
             .unwrap_or_else(|| Path::new("."))
             .to_owned())
     }
+}
+/// The word that named the command, as written (an alias stays an alias),
+/// skipping the global options that may come before it.
+pub(super) fn command_word(args: &[std::ffi::OsString]) -> Option<&std::ffi::OsStr> {
+    let mut words = args.iter().skip(1);
+    while let Some(word) = words.next() {
+        if word == "--root" {
+            words.next();
+        } else if !word.to_string_lossy().starts_with('-') {
+            return Some(word);
+        }
+    }
+    None
 }
 /// This run's command line with the positional `root` as `--scope`.
 fn scoped_command(command: &str, root: &Path) -> String {
@@ -106,10 +120,11 @@ pub(super) enum Command {
     #[command(
         after_help = "Answers: what are all the declarations, re-exports and mentions Atlas found?\nUse it to build your own tools on Atlas's output. Ambiguous and unresolved names are kept.\nEvidence: names written in the source (lexical); not a compiler symbol table.\nExample: cargo atlas dump --population all --json"
     )]
+    #[command(mut_arg("as", |arg| arg.value_parser(formats(&[As::Json]))))]
     Dump(navigation::DumpArgs),
     /// Export what Atlas found as flat tables (relations), for your own queries.
     #[command(
-        after_help = "Answers: what did Atlas observe, as tables a tool can join?\nRelations: lexical (files, declarations, mentions and their candidates) and qualified (functions, types, calls, references), each with documented columns. An ambiguous mention has one row per candidate with a basis column; an unresolved call or type is a row in its unknowns relation, never left out.\n--schema prints every relation and column without reading the source. See docs/facts.md.\nExample: cargo atlas facts --format jsonl --out target/atlas/facts.jsonl"
+        after_help = "Answers: what did Atlas observe, as tables a tool can join?\nRelations: lexical (files, declarations, mentions and their candidates) and qualified (functions, types, calls, references), each with documented columns. An ambiguous mention has one row per candidate with a basis column; an unresolved call or type is a row in its unknowns relation, never left out.\n--schema prints every relation and column without reading the source. See docs/facts.md.\nExample: cargo atlas facts --as jsonl --out target/atlas/facts.jsonl"
     )]
     Facts(facts::Options),
     /// Ask your own question over the facts, in Datalog.
@@ -154,13 +169,13 @@ pub(super) enum Command {
     Comments(documentation::Options),
     /// Draw which files call each other or use each other's types.
     #[command(
-        after_help = "Answers: which files are linked by function calls, types in signatures, or types in fields?\nChoose with --relation calls|signatures|fields|all.\nEvidence: qualified (names followed through use statements and modules). Calls Atlas cannot resolve are counted and kept in the JSON, never treated as absent.\nExample: cargo atlas dependencies --relation calls --backend pele"
+        after_help = "Answers: which files are linked by function calls, types in signatures, or types in fields?\nChoose with --relation calls|signatures|fields|all.\nEvidence: qualified (names followed through use statements and modules). Calls Atlas cannot resolve are counted and kept in the JSON, never treated as absent.\nExample: cargo atlas dependencies --relation calls --as svg"
     )]
     Dependencies(dependencies::Options),
     /// Draw which functions take, return and build selected types.
     #[command(
         alias = "representations",
-        after_help = "Answers: for the selected types, which functions take them, return them and build them, and which types hold them in fields?\nSelect types with --type or a saved question (--query). Choose a view with --panel.\nEvidence: qualified signatures, fields and construction sites; not how values move at run time.\nExample: cargo atlas types --query examples/queries/atlas.json --panel all --backend pele"
+        after_help = "Answers: for the selected types, which functions take them, return them and build them, and which types hold them in fields?\nSelect types with --type or a saved question (--query). Choose a view with --panel.\nEvidence: qualified signatures, fields and construction sites; not how values move at run time.\nExample: cargo atlas types --query examples/queries/atlas.json --panel all --as svg"
     )]
     Types(types::Options),
     /// Show the steps and branches inside one function.
@@ -175,13 +190,17 @@ pub(super) enum Command {
     Compare(comparison::Options),
     /// Draw the stages a project declares in its code, using an adapter.
     #[command(
-        after_help = "Answers: how do the stages a project declares (for example in a const PIPELINE table) hand types to each other?\n--adapter names a program that reads the project's declarations; see docs/extensions.md. Atlas checks its answer against the source.\nEvidence: qualified signatures, organized by the declared stages; not execution order.\nExample: cargo atlas overview --adapter ./my-adapter --backend pele --out target/atlas/overview.svg"
+        after_help = "Answers: how do the stages a project declares (for example in a const PIPELINE table) hand types to each other?\n--adapter names a program that reads the project's declarations; see docs/extensions.md. Atlas checks its answer against the source.\nEvidence: qualified signatures, organized by the declared stages; not execution order.\nExample: cargo atlas overview --adapter ./my-adapter --as svg --out target/atlas/overview.svg"
     )]
     Overview(overview::Options),
     /// Follow entry functions across the groups in an architecture profile (older view).
     #[command(
         after_help = "Answers: how do selected entry functions cross the groups declared in an architecture profile?\nEvidence: written calls, grouped by the profile; not proof of what runs.\nExample: cargo atlas program --architecture architecture.json"
     )]
+    #[command(mut_arg("as", |arg| {
+        arg.value_parser(formats(&[As::Text, As::Json, As::Svg, As::Html]))
+            .help("`text` draws in the terminal; `json` prints the program and overview; `svg` draws an image and `html` a page with the image and its evidence (both need Node.js 20 or newer)")
+    }))]
     Program(program::Options),
     /// Draw declared groups, or approximate type mentions between files (older view).
     #[command(
@@ -192,6 +211,7 @@ pub(super) enum Command {
     #[command(
         after_help = "Answers: does the candidate commit break a rule in the policy, or make a measured number worse than the baseline REFERENCE?\nVerdicts: PASS, REFUSE (a rule is broken) or UNAVAILABLE (evidence is missing). REFUSE and UNAVAILABLE exit with an error; with --json, REFUSE is data and exits successfully.\nThe policy must be committed. See docs/checks.md.\nExample: cargo atlas delta HEAD~1 --policy .config/architecture.toml --citation-markers docs/"
     )]
+    #[command(mut_arg("json", |arg| arg.help("Print the report as JSON. A REFUSE verdict is then data and exits successfully; UNAVAILABLE still fails.")))]
     Delta(delta::Options),
     /// Report code that uses stages out of the declared order.
     #[command(

@@ -45,8 +45,8 @@ pub(crate) struct Options {
     /// refusing the program.
     #[arg(long, value_enum, value_delimiter = ',')]
     accept: Vec<Accept>,
-    #[arg(long)]
-    json: bool,
+    #[command(flatten)]
+    output: crate::cli::output::form::Report,
     /// Rows to print per query in text output (JSON prints all).
     #[arg(long, default_value_t = 100)]
     show: usize,
@@ -259,7 +259,7 @@ pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Res
     notes.append(&mut answer.notes);
     answer.notes = notes;
     let mut stdout = std::io::stdout().lock();
-    if options.json {
+    if options.output.json() {
         #[derive(serde::Serialize)]
         struct Document<'a> {
             schema: u32,

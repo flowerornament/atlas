@@ -25,9 +25,8 @@ pub(crate) struct Options {
     /// Explicit native schema-1 authored policy; relative to the workspace.
     #[arg(long)]
     policy: PathBuf,
-    /// Print the same answer as JSON, for scripts and agents.
-    #[arg(long)]
-    json: bool,
+    #[command(flatten)]
+    output: crate::cli::output::form::Report,
 }
 #[derive(Args)]
 pub(crate) struct SeamOptions {
@@ -193,7 +192,7 @@ fn present(
         Status::ReportOnly
     };
     let fingerprints = input_fingerprints(&snapshot, &reading.packages, question);
-    if options.json {
+    if options.output.json() {
         let (files, tests) = match question {
             Question::Stages => ("source-tree", "production"),
             Question::Seams => ("source-tree-and-native-mounts", "production-and-tests"),

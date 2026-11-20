@@ -4,6 +4,22 @@ Atlas has two packages: `cargo-atlas` (the `cargo atlas` command and its
 library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 `atlas-core`. Versions below name the package they apply to.
 
+## Unreleased
+
+- One output flag on every command: `--as FORMAT`, with the formats that
+ command can produce (`--help` lists them). `--as text` is the default
+ wherever text exists; `--as json` is the same as `--json`, which stays a
+ permanent spelling; `--as svg` and `--as html` draw an image or a page
+ (replacing `--backend pele` and `--format svg|html`); `facts --as jsonl`
+ replaces `--format jsonl`. Each `--as` form prints exactly what its old
+ spelling prints. `--as` beside an old spelling that asks for something
+ else is refused (`atlas: --as svg conflicts with --backend ascii`).
+- Superseded spellings (`--backend`, output `--format`, the `representations`
+ alias) still work until 1.0 and print one line on stderr before any other
+ output: `atlas: note: --backend is now --as (the old spellings work until
+ 1.0; ATLAS_NOTICES=off hides this)`. The note is never on stdout or in
+ JSON and never changes the exit code.
+
 ## cargo-atlas 0.18.1 / atlas-lib 0.8.1
 
 - Refusals end with a command to run, built from real names: an ambiguous

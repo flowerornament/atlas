@@ -23,14 +23,27 @@ mod stages;
 mod types;
 use args::{Cli, Command};
 use cargo_atlas::Result;
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches};
 pub(crate) fn run() -> Result<()> {
     let mut args: Vec<_> = std::env::args_os().collect();
     // Cargo runs `cargo atlas ARGS` as `cargo-atlas atlas ARGS`.
     if args.get(1).is_some_and(|arg| arg == "atlas") {
         args.remove(1);
     }
-    let cli = Cli::parse_from(args);
+    let matches = Cli::command().get_matches_from(&args);
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    let options = matches.subcommand().map(|(_, options)| options);
+    let mut notices = output::notice::Notices::default();
+    if let Some(options) = options {
+        output::form::note_superseded(options, &mut notices);
+    }
+    if args::command_word(&args).is_some_and(|word| word == "representations") {
+        notices.superseded("representations", "types");
+    }
+    notices.print();
+    if let Some(options) = options {
+        output::form::agree(options)?;
+    }
     if matches!(&cli.command, Command::Related(_)) {
         eprintln!(
             "atlas: related is a compatibility alias; use name --relations (lexical co-mentions)."

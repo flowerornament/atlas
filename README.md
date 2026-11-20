@@ -22,7 +22,7 @@ them, grouped by the file each function lives in. Here is Atlas drawing its own
 three central types:
 
 ```console
-$ cargo atlas types --query examples/queries/atlas.json --panel contracts --backend pele --bare
+$ cargo atlas types --query examples/queries/atlas.json --panel contracts --as svg --bare
 ```
 
 <!-- To refresh: run the command above once with --theme dark and once with
@@ -94,7 +94,7 @@ RELATIONSHIPS
 
 Calls Atlas could not follow are counted, not dropped.
 
-Add `--backend pele` to draw the same thing as an SVG image. Atlas can also
+Add `--as svg` to draw the same thing as an SVG image. Atlas can also
 draw which functions produce and consume a type, and every path a function can
 take. See [diagrams](https://github.com/flowerornament/atlas/blob/main/docs/diagrams.md).
 
@@ -226,16 +226,17 @@ that is unique in the project also works, such as `--scope parse.rs`.
 
 - **Text** is the default: a short report for people, ending with what the
   answer is based on and what Atlas could not resolve.
-- **JSON**: add `--json` for the same answer as data, for scripts and agents
+- **JSON**: add `--as json` (or `--json`) for the same answer as data, for scripts and agents
   (`flow` and `map` write their JSON beside the drawing instead). `facts`
-  exports everything as flat tables (JSON or `--format jsonl`), described
+  exports everything as flat tables (JSON or `--as jsonl`), described
   column by column in
   [facts](https://github.com/flowerornament/atlas/blob/main/docs/facts.md).
 - **Diagrams**: `dependencies`, `types`, `flow`, `compare` and `overview` draw
-  text diagrams in the terminal, or an image with `--backend pele`: an SVG (an
-  HTML page for `flow`) under `target/atlas/`, with its JSON evidence beside
-  it, and the path printed when it is written. Use `--out` to choose the file,
-  `--theme light` for a white background and `--bare` for the drawing alone.
+  text diagrams in the terminal, or an image with `--as svg` (`flow` also
+  offers `--as html`, a page around the image) under `target/atlas/`, with
+  its JSON evidence beside it, and the path printed when it is written. Use
+  `--out` to choose the file, `--theme light` for a white background and
+  `--bare` for the drawing alone.
   See
   [diagrams](https://github.com/flowerornament/atlas/blob/main/docs/diagrams.md).
 

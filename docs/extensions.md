@@ -198,8 +198,8 @@ reshape a view into another family to claim support, such as turning a table
 into a graph with no edges.
 
 The built-in ASCII and Pele renderers both work this way. A custom renderer is
-used from the library; `cargo atlas` only offers `--backend ascii` and
-`--backend pele`.
+used from the library; `cargo atlas` only offers the built-in two, as
+`--as text` and `--as svg` or `--as html`.
 
 ## Limits
 

@@ -1,6 +1,7 @@
 //! Export the captured observations as flat relations, or print their schema.
 //! The command adds no evidence of its own: it flattens the lexical graph and
 //! the qualified facts that other commands report in their own shapes.
+use super::output::form::{As, formats};
 use atlas_lib::{
     analysis::Analysis,
     discovery,
@@ -32,6 +33,17 @@ pub(crate) struct Options {
         default_value = "lexical,qualified"
     )]
     families: Vec<FamilyArg>,
+    /// `json` is one document: each relation's columns and rows (rows are
+    /// arrays). `jsonl` is a header line, then one object per row with a
+    /// `relation` key.
+    #[arg(
+        long = "as",
+        id = "as",
+        value_name = "FORMAT",
+        value_parser = formats(&[As::Json, As::Jsonl])
+    )]
+    form: Option<As>,
+    /// Superseded by --as, with the same values.
     #[arg(long, value_enum, default_value = "json")]
     format: Format,
     /// Write to this file instead of standard output.
@@ -41,6 +53,16 @@ pub(crate) struct Options {
     /// without reading the source.
     #[arg(long)]
     schema: bool,
+}
+
+impl Options {
+    fn format(&self) -> Format {
+        match self.form {
+            Some(As::Jsonl) => Format::Jsonl,
+            Some(As::Json) => Format::Json,
+            Some(As::Text | As::Svg | As::Html) | None => self.format,
+        }
+    }
 }
 
 pub(crate) fn schema() -> Result<String> {
@@ -75,7 +97,7 @@ pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Res
         (false, None) => return Err("--families names no family".into()),
     };
     let write = |out: &mut dyn Write| -> Result<()> {
-        match options.format {
+        match options.format() {
             Format::Json => {
                 relations.write_json(&mut *out)?;
                 out.write_all(b"\n")?;

@@ -11,9 +11,8 @@ pub(crate) struct Options {
     /// Physical source scope, including removed files or folders.
     #[arg(long, default_value = ".")]
     scope: String,
-    /// Print the same answer as JSON, for scripts and agents.
-    #[arg(long)]
-    json: bool,
+    #[command(flatten)]
+    output: crate::cli::output::form::Report,
 }
 #[derive(Args)]
 pub(crate) struct DiffOptions {
@@ -54,7 +53,7 @@ pub(crate) fn run(
         Question::Shape => {
             let report =
                 atlas_lib::review::diff(&before_snapshot, &after_snapshot, &options.scope)?;
-            if options.json {
+            if options.output.json() {
                 print_json(&commit, question, &report)?;
             } else {
                 println!("Module shape against {commit} (current source)");
@@ -83,7 +82,7 @@ pub(crate) fn run(
                 &after_snapshot,
                 Some(&options.scope),
             )?;
-            if options.json {
+            if options.output.json() {
                 print_json(&commit, question, &report)?;
             } else {
                 // Repeated keys matter only as a caveat: say how many, once.
@@ -125,7 +124,7 @@ pub(crate) fn run(
                 &after_snapshot,
                 Some(&options.scope),
             )?;
-            if options.json {
+            if options.output.json() {
                 print_json(&commit, question, &report)?;
             } else {
                 println!(
@@ -260,7 +259,7 @@ pub(crate) fn diff(
         shapes: atlas_lib::review::diff(&before, &after, &args.scope)?,
         items: current.declaration_diff(&prior, &args.scope, options.graph)?,
     };
-    if args.json {
+    if args.output.json() {
         return print_json(&commit, Question::Shape, &report);
     }
     println!(
@@ -334,9 +333,8 @@ pub(super) struct SourceReviewArgs {
     /// Physical source file or directory; no matches is an error.
     #[arg(long, conflicts_with = "path")]
     scope: Option<String>,
-    /// Print the same answer as JSON, for scripts and agents.
-    #[arg(long)]
-    json: bool,
+    #[command(flatten)]
+    output: crate::cli::output::form::Report,
     /// Files shown in text; the rest are counted, with the command that lists
     /// them. JSON always holds every file.
     #[arg(long, default_value_t = 20)]
@@ -373,7 +371,7 @@ pub(super) fn source_review(
             .or(args.path.as_deref())
             .unwrap_or("."),
     )?;
-    if args.json {
+    if args.output.json() {
         println!(
             "{}",
             json(&serde_json::json!({

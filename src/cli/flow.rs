@@ -179,11 +179,11 @@ pub(super) fn run(
             .as_ref()
             .map(|(source, json)| ("semantic", *source, json.as_str())),
     )?;
-    let artifact = if options.render.backend == Backend::Ascii
+    let artifact = if options.render.backend() == Backend::Ascii
         && (options.depth > 0 || options.detail == workflow::Detail::Control)
     {
         Ascii.render(&diagram)
-    } else if options.render.backend == Backend::Ascii {
+    } else if options.render.backend() == Backend::Ascii {
         let mut text = flows
             .iter()
             // A body's own heading names it; an anchor's name is shown only
