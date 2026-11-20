@@ -55,7 +55,7 @@ A  REPRESENTATION CONTRACTS
 ...
 ```
 
-Compare this with `cargo atlas representations` in the
+Compare this with `cargo atlas types` in the
 [getting-started tour](getting-started.md#6-follow-a-type): there, `emit` was
 missing because it does not return a selected type. Here the adapter named
 `emit` as a stage's entry function, so it appears. Modules the adapter marks

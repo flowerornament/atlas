@@ -4,4 +4,4 @@ pub mod comparison;
 pub mod dependencies;
 pub mod overview;
 pub mod program;
-pub mod representations;
+pub mod types;

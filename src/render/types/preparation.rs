@@ -1,6 +1,6 @@
 //! Shared producer identities expose reuse without asserting shared runtime values.
 use super::{Palette, Views, head, label, style};
-use crate::representations::Function;
+use crate::types::Function;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write,

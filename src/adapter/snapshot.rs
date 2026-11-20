@@ -3,7 +3,7 @@ use crate::{
     Result,
     discovery::fingerprint,
     model::SourceGraph,
-    representations::{Constant, Facts},
+    types::{Constant, Facts},
 };
 use serde::{Deserialize, Serialize};
 use std::{

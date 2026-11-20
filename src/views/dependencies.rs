@@ -2,7 +2,7 @@
 use crate::{
     Result,
     diagram::{Coverage, Diagram, Edge, EdgeEvidence, Level, Node, View},
-    representations::{Facts, Role},
+    types::{Facts, Role},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};

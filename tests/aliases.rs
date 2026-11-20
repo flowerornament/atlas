@@ -2,11 +2,11 @@
 mod support;
 use cargo_atlas::{
     comparison, discovery,
-    representations::{self, Panel, Query, Role, Selector},
+    types::{self, Panel, Query, Role, Selector},
 };
 use support::Fixture;
 
-fn facts(source: &str) -> (Fixture, representations::Facts) {
+fn facts(source: &str) -> (Fixture, types::Facts) {
     let fixture = Fixture::new(&[("src/lib.rs", source)]);
     let metadata = cargo_metadata::MetadataCommand::new()
         .current_dir(fixture.path())
@@ -14,8 +14,7 @@ fn facts(source: &str) -> (Fixture, representations::Facts) {
         .exec()
         .expect("alias fixture metadata");
     let graph = discovery::scan_metadata(&metadata).expect("alias fixture capture");
-    let facts =
-        representations::extract(fixture.path(), &metadata, &graph).expect("alias fixture facts");
+    let facts = types::extract(fixture.path(), &metadata, &graph).expect("alias fixture facts");
     (fixture, facts)
 }
 fn query(names: &[&str]) -> Query {
@@ -39,7 +38,7 @@ const SOURCE: &str = "pub struct Form;\npub type Forms = Vec<Form>;\npub fn infe
 fn alias_is_selectable_in_public_contracts_producers_preparation_and_comparison() {
     let (fixture, before) = facts(SOURCE);
     let q = query(&["Forms", "Form"]);
-    let view = representations::project(&before, &q).unwrap();
+    let view = types::project(&before, &q).unwrap();
     let alias = view.types.iter().find(|t| t.name == "Forms").unwrap();
     assert_eq!(alias.alias.as_deref(), Some("Vec<Form>"));
     assert!(alias.fields.is_empty());
@@ -64,7 +63,7 @@ fn alias_is_selectable_in_public_contracts_producers_preparation_and_comparison(
         .unwrap();
     assert_eq!(preparation.calls[0].1.name, "infer");
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
-        .args(["representations", "--root"])
+        .args(["types", "--root"])
         .arg(fixture.path())
         .args(["--type", "Forms", "--panel", "contracts", "--json"])
         .output()
@@ -74,7 +73,7 @@ fn alias_is_selectable_in_public_contracts_producers_preparation_and_comparison(
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(representations::ascii(&view, Panel::Contracts).contains("type Forms = Vec<Form>"));
+    assert!(types::ascii(&view, Panel::Contracts).contains("type Forms = Vec<Form>"));
     let (_, after) = facts(&SOURCE.replace("Vec<Form>", "Option<Form>"));
     let comparison =
         comparison::compare(&before, &after, Some(&q), ("before".into(), "after".into())).unwrap();
@@ -125,8 +124,8 @@ fn preparation_picture_shares_callee_identity_without_merging_callers() {
         &(SOURCE.to_owned()
             + "pub fn prepare_again()->Forms { infer() }\npub fn wrapped()->Vec<Forms>{vec![]}\n"),
     );
-    let view = representations::project(&facts, &query(&["Forms"])).unwrap();
-    let artifact = representations::pele(
+    let view = types::project(&facts, &query(&["Forms"])).unwrap();
+    let artifact = types::pele(
         &view,
         Panel::Preparation,
         &cargo_atlas::render::Pele {
@@ -154,21 +153,21 @@ fn preparation_function_selection_is_exact_and_keeps_other_routes_in_facts() {
         name: "prepare".into(),
         file: None,
     });
-    let view = representations::project(&facts, &question).unwrap();
+    let view = types::project(&facts, &question).unwrap();
     assert_eq!(view.preparation.len(), 1);
     assert_eq!(view.preparation[0].function.name, "prepare");
     assert_eq!(view.preparation[0].calls[0].1.name, "infer");
     assert!(facts.functions.iter().any(|f| f.name == "infer"));
     question.preparation_functions[0].name = "not_present".into();
     assert!(
-        representations::project(&facts, &question)
+        types::project(&facts, &question)
             .unwrap_err()
             .to_string()
             .contains("found 0")
     );
     question.preparation_functions[0].name = "build".into();
     assert!(
-        representations::project(&facts, &question)
+        types::project(&facts, &question)
             .unwrap_err()
             .to_string()
             .contains("return a selected type")

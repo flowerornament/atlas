@@ -2,7 +2,7 @@
 use cargo_atlas::{
     Result, discovery,
     render::View,
-    representations::{self, Panel, Query},
+    types::{self, Panel, Query},
 };
 use clap::Args;
 use std::{
@@ -44,11 +44,11 @@ pub(crate) fn run(
             );
         }
         Query {
-            title: format!("Representations: {}", options.types.join(", ")),
+            title: format!("Types: {}", options.types.join(", ")),
             types: options
                 .types
                 .iter()
-                .map(|n| representations::Selector {
+                .map(|n| types::Selector {
                     name: n.clone(),
                     file: None,
                 })
@@ -61,16 +61,16 @@ pub(crate) fn run(
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let graph = snapshot.graph();
     let facts = atlas_lib::analysis::Analysis::new(&snapshot)?.representations()?;
-    let views = representations::project(&facts, &query)?;
+    let views = types::project(&facts, &query)?;
     options.output.emit(
         root,
-        "representations",
+        "types",
         &serde_json::json!({"facts":facts,"views":views}),
         &crate::cli::output::protected_inputs(metadata, graph, query_path),
         || {
             options
                 .output
-                .render_view(View::Representations(&views, options.panel))
+                .render_view(View::Types(&views, options.panel))
         },
     )
 }

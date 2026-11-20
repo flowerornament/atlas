@@ -3,7 +3,7 @@ mod support;
 use cargo_atlas::{
     analysis::Analysis,
     comparison, discovery,
-    representations::{Facts, Query},
+    types::{Facts, Query},
 };
 use support::Fixture;
 

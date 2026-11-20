@@ -85,13 +85,7 @@ fn navigation_commands_match_the_getting_started_guide() {
     assert!(calls.contains("[main.rs] --calls: main calls check (1 site)--> [check.rs]"));
     let contracts = stdout(&atlas(
         root,
-        &[
-            "representations",
-            "--query",
-            "pipeline.json",
-            "--panel",
-            "contracts",
-        ],
+        &["types", "--query", "pipeline.json", "--panel", "contracts"],
     ));
     assert!(contracts.contains("(Tree [tree]) -> (Checked [return · Ok])"));
 }

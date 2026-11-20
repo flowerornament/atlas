@@ -14,9 +14,9 @@ mod overview;
 mod policy;
 mod profile;
 mod program;
-mod representations;
 mod review;
 mod stages;
+mod types;
 use args::{Cli, Command};
 use cargo_atlas::Result;
 use clap::Parser;
@@ -55,7 +55,7 @@ pub(crate) fn run() -> Result<()> {
         Command::Compare(options) => comparison::run(&root, &metadata, &options),
         Command::Overview(options) => overview::run(&root, &metadata, options),
         Command::Dependencies(options) => dependencies::run(&root, &metadata, &options),
-        Command::Representations(options) => representations::run(&root, &metadata, &options),
+        Command::Types(options) => types::run(&root, &metadata, &options),
         Command::Flow(options) => flow::run(&root, &metadata, &options),
         Command::Spans(options) => {
             review::source_review(&metadata, &options, review::SourceQuestion::Spans)

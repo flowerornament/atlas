@@ -24,7 +24,7 @@ fn run(fixture: &Fixture, body: &str) -> Output {
         fixture,
         body,
         &[
-            "representations",
+            "types",
             "--query",
             "question.json",
             "--panel",

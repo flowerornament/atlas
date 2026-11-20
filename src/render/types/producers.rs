@@ -1,7 +1,7 @@
 //! Returners, literals and explicit default calls occupy separate labelled cells.
 use super::{Palette, Views, label, shape};
 use std::fmt::Write;
-fn sites(rows: &[(crate::representations::Function, Vec<usize>)]) -> String {
+fn sites(rows: &[(crate::types::Function, Vec<usize>)]) -> String {
     rows.iter()
         .map(|(f, lines)| format!("{}()<br/>{}:{:?}", label(&f.name), label(&f.file), lines))
         .collect::<Vec<_>>()

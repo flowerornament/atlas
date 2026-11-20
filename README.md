@@ -22,7 +22,7 @@ them, grouped by the file each function lives in. Here is Atlas drawing its own
 three central types:
 
 ```console
-$ cargo atlas representations --query examples/queries/atlas.json --panel contracts --backend pele --bare
+$ cargo atlas types --query examples/queries/atlas.json --panel contracts --backend pele --bare
 ```
 
 <!-- To refresh: run the command above once with --theme dark and once with

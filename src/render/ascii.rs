@@ -8,7 +8,7 @@ impl Renderer for Ascii {
     fn render_view(&self, view: super::View<'_>) -> Result<Artifact> {
         let text = match view {
             super::View::Graph(g) => return self.render(g),
-            super::View::Representations(v, p) => crate::representations::ascii(v, p),
+            super::View::Types(v, p) => crate::types::ascii(v, p),
             super::View::Comparison(c) => c.text(),
             super::View::Overview(o) => crate::overview::ascii(o),
         };

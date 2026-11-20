@@ -6,7 +6,7 @@ use cargo_atlas::{
     adapter::{self, Request, Snapshot},
     discovery,
     render::{Ascii, Pele, Renderer, UnsupportedView, View},
-    representations,
+    types,
 };
 use std::{
     fs,
@@ -25,15 +25,14 @@ fn project() -> Fixture {
         ("src/data.rs", "pub struct Graph{pub n:u32}"),
     ])
 }
-fn input(f: &Fixture) -> (Request, representations::Facts) {
+fn input(f: &Fixture) -> (Request, types::Facts) {
     let m = cargo_metadata::MetadataCommand::new()
         .current_dir(f.path())
         .no_deps()
         .exec()
         .expect("test fixture prerequisite must succeed");
     let g = discovery::scan_metadata(&m).expect("test fixture prerequisite must succeed");
-    let facts =
-        representations::extract(f.path(), &m, &g).expect("test fixture prerequisite must succeed");
+    let facts = types::extract(f.path(), &m, &g).expect("test fixture prerequisite must succeed");
     (
         Request::new(
             Snapshot::from_facts(&g, &facts, "src/lib.rs")
@@ -130,7 +129,7 @@ fn constant_syntax_stays_opaque_when_computed_and_local_const_work_is_not_a_call
     for name in ["COMPUTED", "EXPANDED"] {
         assert!(matches!(
             request.snapshot.constant("src/lib.rs", name).unwrap().value,
-            representations::Literal::Opaque(_)
+            types::Literal::Opaque(_)
         ));
     }
     assert!(request.snapshot.constant("src/lib.rs", "HIDDEN").is_err());
@@ -141,7 +140,7 @@ fn constant_syntax_stays_opaque_when_computed_and_local_const_work_is_not_a_call
 
 #[test]
 fn call_syntax_in_constants_arrives_structured_but_unevaluated() {
-    use representations::Literal;
+    use types::Literal;
     let f = project();
     f.write("src/lib.rs", &(SOURCE.to_owned() + "const ROWS:&[(&str,Option<Part>)]=&[(\"a\",Some(Part::Host)),(\"b\",None)];\nconst NAMED:Option<&str>=Some(\"x\");\nconst WRAPPED:Wrapper=Wrapper(1,X);\nconst GENERIC:Option<u8>=Option::<u8>::Some(1);\n"));
     let (request, _) = input(&f);
@@ -192,9 +191,9 @@ impl Renderer for GraphOnly {
 fn graph_and_table_families_share_backends_without_erasing_their_models() {
     let f = project();
     let (_, facts) = input(&f);
-    let q = representations::Query {
+    let q = types::Query {
         title: "Graph routes".into(),
-        types: vec![representations::Selector {
+        types: vec![types::Selector {
             name: "Graph".into(),
             file: None,
         }],
@@ -202,13 +201,13 @@ fn graph_and_table_families_share_backends_without_erasing_their_models() {
         preparation_files: vec![],
         preparation_functions: vec![],
     };
-    let views = representations::project(&facts, &q).unwrap();
+    let views = types::project(&facts, &q).unwrap();
     let graph = cargo_atlas::workflow::read(f.path(), "src/build.rs", "build")
         .unwrap()
         .diagram();
     for view in [
         View::Graph(&graph),
-        View::Representations(&views, representations::Panel::Producers),
+        View::Types(&views, types::Panel::Producers),
     ] {
         let text = Ascii.render_view(view).unwrap();
         assert_eq!(text.primary.suffix, "txt");
@@ -227,25 +226,16 @@ fn graph_and_table_families_share_backends_without_erasing_their_models() {
         );
     }
     let error = GraphOnly
-        .render_view(View::Representations(
-            &views,
-            representations::Panel::Producers,
-        ))
+        .render_view(View::Types(&views, types::Panel::Producers))
         .err()
         .unwrap();
-    assert_eq!(
-        error.downcast_ref::<UnsupportedView>().unwrap().0,
-        "representations"
-    );
+    assert_eq!(error.downcast_ref::<UnsupportedView>().unwrap().0, "types");
     let html = Pele {
         html: true,
         theme: cargo_atlas::render::Theme::Light,
         bare: false,
     }
-    .render_view(View::Representations(
-        &views,
-        representations::Panel::Producers,
-    ))
+    .render_view(View::Types(&views, types::Panel::Producers))
     .unwrap();
     assert_eq!(html.primary.suffix, "html");
     assert!(html.companions.iter().any(|d| d.suffix == "svg"));

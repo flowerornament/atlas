@@ -6,6 +6,13 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- **Breaking (CLI):** the `representations` command is now `types`, and its
+ Pele output defaults to `target/atlas/types.svg`. `representations` still
+ works as an alias.
+- **Breaking (library):** cargo-atlas's `representations` view module is now
+ `types` (the old path remains as a hidden re-export), and
+ `render::View::Representations` is `View::Types`. atlas-lib's
+ `representations` module and `Analysis::representations()` are unchanged.
 - A trait impl for a type the workspace does not declare, such as
  `impl From<Slot> for usize` or `impl Root for f64`, no longer makes a call
  like `usize::from(port)` or `self.sqrt()` resolve to the workspace's impl.

@@ -73,7 +73,7 @@ const COMMANDS: &[&[&str]] = &[
     &["module", "src/a.rs", "--items", "--json"],
     &["dependencies", "--json"],
     &["dependencies", "--all-facts", "--json"],
-    &["representations", "--type", "A", "--json"],
+    &["types", "--type", "A", "--json"],
     &[
         "flow",
         "--path",

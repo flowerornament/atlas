@@ -21,6 +21,6 @@
     "crates/atlas-lib/src/diagram/projection.rs",
     "src/render/pele.rs",
     "src/render/ascii.rs",
-    "src/render/representations/mod.rs"
+    "src/render/types/mod.rs"
   ]
 }

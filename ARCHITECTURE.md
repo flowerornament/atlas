@@ -119,7 +119,7 @@ the misses on worker threads into a map keyed by path, so the order of work
 never reaches an answer.
 
 The root library modules remain public compatibility paths. For example,
-`atlas_lib::discovery::Snapshot` and `cargo_atlas::representations::Views` reexport the
+`atlas_lib::discovery::Snapshot` and `cargo_atlas::types::Views` reexport the
 same definitions from their physical owners; the compatibility surface is not a
 second source model. Small reexports replace empty wrapper files.
 

@@ -6,11 +6,11 @@
 use crate::{
     Result,
     architecture::{Architecture, Kind},
-    representations::{self, Facts, Function, MAX_ROWS, MAX_TYPES, Query, Role, Selector, Views},
+    types::{self, Facts, Function, MAX_ROWS, MAX_TYPES, Query, Role, Selector, Views},
 };
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
-fn success(r: &representations::Reference) -> bool {
+fn success(r: &types::Reference) -> bool {
     r.role == Role::Output && !r.borrow && !r.wrappers.iter().any(|w| w == "Result[1]")
 }
 #[derive(Serialize)]
@@ -189,7 +189,7 @@ fn panels(
     }
     let module_of = |file: &str| architecture.owner(file).map(|m| m.name.clone());
     // Declared module order, then types declared outside every module.
-    let mut groups: Vec<(Option<String>, Vec<&representations::Type>)> = architecture
+    let mut groups: Vec<(Option<String>, Vec<&types::Type>)> = architecture
         .modules
         .iter()
         .map(|m| (Some(m.name.clone()), vec![]))
@@ -232,7 +232,7 @@ fn panels(
                 file: Some(op.file.clone()),
             })
             .collect();
-        representations::select(
+        types::select(
             facts,
             &Query {
                 title,

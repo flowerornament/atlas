@@ -187,11 +187,11 @@ as an SVG image. Atlas saves it under `target/atlas/` and prints the path.
 ## 6. Follow a type
 
 The example includes a small saved question, [`pipeline.json`](../examples/tutorial/pipeline.json),
-that names the two main types. `representations` shows which functions take
+that names the two main types. `types` shows which functions take
 and return them:
 
 ```console
-$ cargo atlas representations --query pipeline.json --panel contracts
+$ cargo atlas types --query pipeline.json --panel contracts
 From text to output
 Contracts and direct fields, not runtime value flow.
 

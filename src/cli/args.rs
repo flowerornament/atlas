@@ -1,7 +1,7 @@
 //! Command grammar and compatibility positional roots; operational work belongs to each command.
 use super::{
     comparison, delta, dependencies, documentation, flow, map, navigation, overview, policy,
-    program, representations, review, stages,
+    program, review, stages, types,
 };
 use cargo_atlas::Result;
 use clap::{Parser, Subcommand};
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
     version,
     bin_name = "cargo atlas",
     about = "Answer questions about how a Rust codebase is put together",
-    after_help = "Find your way around: census, name, module, dump\nReview a change: diff, moved, visibility, compare\nMeasure: spans, concentration, nontest-loc, comments\nDraw diagrams: dependencies, representations, flow, overview, program, map\nCheck architecture: delta, stages, policy, seams\n\nCommands read the Cargo project in the current directory, or the one given with --root.\nAdd --json for machine-readable output; flow and map write their JSON evidence beside the drawing instead. Atlas never changes the code it reads.\nGuides: https://github.com/flowerornament/atlas#documentation"
+    after_help = "Find your way around: census, name, module, dump\nReview a change: diff, moved, visibility, compare\nMeasure: spans, concentration, nontest-loc, comments\nDraw diagrams: dependencies, types, flow, overview, program, map\nCheck architecture: delta, stages, policy, seams\n\nCommands read the Cargo project in the current directory, or the one given with --root.\nAdd --json for machine-readable output; flow and map write their JSON evidence beside the drawing instead. Atlas never changes the code it reads.\nGuides: https://github.com/flowerornament/atlas#documentation"
 )]
 pub(super) struct Cli {
     /// Cargo project directory; defaults to the current directory. Positional ROOT remains supported.
@@ -111,9 +111,10 @@ pub(super) enum Command {
     Dependencies(dependencies::Options),
     /// Draw which functions take, return and build selected types.
     #[command(
-        after_help = "Answers: for the selected types, which functions take them, return them and build them, and which types hold them in fields?\nSelect types with --type or a saved question (--query). Choose a view with --panel.\nEvidence: qualified signatures, fields and construction sites; not how values move at run time.\nExample: cargo atlas representations --query examples/queries/atlas.json --panel all --backend pele"
+        alias = "representations",
+        after_help = "Answers: for the selected types, which functions take them, return them and build them, and which types hold them in fields?\nSelect types with --type or a saved question (--query). Choose a view with --panel.\nEvidence: qualified signatures, fields and construction sites; not how values move at run time.\nExample: cargo atlas types --query examples/queries/atlas.json --panel all --backend pele"
     )]
-    Representations(representations::Options),
+    Types(types::Options),
     /// Show the steps and branches inside one function.
     #[command(
         after_help = "Answers: what steps, branches, loops and returns does this function's code contain?\n--depth N also opens the functions it calls, up to N levels (max 6). Macros, closures and unsupported syntax are shown as opaque steps.\nThis shows what the code's structure allows; it does not prove a path can run.\nExample: cargo atlas flow --path src/main.rs --function main --depth 1"
@@ -163,7 +164,7 @@ pub(super) enum Command {
 impl Command {
     pub(super) fn root(&self) -> Option<&Path> {
         match self {
-            Self::Representations(a) => a.root.as_deref(),
+            Self::Types(a) => a.root.as_deref(),
             Self::Dependencies(a) => a.root.as_deref(),
             Self::Overview(a) => a.root.as_deref(),
             Self::Compare(a) => a.root.as_deref(),

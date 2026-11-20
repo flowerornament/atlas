@@ -58,16 +58,16 @@ JS
 test -s map.txt
 node --input-type=module -e 'import fs from "node:fs"; const svg = fs.readFileSync("map.svg", "utf8"); if (!svg.includes("<svg") || !svg.includes("lib.rs")) process.exit(1);'
 
-cat > "$atlas_scratch/project/representations.json" <<'QUERY'
+cat > "$atlas_scratch/project/types.json" <<'QUERY'
 {"title":"Installed representation query","types":[{"name":"Input"},{"name":"Output"}],"preparation_files":["src/lib.rs"]}
 QUERY
-"$atlas_scratch/install/bin/cargo-atlas" representations "$atlas_scratch/project" --query representations.json > representations.txt
-"$atlas_scratch/install/bin/cargo-atlas" representations "$atlas_scratch/project" --query representations.json --backend pele --out "$atlas_scratch/work/representations.svg"
-node --input-type=module -e 'import fs from "node:fs"; for (const path of ["representations.txt", "representations.svg"]) if (!fs.readFileSync(path, "utf8").includes("transform")) process.exit(1);'
+"$atlas_scratch/install/bin/cargo-atlas" types "$atlas_scratch/project" --query types.json > types.txt
+"$atlas_scratch/install/bin/cargo-atlas" types "$atlas_scratch/project" --query types.json --backend pele --out "$atlas_scratch/work/types.svg"
+node --input-type=module -e 'import fs from "node:fs"; for (const path of ["types.txt", "types.svg"]) if (!fs.readFileSync(path, "utf8").includes("transform")) process.exit(1);'
 
 "$atlas_scratch/install/bin/cargo-atlas" overview "$atlas_scratch/project" --adapter "$atlas_adapter" --backend pele --out "$atlas_scratch/work/overview.svg"
 "$atlas_scratch/install/bin/cargo-atlas" dependencies "$atlas_scratch/project" src --relation all --backend pele --out "$atlas_scratch/work/dependencies.svg"
-"$atlas_scratch/install/bin/cargo-atlas" representations "$atlas_scratch/project" --type Output --panel producers > producers.txt
+"$atlas_scratch/install/bin/cargo-atlas" types "$atlas_scratch/project" --type Output --panel producers > producers.txt
 git -C "$atlas_scratch/project" init -q
 git -C "$atlas_scratch/project" add Cargo.toml src
 git -C "$atlas_scratch/project" -c user.name='Atlas installation test' -c user.email=atlas@example.invalid commit -qm baseline

@@ -3,7 +3,7 @@ use crate::{
     Result,
     overview::Overview,
     render::{Artifact, Document, pele::dimensions, theme::Palette},
-    representations,
+    types,
 };
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -73,12 +73,7 @@ fn contracts(overview: &Overview, palette: &Palette, bare: bool) -> Result<Artif
         .panels
         .iter()
         .map(|panel| {
-            crate::render::representations::vertical(
-                &panel.views,
-                representations::Panel::Contracts,
-                palette,
-                bare,
-            )
+            crate::render::types::vertical(&panel.views, types::Panel::Contracts, palette, bare)
         })
         .collect::<Result<Vec<_>>>()?;
     if figures.len() == 1 {
@@ -127,10 +122,7 @@ pub fn ascii(overview: &Overview) -> String {
             )
             .expect("formatting into a String cannot fail");
         }
-        text.push_str(&representations::ascii(
-            &panel.views,
-            representations::Panel::Contracts,
-        ));
+        text.push_str(&types::ascii(&panel.views, types::Panel::Contracts));
         if number + 1 < count {
             text.push('\n');
         }

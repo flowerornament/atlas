@@ -173,7 +173,7 @@ fn representation_query_outputs_are_explicit_and_cannot_overwrite_inputs() {
     let exe = env!("CARGO_BIN_EXE_cargo-atlas");
     let run = |args: &[&str]| {
         std::process::Command::new(exe)
-            .arg("representations")
+            .arg("types")
             .arg(f.path())
             .args(args)
             .output()
@@ -430,4 +430,17 @@ fn scoped_dependency_evidence_keeps_only_incident_facts_unless_asked() {
     );
     let all = facts(&["--all-facts"]);
     assert!(names(&all).contains(&"alone".to_owned()));
+}
+
+#[test]
+fn representations_remains_an_alias_of_types() {
+    let f = fixture();
+    let types = run(&f, &["types", "--type", "Value", "--json"]);
+    let alias = run(&f, &["representations", "--type", "Value", "--json"]);
+    assert!(
+        types.status.success(),
+        "{}",
+        String::from_utf8_lossy(&types.stderr)
+    );
+    assert_eq!(types.stdout, alias.stdout);
 }

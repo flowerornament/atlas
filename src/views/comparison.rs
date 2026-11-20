@@ -1,7 +1,7 @@
 //! Compare source observations by file/symbol and role, excluding line-number churn.
 use crate::{
     Result,
-    representations::{Facts, Query, Role},
+    types::{Facts, Query, Role},
 };
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};

@@ -2,7 +2,7 @@
 mod support;
 use cargo_atlas::{
     discovery,
-    representations::{self, Panel, Query, Selector},
+    types::{self, Panel, Query, Selector},
 };
 use cargo_metadata::MetadataCommand;
 use support::Fixture;
@@ -24,7 +24,7 @@ fn query() -> Query {
         preparation_functions: vec![],
     }
 }
-fn inspect(source: &str) -> (Fixture, representations::Facts, representations::Views) {
+fn inspect(source: &str) -> (Fixture, types::Facts, types::Views) {
     let f = Fixture::new(&[("src/lib.rs", source)]);
     let m = MetadataCommand::new()
         .current_dir(f.path())
@@ -32,10 +32,8 @@ fn inspect(source: &str) -> (Fixture, representations::Facts, representations::V
         .exec()
         .expect("test fixture prerequisite must succeed");
     let g = discovery::scan_metadata(&m).expect("test fixture prerequisite must succeed");
-    let facts =
-        representations::extract(f.path(), &m, &g).expect("test fixture prerequisite must succeed");
-    let views =
-        representations::project(&facts, &query()).expect("test fixture prerequisite must succeed");
+    let facts = types::extract(f.path(), &m, &g).expect("test fixture prerequisite must succeed");
+    let views = types::project(&facts, &query()).expect("test fixture prerequisite must succeed");
     (f, facts, views)
 }
 const BASE: &str = "
@@ -146,7 +144,7 @@ fn type_only_files_and_cross_file_impl_owner_use_the_shared_index() {
         .exec()
         .unwrap();
     let g = discovery::scan_metadata(&m).unwrap();
-    let facts = representations::extract(f.path(), &m, &g).unwrap();
+    let facts = types::extract(f.path(), &m, &g).unwrap();
     let q = Query {
         title: "cross file".into(),
         types: ["Graph", "Checked"]
@@ -160,7 +158,7 @@ fn type_only_files_and_cross_file_impl_owner_use_the_shared_index() {
         preparation_files: vec!["src/lib.rs".into()],
         preparation_functions: vec![],
     };
-    let v = representations::project(&facts, &q).unwrap();
+    let v = types::project(&facts, &q).unwrap();
     assert_eq!(v.retention.len(), 1);
     assert_eq!(v.preparation[0].calls[0].1.name, "Checked::new");
 }
@@ -176,9 +174,9 @@ fn selection_does_not_change_extraction_and_ambiguity_refuses() {
         .exec()
         .unwrap();
     let g = discovery::scan_metadata(&m).unwrap();
-    let facts = representations::extract(f.path(), &m, &g).unwrap();
+    let facts = types::extract(f.path(), &m, &g).unwrap();
     assert_eq!(facts.types.iter().filter(|t| t.name == "Graph").count(), 2);
-    assert!(representations::project(&facts, &query()).is_err());
+    assert!(types::project(&facts, &query()).is_err());
 }
 #[test]
 #[expect(
@@ -201,16 +199,16 @@ fn unknowns_and_no_preparation_remain_explicit_in_both_backends() {
         .exec()
         .unwrap();
     let g = discovery::scan_metadata(&m).unwrap();
-    let facts = representations::extract(f.path(), &m, &g).unwrap();
-    let v = representations::project(&facts, &q).unwrap();
+    let facts = types::extract(f.path(), &m, &g).unwrap();
+    let v = types::project(&facts, &q).unwrap();
     assert!(
         v.unknown_calls
             .iter()
             .any(|u| u.call.spelling.contains("external"))
     );
-    let ascii = representations::ascii(&v, Panel::All);
+    let ascii = types::ascii(&v, Panel::All);
     assert!(ascii.contains("Unknown observations"));
-    let artifact = representations::pele(
+    let artifact = types::pele(
         &v,
         Panel::All,
         &cargo_atlas::render::Pele {
@@ -224,7 +222,7 @@ fn unknowns_and_no_preparation_remain_explicit_in_both_backends() {
     assert!(svg.contains("viewBox"));
     assert!(svg.contains("Graph"));
     // Bare draws the same panels without the title, notes and headings.
-    let bare = representations::pele(
+    let bare = types::pele(
         &v,
         Panel::All,
         &cargo_atlas::render::Pele {
@@ -257,7 +255,7 @@ fn expanding_reexport_cycles_terminate_as_unknown() {
         .exec()
         .unwrap();
     let g = discovery::scan_metadata(&m).unwrap();
-    let facts = representations::extract(f.path(), &m, &g).unwrap();
+    let facts = types::extract(f.path(), &m, &g).unwrap();
     assert!(facts.references.is_empty());
     assert!(!facts.unknown_types.is_empty());
 }
@@ -269,7 +267,7 @@ fn matrix_renders_nested_borrows_and_contract_titles_keep_all_literal_sites() {
         "checked: &'a Checked, graphs: Vec<&'a Graph> }",
     ) + "\nfn extra()->Graph { let _=Graph {value:1}; Graph {value:2} }";
     let (_f, _, v) = inspect(&source);
-    let artifact = representations::pele(
+    let artifact = types::pele(
         &v,
         Panel::All,
         &cargo_atlas::render::Pele {
@@ -279,7 +277,7 @@ fn matrix_renders_nested_borrows_and_contract_titles_keep_all_literal_sites() {
         },
     )
     .unwrap();
-    let matrix = representations::pele(
+    let matrix = types::pele(
         &v,
         Panel::Retention,
         &cargo_atlas::render::Pele {
@@ -313,7 +311,7 @@ fn default_api_selection_includes_trait_implementation_methods() {
         .exec()
         .unwrap();
     let g = discovery::scan_metadata(&m).unwrap();
-    let facts = representations::extract(f.path(), &m, &g).unwrap();
+    let facts = types::extract(f.path(), &m, &g).unwrap();
     let q = Query {
         title: "trait impl".into(),
         types: vec![Selector {
@@ -324,7 +322,7 @@ fn default_api_selection_includes_trait_implementation_methods() {
         preparation_files: vec![],
         preparation_functions: vec![],
     };
-    let v = representations::project(&facts, &q).unwrap();
+    let v = types::project(&facts, &q).unwrap();
     let c = v
         .contracts
         .iter()
@@ -345,7 +343,7 @@ fn changed_source_cannot_be_reported_under_the_old_fingerprint() {
     let g = discovery::scan_metadata(&m).unwrap();
     f.write("src/lib.rs", &(BASE.to_owned() + "\npub fn new_route() {}"));
     assert!(
-        representations::extract(f.path(), &m, &g)
+        types::extract(f.path(), &m, &g)
             .unwrap_err()
             .to_string()
             .contains("source changed after discovery")

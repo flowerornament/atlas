@@ -4,7 +4,7 @@ use cargo_atlas::{
     adapter, comparison,
     dependencies::{self, Relation},
     discovery, overview,
-    representations::{self, Facts, Role},
+    types::{self, Facts, Role},
 };
 use cargo_metadata::MetadataCommand;
 use support::Fixture;
@@ -21,8 +21,7 @@ fn scan(
         .exec()
         .expect("test fixture prerequisite must succeed");
     let g = discovery::scan_metadata(&m).expect("test fixture prerequisite must succeed");
-    let facts =
-        representations::extract(f.path(), &m, &g).expect("test fixture prerequisite must succeed");
+    let facts = types::extract(f.path(), &m, &g).expect("test fixture prerequisite must succeed");
     (m, g, facts)
 }
 #[test]
@@ -140,11 +139,11 @@ fn inferred()->Graph {Default::default()}
 ",
     )]);
     let (_, _, facts) = scan(&f);
-    let query = representations::Query {
+    let query = types::Query {
         title: "Admission".into(),
         types: ["Graph", "Checked"]
             .into_iter()
-            .map(|name| representations::Selector {
+            .map(|name| types::Selector {
                 name: name.into(),
                 file: None,
             })
@@ -153,7 +152,7 @@ fn inferred()->Graph {Default::default()}
         preparation_files: vec![],
         preparation_functions: vec![],
     };
-    let v = representations::project(&facts, &query).unwrap();
+    let v = types::project(&facts, &query).unwrap();
     assert_eq!(
         facts.default_calls.len(),
         1,
@@ -175,9 +174,9 @@ fn inferred()->Graph {Default::default()}
     assert_eq!(admit.failures[0].0.name, "Refused");
     assert_eq!(admit.failures[0].1.wrappers, ["Result[1]", "Box[0]"]);
     let svg = String::from_utf8(
-        representations::pele(
+        types::pele(
             &v,
-            representations::Panel::All,
+            types::Panel::All,
             &cargo_atlas::render::Pele {
                 html: false,
                 theme: cargo_atlas::render::Theme::Light,
@@ -426,10 +425,10 @@ fn one_module_above_a_figure_refuses_by_name_and_user_queries_keep_their_cap() {
         error.contains("module `s1` alone selects 13 types"),
         "{error}"
     );
-    let query = representations::Query {
+    let query = types::Query {
         title: "thirteen".into(),
         types: (0..13)
-            .map(|t| representations::Selector {
+            .map(|t| types::Selector {
                 name: format!("S1T{t}"),
                 file: Some("src/s1.rs".into()),
             })
@@ -438,10 +437,7 @@ fn one_module_above_a_figure_refuses_by_name_and_user_queries_keep_their_cap() {
         preparation_files: vec![],
         preparation_functions: vec![],
     };
-    let error = representations::project(&facts, &query)
-        .err()
-        .unwrap()
-        .to_string();
+    let error = types::project(&facts, &query).err().unwrap().to_string();
     assert!(error.contains("select 1–12 types per figure"), "{error}");
 }
 
@@ -484,9 +480,9 @@ fn one_module_above_forty_contracts_refuses_by_name_and_user_queries_keep_the_ro
         "{error}"
     );
     assert!(error.contains("API contracts"), "{error}");
-    let query = representations::Query {
+    let query = types::Query {
         title: "one".into(),
-        types: vec![representations::Selector {
+        types: vec![types::Selector {
             name: "S0T0".into(),
             file: Some("src/s0.rs".into()),
         }],
@@ -494,10 +490,7 @@ fn one_module_above_forty_contracts_refuses_by_name_and_user_queries_keep_the_ro
         preparation_files: vec![],
         preparation_functions: vec![],
     };
-    let error = representations::project(&facts, &query)
-        .err()
-        .unwrap()
-        .to_string();
+    let error = types::project(&facts, &query).err().unwrap().to_string();
     assert!(error.contains("view exceeds 40 API contracts"), "{error}");
 }
 
@@ -540,9 +533,9 @@ fn comparison_ignores_line_shifts_and_exposes_new_construction_and_preparation()
             .iter()
             .any(|c| c.category == "contract" && c.subject.contains("prepare_again"))
     );
-    let query = cargo_atlas::representations::Query {
+    let query = cargo_atlas::types::Query {
         title: "Graph".into(),
-        types: vec![cargo_atlas::representations::Selector {
+        types: vec![cargo_atlas::types::Selector {
             name: "Graph".into(),
             file: None,
         }],
@@ -550,7 +543,7 @@ fn comparison_ignores_line_shifts_and_exposes_new_construction_and_preparation()
         preparation_files: vec![],
         preparation_functions: vec![],
     };
-    let v = representations::project(&b, &query).unwrap();
+    let v = types::project(&b, &query).unwrap();
     let p = &v.producers[0];
     assert_eq!(p.returned.len(), 4);
     assert_eq!(p.constructed.len(), 2);
@@ -620,9 +613,9 @@ fn error_type_returners_keep_their_err_position_in_the_producer_view() {
         "pub struct Refused; pub fn reject()->Result<(),Refused>{Err(Refused)}",
     )]);
     let (_, _, facts) = scan(&f);
-    let query = representations::Query {
+    let query = types::Query {
         title: "Error routes".into(),
-        types: vec![representations::Selector {
+        types: vec![types::Selector {
             name: "Refused".into(),
             file: None,
         }],
@@ -630,10 +623,10 @@ fn error_type_returners_keep_their_err_position_in_the_producer_view() {
         preparation_files: vec![],
         preparation_functions: vec![],
     };
-    let v = representations::project(&facts, &query).unwrap();
-    let artifact = representations::pele(
+    let v = types::project(&facts, &query).unwrap();
+    let artifact = types::pele(
         &v,
-        representations::Panel::Producers,
+        types::Panel::Producers,
         &cargo_atlas::render::Pele {
             html: false,
             theme: cargo_atlas::render::Theme::Light,

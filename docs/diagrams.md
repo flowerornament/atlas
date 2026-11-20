@@ -8,7 +8,7 @@ wrote.
 | Question | Command |
 | --- | --- |
 | Which files call each other, or use each other's types? | [`dependencies`](#which-files-depend-on-which) |
-| Which functions take, return and build a type? | [`representations`](#which-functions-handle-a-type) |
+| Which functions take, return and build a type? | [`types`](#which-functions-handle-a-type) |
 | What paths can one function take? | [`flow`](#what-a-function-does) |
 | How did a type's functions and fields change between two commits? | [`compare`](#how-a-change-affected-a-type) |
 | How do the stages my project declares hand data to each other? | [`overview`](#an-overview-from-declared-stages) |
@@ -46,7 +46,7 @@ cargo atlas dependencies --relation calls --backend pele --theme light
 The colours are written into the SVG itself, so the image looks the same in
 a browser, an image viewer or a converter such as `rsvg-convert`.
 
-`representations`, `compare` and `overview` write a title, notes on what the
+`types`, `compare` and `overview` write a title, notes on what the
 figure does not prove, and panel headings around the drawing. Add `--bare` to
 draw only the diagram in a Pele image, for example to put it in a slide or a
 README. Text output is unchanged, and the notes stay in the JSON evidence.
@@ -97,9 +97,9 @@ them. Add `--all-facts` to list every file's facts.
 ## Which functions handle a type
 
 ```sh
-cargo atlas representations --type Tree --panel producers
-cargo atlas representations --type Tree,Checked --panel contracts --backend pele
-cargo atlas representations --query pipeline.json --panel all --backend pele
+cargo atlas types --type Tree --panel producers
+cargo atlas types --type Tree,Checked --panel contracts --backend pele
+cargo atlas types --query pipeline.json --panel all --backend pele
 ```
 
 A *representation* is a type that carries data through your program. This view

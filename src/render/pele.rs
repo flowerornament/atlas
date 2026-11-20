@@ -11,7 +11,7 @@ pub struct Pele {
     pub html: bool,
     pub theme: Theme,
     /// Draw only the diagram: leave out the title, notes and panel headings
-    /// Atlas writes around representations, compare and overview figures.
+    /// Atlas writes around the `types`, `compare` and `overview` figures.
     /// The evidence keeps everything; graph diagrams have none to leave out.
     pub bare: bool,
 }
@@ -95,7 +95,7 @@ impl Renderer for Pele {
     fn render_view(&self, view: super::View<'_>) -> Result<Artifact> {
         let artifact = match view {
             super::View::Graph(g) => return self.render(g),
-            super::View::Representations(v, p) => crate::representations::pele(v, p, self)?,
+            super::View::Types(v, p) => crate::types::pele(v, p, self)?,
             super::View::Comparison(c) => c.pele(self)?,
             super::View::Overview(o) => crate::overview::pele(o, self)?,
         };

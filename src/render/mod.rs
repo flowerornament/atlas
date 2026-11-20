@@ -4,8 +4,8 @@ mod ascii;
 pub(crate) mod comparison;
 pub(crate) mod overview;
 pub(crate) mod pele;
-pub(crate) mod representations;
 mod theme;
+pub(crate) mod types;
 use crate::{Result, diagram::Diagram};
 pub use ascii::Ascii;
 pub use pele::{Pele, mermaid};
@@ -23,10 +23,7 @@ pub struct Artifact {
 #[derive(Clone, Copy)]
 pub enum View<'a> {
     Graph(&'a Diagram),
-    Representations(
-        &'a crate::representations::Views,
-        crate::representations::Panel,
-    ),
+    Types(&'a crate::types::Views, crate::types::Panel),
     Comparison(&'a crate::comparison::Comparison),
     Overview(&'a crate::overview::Overview),
 }
@@ -34,7 +31,7 @@ impl View<'_> {
     pub fn family(self) -> &'static str {
         match self {
             Self::Graph(_) => "graph",
-            Self::Representations(..) => "representations",
+            Self::Types(..) => "types",
             Self::Comparison(_) => "comparison",
             Self::Overview(_) => "overview",
         }

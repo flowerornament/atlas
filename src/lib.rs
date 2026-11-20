@@ -9,7 +9,10 @@ pub mod adapter;
 mod process;
 pub mod render;
 mod views;
-pub use views::{comparison, dependencies, overview, program, representations};
+/// The `types` views under their name before 0.18.0.
+#[doc(hidden)]
+pub use views::types as representations;
+pub use views::{comparison, dependencies, overview, program, types};
 
 /// Errors at I/O, source discovery and rendering boundaries.
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;

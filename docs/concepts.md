@@ -36,7 +36,7 @@ it uses.
 | Evidence | How Atlas knows | Used by |
 | --- | --- | --- |
 | **Lexical** | The same name is written in two places. Quick, but two things with the same name can be confused. | `census`, `name`, `module`, `dump`, `map --view types` |
-| **Qualified** | Atlas followed `use` statements, modules and Cargo targets to work out exactly which item a call or type refers to. If it cannot work it out, the item is marked *unresolved*. | `dependencies`, `representations`, `compare`, `overview`, `flow --depth` |
+| **Qualified** | Atlas followed `use` statements, modules and Cargo targets to work out exactly which item a call or type refers to. If it cannot work it out, the item is marked *unresolved*. | `dependencies`, `types`, `compare`, `overview`, `flow --depth` |
 | **Declared** | You wrote it down: an architecture policy, or a table in your code that an adapter reads. | `stages`, `seams`, `policy`, `delta`, `program`, `map --architecture` |
 
 Atlas never mixes these up. A rule you declared is never drawn as if it had
@@ -134,7 +134,7 @@ no half-finished image is left behind.
 | Find your way around | `census`, `name`, `module`, `dump` |
 | Review a change | `diff`, `moved`, `visibility`, `compare` |
 | Measure | `spans`, `concentration`, `nontest-loc`, `comments` |
-| Draw diagrams | `dependencies`, `representations`, `flow`, `overview`, `program`, `map` |
+| Draw diagrams | `dependencies`, `types`, `flow`, `overview`, `program`, `map` |
 | Check architecture | `delta`, `stages`, `policy`, `seams` |
 
 `cargo atlas --help` lists every command. Each command's `--help` ends with a short

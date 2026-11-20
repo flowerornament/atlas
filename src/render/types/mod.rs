@@ -8,7 +8,7 @@ mod retention;
 pub fn ascii(v: &Views, panel: Panel) -> String {
     ascii::render(v, panel)
 }
-use crate::representations::{Reference, Views};
+use crate::types::{Reference, Views};
 use crate::{
     Result,
     render::{
