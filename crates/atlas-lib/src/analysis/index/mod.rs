@@ -56,10 +56,14 @@ pub struct Index {
     names: BTreeMap<Vec<String>, Vec<usize>>,
     crates: BTreeSet<String>,
     exports: BTreeMap<Vec<String>, Vec<Vec<String>>>,
-    /// Qualified paths of the types and traits the workspace source declares.
+    /// Qualified paths of the structs, enums, unions and traits the workspace
+    /// source declares.
     types: BTreeSet<Vec<String>>,
     /// The last segment of every path in `types`.
     type_names: BTreeSet<String>,
+    /// Type aliases by qualified path: the module scope they are written in,
+    /// the aliased path and the imports there.
+    aliases: BTreeMap<Vec<String>, (Vec<String>, super::workflow::Alias)>,
     /// Trait-impl owners the workspace declares no type for: a foreign type
     /// (or one a macro declares). Their methods are never call targets.
     foreign: BTreeSet<Vec<String>>,
@@ -224,6 +228,7 @@ impl Index {
             exports: BTreeMap::new(),
             types: BTreeSet::new(),
             type_names: BTreeSet::new(),
+            aliases: BTreeMap::new(),
             foreign: BTreeSet::new(),
         };
         index.read_functions(sources, graph, &mounts, tests)?;

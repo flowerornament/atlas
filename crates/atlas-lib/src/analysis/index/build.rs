@@ -10,6 +10,7 @@ use crate::{
     analysis::sources::Sources,
     source::{model::SourceGraph, population::TestSelection},
 };
+use std::collections::BTreeMap;
 
 impl Index {
     pub(super) fn read_functions(
@@ -46,6 +47,11 @@ impl Index {
                     self.type_names.extend(path.last().cloned());
                     self.types
                         .insert(scope.iter().chain(path).cloned().collect());
+                }
+                for alias in &parsed.aliases {
+                    let qualified: Vec<String> = scope.iter().chain(&alias.path).cloned().collect();
+                    let module = qualified[..qualified.len() - 1].to_vec();
+                    self.aliases.insert(qualified, (module, alias.clone()));
                 }
                 for flow in &parsed.functions {
                     let id = format!(
@@ -86,15 +92,10 @@ impl Index {
             {
                 // `impl From<X> for usize` names no workspace `usize::from`:
                 // Rust picks the impl by argument type, or an inherent method.
-                // Only a trait impl can have a foreign owner. A workspace type
-                // reached through an import the index does not follow (a
-                // restricted re-export) still declares its name somewhere,
-                // so an owner whose name the workspace declares is kept.
+                // Only a trait impl can have a foreign owner.
                 let foreign = f.flow.trait_impl
-                    && !self.types.contains(&key)
-                    && key
-                        .last()
-                        .is_none_or(|name| !self.type_names.contains(name));
+                    && (self.imported_from_elsewhere(&f.flow.imports, &owner)
+                        || !self.declares(&key));
                 if foreign {
                     self.foreign.insert(key.clone());
                 }
@@ -122,5 +123,52 @@ impl Index {
             }
         }
         Ok(())
+    }
+    /// Whether an impl owner's canonical path is a workspace type: declared
+    /// there, or an alias whose aliased path, followed through the imports
+    /// where it is written, is one (an alias of a foreign type, such as
+    /// `type Rational = Ratio<i128>` with `use num_rational::Ratio`, is not).
+    /// A workspace type reached through an import the index does not follow
+    /// (a restricted re-export) still declares its name somewhere, so an
+    /// unknown path whose name the workspace declares is kept.
+    fn declares(&self, key: &[String]) -> bool {
+        self.declares_within(key, 0)
+    }
+    fn declares_within(&self, key: &[String], depth: usize) -> bool {
+        if self.types.contains(key) {
+            return true;
+        }
+        if let Some((module, alias)) = self.aliases.get(key) {
+            // Alias chains are short; a cycle is not a workspace type.
+            return depth < 8
+                && alias.target.as_ref().is_some_and(|target| {
+                    !self.imported_from_elsewhere(&alias.imports, target)
+                        && self
+                            .in_scope(module, &alias.imports, target)
+                            .is_some_and(|path| self.declares_within(&path, depth + 1))
+                });
+        }
+        key.last()
+            .is_some_and(|name| self.type_names.contains(name))
+    }
+    /// Whether `path` starts with a name imported only from another crate,
+    /// such as `Ratio` after `use num_rational::Ratio`. Such a type is never
+    /// the workspace's, whatever names the workspace declares.
+    fn imported_from_elsewhere(
+        &self,
+        imports: &BTreeMap<String, Vec<Vec<String>>>,
+        path: &[String],
+    ) -> bool {
+        path.first()
+            .and_then(|name| imports.get(name))
+            .is_some_and(|sources| {
+                !sources.is_empty()
+                    && sources.iter().all(|source| {
+                        source.first().is_some_and(|root| {
+                            !matches!(root.as_str(), "crate" | "self" | "super")
+                                && !self.crates.contains(root)
+                        })
+                    })
+            })
     }
 }

@@ -99,7 +99,11 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  Rust picks the impl by argument type, or prefers an inherent method, so the
  call stays summarized and names the type. Only trait impls are read this
  way, and only when no workspace type has the owner's name; a trait impl for
- a type declared only by a macro is also left unresolved. Before, `program`,
+ a type declared only by a macro is also left unresolved. A workspace type
+ alias of a foreign type, such as `type Rational = Ratio<i128>` with
+ `use num_rational::Ratio`, is read as that foreign type, and so is an impl
+ owner imported from another crate, even when the workspace declares a type
+ of the same name elsewhere. Before, `program`,
  `dependencies` and call expansion drew these as workspace calls, including
  false self-recursion.
 - **Library:** `workflow::ParsedFile` has a `types` field listing the types

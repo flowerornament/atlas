@@ -266,8 +266,20 @@ pub fn read_many(root: &Path, anchors: &[(&str, &str)]) -> Result<Vec<Workflow>>
 pub struct ParsedFile {
     pub functions: Vec<Workflow>,
     pub exports: std::collections::BTreeMap<String, Vec<Vec<String>>>,
-    /// Declared type and trait paths, relative to the file's module.
+    /// Declared struct, enum, union and trait paths, relative to the file's
+    /// module.
     pub types: Vec<Vec<String>>,
+    /// Declared type aliases, read by the index to tell an alias of a
+    /// workspace type from an alias of a foreign one.
+    pub(crate) aliases: Vec<Alias>,
+}
+/// A `type` alias, relative to the file's module, with its aliased path as
+/// written (generic arguments dropped) and the imports in scope there.
+#[derive(Clone)]
+pub(crate) struct Alias {
+    pub(crate) path: Vec<String>,
+    pub(crate) target: Option<Vec<String>>,
+    pub(crate) imports: std::collections::BTreeMap<String, Vec<Vec<String>>>,
 }
 /// Inspect all function bodies in a file with one AST parse.
 pub fn read_file(root: &Path, path: &str) -> Result<ParsedFile> {

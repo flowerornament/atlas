@@ -912,3 +912,49 @@ fn diagnostics_and_unknown_calls_carry_stable_codes() {
         ]
     );
 }
+
+#[test]
+fn a_workspace_alias_of_a_foreign_type_is_a_foreign_impl_owner() {
+    // `type Rational = Ratio<i128>` names a foreign type: a trait impl for it
+    // dispatches `Self::recip` to the inherent method, as for `f64`, even
+    // when another module declares a type named `Ratio`. An alias of a
+    // workspace type still owns its impl's methods.
+    use atlas_lib::{
+        architecture::Architecture,
+        source_index::{SummaryKind, Target},
+    };
+    let fixture = Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[package]\nname='fixture'\nversion='0.0.0'\nedition='2024'\n[workspace]\n",
+        ),
+        (
+            "src/lib.rs",
+            "use std::num::Wrapping as Ratio;\n\
+             pub type Rational = Ratio<i128>;\n\
+             pub mod other { pub struct Ratio; }\n\
+             pub struct Grid;\n\
+             pub type Board = Grid;\n\
+             pub trait Carrier { fn recip(self) -> Self; fn g(self) -> Self; }\n\
+             impl Carrier for Rational { fn recip(self) -> Self { self } fn g(self) -> Self { Self::recip(self) } }\n\
+             impl Carrier for Board { fn recip(self) -> Self { self } fn g(self) -> Self { Self::recip(self) } }\n",
+        ),
+    ]);
+    let snapshot = discovery::snapshot_workspace(fixture.path()).unwrap();
+    let analysis = Analysis::new(&snapshot).unwrap();
+    let index = analysis.index(&Architecture::empty()).unwrap();
+    let resolved = |function: &str| {
+        let caller = index.select("src/lib.rs", function).unwrap();
+        let call = &index.functions()[caller].flow.calls[0];
+        index.resolve(caller, call)
+    };
+    let target = resolved("Rational::g");
+    assert!(
+        matches!(&target, Target::Summarized(reason) if reason.kind == SummaryKind::ForeignImplOwner),
+        "{target:?}"
+    );
+    let Target::Function(own) = resolved("Board::g") else {
+        panic!("an alias of a workspace type keeps its impl's methods");
+    };
+    assert_eq!(index.functions()[own].flow.function, "Board::recip");
+}

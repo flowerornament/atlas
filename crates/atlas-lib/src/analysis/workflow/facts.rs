@@ -16,15 +16,24 @@ pub(super) fn types(
     items: &[Item],
     module: &[String],
     selection: crate::population::SyntaxSelection<'_>,
-    out: &mut Vec<Vec<String>>,
+    out: &mut super::ParsedFile,
 ) {
     for item in items.iter().filter(|item| selection.admits(item.span())) {
         let ident = match item {
             Item::Struct(item) => &item.ident,
             Item::Enum(item) => &item.ident,
             Item::Union(item) => &item.ident,
-            Item::Type(item) => &item.ident,
             Item::Trait(item) => &item.ident,
+            Item::Type(alias) => {
+                let mut path = module.to_vec();
+                path.push(alias.ident.to_string());
+                out.aliases.push(super::Alias {
+                    path,
+                    target: type_path(&alias.ty),
+                    imports: imports(items, selection),
+                });
+                continue;
+            }
             Item::Mod(item) => {
                 if let Some((_, items)) = &item.content {
                     let mut child = module.to_vec();
@@ -37,7 +46,22 @@ pub(super) fn types(
         };
         let mut path = module.to_vec();
         path.push(ident.to_string());
-        out.push(path);
+        out.types.push(path);
+    }
+}
+/// A type's path as written, without generic arguments, through references.
+fn type_path(ty: &syn::Type) -> Option<Vec<String>> {
+    match ty {
+        syn::Type::Path(p) if p.qself.is_none() => Some(
+            p.path
+                .segments
+                .iter()
+                .map(|s| s.ident.to_string())
+                .collect(),
+        ),
+        syn::Type::Reference(r) => type_path(&r.elem),
+        syn::Type::Paren(p) => type_path(&p.elem),
+        _ => None,
     }
 }
 pub(super) fn exports(
