@@ -47,6 +47,15 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  sets the list length, `--json` gives the same report with a stable section
  `id`. `cargo atlas --help` now starts with it and a question-to-command map.
 - **Library:** `queries::orient::orient` builds the same report.
+- **Library:** `analysis::semantic` reads semantic call evidence from a SCIP
+ index you supply (for example from `rust-analyzer scip`), with no new
+ dependencies, and `Analysis::semantic` compares it with each call's qualified
+ target: `agrees`, `extends`, `disagrees`, `ambiguous` or `silent`. The
+ qualified targets are unchanged. Every reading names its producer, its single
+ host configuration and an index digest; each site is checked against the
+ captured text. An index with no standard-library symbols (what an indexer
+ writes without rust-src), another position encoding, a repeated document or
+ malformed bytes is reported unavailable with its reason, never read in part.
 
 - A trait impl for a type the workspace does not declare, such as
  `impl From<Slot> for usize` or `impl Root for f64`, no longer makes a call

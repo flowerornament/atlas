@@ -3,6 +3,7 @@
 //! Test selection resets only this Analysis's workflow cache; Source stays shared.
 pub mod index;
 pub mod representations;
+pub mod semantic;
 mod sources;
 pub mod workflow;
 
@@ -82,6 +83,20 @@ impl<'a> Analysis<'a> {
             architecture,
             self.tests,
         )
+    }
+    /// Every production call of this capture's qualified index, read against a
+    /// supplied semantic index and compared with its qualified target. The
+    /// reading is a separate evidence family; the index is unchanged.
+    pub fn semantic(&self, semantic: &semantic::SemanticIndex) -> Result<semantic::Reading> {
+        let architecture = Architecture {
+            schema: 1,
+            provenance: vec![],
+            modules: vec![],
+            workflows: vec![],
+        };
+        let index = self.index(&architecture)?;
+        let text = |path: &str| self.sources.get(path).map(sources::CachedSource::text);
+        Ok(semantic.join(&index, &text))
     }
     /// Bounded source-call expansion; no execution or path-feasibility claim.
     pub fn expanded(

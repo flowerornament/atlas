@@ -30,7 +30,10 @@ Three evidence families explain superficially similar paths. **Lexical** views
 use declaration spellings and approximate mentions; **qualified** views follow
 supported Cargo/import/signature syntax and retain unresolved targets; **native**
 reports keep fixed line-based population and counting units for review and checks.
-They share source and grammar without claiming interchangeable meanings.
+A fourth, **semantic**, is a compiler front end's resolution for one build
+configuration, read from a supplied SCIP index; it sits beside each qualified
+target and never changes one. They share source and grammar without claiming
+interchangeable meanings.
 Depth-zero flow deliberately reads explicitly selected bodies, including tests;
 it publishes their own workflow evidence and protects those source paths. Expanded
 flow uses the selected qualified index and its captured syntax cache.
@@ -53,6 +56,9 @@ flow uses the selected qualified index and its captured syntax cache.
   `representations/` preserves written aliases/signatures/fields/construction.
   `workflow/` preserves syntax control and occurrence-specific call returns.
   `functions.rs` discovers/selects bodies; `parse.rs` reads their ordered expressions.
+  `semantic/` reads a SCIP index (`wire.rs`, no dependencies), locates each
+  recorded callee name (`locate.rs`) and reports the index's reading and its
+  agreement with the qualified target per call. It runs no indexer.
 - **Core `queries/`** owns developer reports: lexical queries, selected native
   navigation, review and documentation audits. Lexical and selected native results
   intentionally differ in population/schema. `review/` keeps source metrics and

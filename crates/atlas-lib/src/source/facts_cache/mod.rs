@@ -452,7 +452,8 @@ fn tree_size(dir: &Path) -> u64 {
         .sum()
 }
 
-fn hex(bytes: &[u8]) -> String {
+/// Lowercase hexadecimal of a digest.
+pub(crate) fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     bytes.iter().fold(String::new(), |mut out, byte| {
         let _ = write!(out, "{byte:02x}");

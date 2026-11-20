@@ -108,6 +108,14 @@ at most once and shares the work between questions.
   kept as unknown.
 - `expanded(path, function, depth)` returns the steps of one function, with
   calls expanded to the given depth, plus a diagram of them.
+- `semantic(&SemanticIndex::read(&bytes))` reads every production call against
+  a SCIP index you supply, such as one written by `rust-analyzer scip`. Each
+  call keeps its qualified target and gains a second, labelled reading: a
+  workspace definition, a trait method (dispatch open), an external item, a
+  local value, no definition, ambiguous, or not indexed. Their `agreement` is
+  reported, never resolved. An index that names no standard-library item, uses
+  another position encoding or is malformed is `unavailable`, with the reason.
+  `SemanticIndex::read_calls` reads calls without the comparison.
 - `with_tests(selection)` chooses whether test code is included:
   `Production`, `OutsideTestModules` or `All`.
 
