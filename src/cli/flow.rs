@@ -180,7 +180,15 @@ pub(super) fn run(
     } else if options.render.backend == Backend::Ascii {
         let mut text = flows
             .iter()
-            .map(|(name, flow)| format!("{name}\n{}", flow.ascii()))
+            // A body's own heading names it; an anchor's name is shown only
+            // when it differs, as for a profile workflow.
+            .map(|(name, flow)| {
+                if *name == flow.function {
+                    flow.ascii()
+                } else {
+                    format!("{name}\n{}", flow.ascii())
+                }
+            })
             .collect::<Vec<_>>()
             .join("\n");
         for (label, url) in &diagram.evidence_links {

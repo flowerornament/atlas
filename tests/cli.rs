@@ -93,9 +93,11 @@ fn workflows_preserve_independent_bodies_and_raw_source_evidence() {
         String::from_utf8_lossy(&output.stderr)
     );
     let text = fs::read_to_string(f.path().join("docs/flows.txt")).unwrap();
+    // An anchor named like its function is headed once.
     assert!(
-        text.contains("first\nfirst (src/lib.rs:2)")
-            && text.contains("second\nsecond (src/lib.rs:3)")
+        text.contains("first (src/lib.rs:2)")
+            && text.contains("second (src/lib.rs:3)")
+            && !text.contains("first\nfirst")
     );
     assert!(
         text.contains("second(x)")
@@ -612,5 +614,37 @@ fn dependencies_text_names_files_unambiguously_and_says_what_follows() {
     assert!(
         !text.contains("COVERAGE"),
         "an empty section is left out: {text}"
+    );
+}
+
+#[test]
+fn flow_text_names_the_function_once_and_an_if_let_once() {
+    let f = Fixture::new(&[(
+        "src/main.rs",
+        "fn run() -> Result<(), String> { Ok(()) }\nfn main() {\n    if let Err(error) = run() {\n        eprintln!(\"{error}\");\n    }\n}\n",
+    )]);
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .args([
+            "atlas",
+            "flow",
+            "--path",
+            "src/main.rs",
+            "--function",
+            "main",
+            "--root",
+        ])
+        .arg(f.path())
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.starts_with("main (src/main.rs:2)\n"), "{text}");
+    let steps: Vec<_> = text.lines().filter(|l| l.starts_with("-> ")).collect();
+    assert_eq!(
+        steps,
+        [
+            "-> run() [src/main.rs:3]",
+            "-> if let Err(error) = run() [src/main.rs:3]"
+        ],
+        "{text}"
     );
 }

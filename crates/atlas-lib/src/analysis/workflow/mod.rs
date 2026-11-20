@@ -339,7 +339,23 @@ impl Workflow {
     }
 }
 fn write_steps(out: &mut String, steps: &[Step], depth: usize) {
-    for step in steps {
+    for (i, step) in steps.iter().enumerate() {
+        // `if let P = e` is one written condition: its pattern step repeats
+        // the branch that follows, so the text shows the branch alone. The
+        // evidence keeps both steps.
+        if let (
+            Step::Action { label, site, .. },
+            Some(Step::Branch {
+                label: branch,
+                site: at,
+                ..
+            }),
+        ) = (step, steps.get(i + 1))
+            && branch.strip_prefix("if ") == Some(label.as_str())
+            && site.line == at.line
+        {
+            continue;
+        }
         let pad = "  ".repeat(depth);
         let marker = match step {
             Step::Action { fallible: true, .. } => " ?",

@@ -113,7 +113,6 @@ including every branch.
 
 ```console
 $ cargo atlas flow --path src/main.rs --function main
-main
 main (src/main.rs:4)
 
 -> std::env::args() [src/main.rs:5]

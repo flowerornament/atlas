@@ -6,6 +6,11 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `flow` text heads each body once (`main (src/main.rs:8)`, not `main` and
+ then that line) unless a profile anchor's name differs from its function,
+ and shows `if let P = e` as one branch step after `e`'s own steps, not
+ also a separate `let P = e` step. The workflow and diagram JSON keep every
+ step.
 - `dependencies` text (and the file-level `map` and `program` views): an
  edge names each file by the shortest path suffix no other file shares
  (`index/mod.rs`, not `mod.rs`). The header says what follows, such as
