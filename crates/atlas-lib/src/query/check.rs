@@ -5,6 +5,7 @@
 //! that are complete when they run. Only the rules a query needs are kept.
 use super::{
     Error, ErrorKind, Location, Origin,
+    honesty::{self, Check},
     syntax::{Atom, Builtin, ClauseKind, Const, Field, HeadTerm, Literal, Op, Program, Term},
 };
 use crate::relations::{Family, schema};
@@ -55,6 +56,8 @@ pub(crate) struct CRule {
     pub(crate) vars: Vec<String>,
     pub(crate) origin: Origin,
     pub(crate) at: Location,
+    /// The clause as written, for findings that quote it.
+    pub(crate) text: String,
 }
 impl CRule {
     pub(crate) fn aggregates(&self) -> bool {
@@ -83,8 +86,16 @@ pub struct Checked {
     pub(crate) families: Vec<Family>,
     /// Stored relations the needed rules read.
     pub(crate) stored: BTreeSet<RelId>,
+    /// Honesty findings the caller accepted, as they would have refused.
+    pub(crate) accepted: Vec<String>,
+    /// What the answer cannot show, from the relations the program reads.
+    pub(crate) notes: Vec<String>,
 }
 impl Checked {
+    /// Honesty findings accepted with [`super::Options::accept`].
+    pub fn accepted(&self) -> &[String] {
+        &self.accepted
+    }
     /// The fact families the program reads; a caller need capture only these.
     pub fn families(&self) -> &[Family] {
         &self.families
@@ -158,6 +169,7 @@ pub(crate) fn check(
     user: &Program,
     prelude: &Program,
     families: &[Family],
+    accept: &BTreeSet<Check>,
 ) -> Result<Checked, Error> {
     let mut catalog = Catalog {
         rels: Vec::new(),
@@ -286,6 +298,37 @@ pub(crate) fn check(
                 .any(|&r| catalog.rels[r].stored.is_some_and(|s| s.family == *f))
         })
         .collect();
+    let mut accepted = Vec::new();
+    let mut refused = Vec::new();
+    for (check, finding) in honesty::review(&catalog.rels, &rules, user, prelude) {
+        if accept.contains(&check) {
+            accepted.push(format!("accepted {}: {finding}", check.name()));
+        } else {
+            refused.push((check, finding));
+        }
+    }
+    if let Some((_, first)) = refused.first() {
+        let checks: BTreeSet<&str> = refused.iter().map(|(c, _)| c.name()).collect();
+        let mut error = first.clone();
+        error.message = refused
+            .iter()
+            .map(|(_, f)| f.to_string())
+            .chain([format!(
+                "{} honesty finding(s); fix the rules, or accept with {} to run anyway (the acceptance is reported with the answer)",
+                refused.len(),
+                checks
+                    .iter()
+                    .map(|c| format!("--accept {c}"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )])
+            .collect::<Vec<_>>()
+            .join("\n");
+        error.location = None;
+        error.line = None;
+        return Err(error);
+    }
+    let notes = honesty::unread_unknowns(&catalog.rels, &stored);
     Ok(Checked {
         rels: catalog.rels,
         rules,
@@ -293,6 +336,8 @@ pub(crate) fn check(
         queries,
         families,
         stored,
+        accepted,
+        notes,
     })
 }
 
@@ -777,6 +822,7 @@ fn compile(
         vars: vars.names.clone(),
         origin: clause.program.origin,
         at: clause.at,
+        text: clause.text.to_owned(),
     };
     safety(clause.program, &rule, &vars, head.is_none())?;
     Ok(rule)
@@ -840,6 +886,7 @@ fn compile_query(
         vars: vars.names.clone(),
         origin: clause.program.origin,
         at: clause.at,
+        text: clause.text.to_owned(),
     };
     safety(clause.program, &rule, &vars, true)?;
     let query = CQuery {
@@ -1115,10 +1162,23 @@ fn stratify(
             break;
         }
     }
-    let top = rules.iter().map(|r| level[r.head]).max().unwrap_or(0);
-    let mut strata = vec![Vec::new(); top + 1];
+    // Queries run once, after every relation they read is complete; no rule
+    // reads a query, so they share a last stratum.
+    let query = |rule: &CRule| rels[rule.head].name.starts_with('?');
+    let top = rules
+        .iter()
+        .filter(|r| !query(r))
+        .map(|r| level[r.head])
+        .max()
+        .unwrap_or(0);
+    let mut strata = vec![Vec::new(); top + 2];
     for (i, rule) in rules.iter().enumerate() {
-        strata[level[rule.head]].push(i);
+        strata[if query(rule) {
+            top + 1
+        } else {
+            level[rule.head]
+        }]
+        .push(i);
     }
     Ok(strata)
 }

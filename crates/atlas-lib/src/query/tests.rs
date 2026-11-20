@@ -72,9 +72,14 @@ fn graph(seed: u64) -> (Relations, u64, Vec<(u64, u64)>) {
     (relations, nodes, pairs)
 }
 
+/// Evaluate with both honesty checks accepted: these tests are about what
+/// the engine derives, and the generated graphs have no unknowns.
 fn ask(source: &str, relations: &Relations) -> Result<Answer, Error> {
     let program = parse(source)?;
-    let checked = check(&program, &relations.families)?;
+    let options = Options::default()
+        .accept(Check::Basis)
+        .accept(Check::Absence);
+    let checked = check(&program, &relations.families, &options)?;
     run(&checked, relations, Limits::default())
 }
 
@@ -336,10 +341,10 @@ fn refusals_say_what_and_where() {
 #[test]
 fn families_name_what_a_program_reads() {
     let program = parse("?- call{from: A}, mention{source: A}.").unwrap();
-    let checked = check(&program, &Family::ALL).unwrap();
+    let checked = check(&program, &Family::ALL, &Options::default()).unwrap();
     assert_eq!(checked.families(), [Family::Lexical, Family::Qualified]);
     assert_eq!(checked.reads().collect::<Vec<_>>(), ["mention", "call"]);
-    let error = check(&program, &[Family::Qualified]).unwrap_err();
+    let error = check(&program, &[Family::Qualified], &Options::default()).unwrap_err();
     assert!(error.message.contains("lexical family"), "{error}");
 }
 
@@ -351,6 +356,199 @@ fn only_the_rules_a_query_needs_are_kept() {
          ?- a{x: X}.",
     )
     .unwrap();
-    let checked = check(&program, &Family::ALL).unwrap();
+    let checked = check(&program, &Family::ALL, &Options::default()).unwrap();
     assert_eq!(checked.families(), [Family::Qualified]);
+}
+
+fn checked(source: &str, options: &Options) -> Result<Checked, Error> {
+    check(&parse(source).unwrap(), &Family::ALL, options)
+}
+fn findings(source: &str) -> Error {
+    let error = checked(source, &Options::default()).unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Honesty, "{error}");
+    error
+}
+
+#[test]
+fn basis_refuses_a_dropped_candidate_marker_and_follows_it_through_rules() {
+    // Read directly, without the column.
+    let error = findings("?- mention_target{mention: M, target: T}.");
+    assert!(
+        error.message.contains(
+            "basis: this query reads `mention_target` without keeping its `basis` column"
+        ),
+        "{error}"
+    );
+    assert!(error.message.contains("--accept basis"), "{error}");
+    // A wildcard drops it too, and so does a count.
+    findings("?- mention_target{mention: M, target: T, basis: _}.");
+    findings(
+        "n{target: T, n: count(M)} :- mention_target{mention: M, target: T, basis: _B}.\n?- n{target: T, n: N}.",
+    );
+    // Kept one rule, dropped the next: the derived column is a basis too.
+    let error = findings(
+        "points{mention: M, target: T, basis: B} :- mention_target{mention: M, target: T, basis: B}.
+         to{target: T} :- points{mention: _M, target: T, basis: _B}.
+         ?- to{target: T}.",
+    );
+    assert!(
+        error
+            .message
+            .contains("`to` reads `points` without keeping its `basis` column"),
+        "{error}"
+    );
+    assert!(error.message.contains("query:2:"), "{error}");
+    // Kept, pinned in the atom, or pinned by a comparison: accepted.
+    for honest in [
+        "?- mention_target{mention: M, target: T, basis: B}.",
+        "?- mention_target{mention: M, target: T, basis: \"unique\"}.",
+        "?- mention_target{mention: M, target: T, basis: B}, B = \"candidate\".",
+        "points{target: T, basis: B} :- mention_target{target: T, basis: B}.\n?- points{target: T, basis: \"unique\"}.",
+    ] {
+        checked(honest, &Options::default()).unwrap_or_else(|e| panic!("{honest}: {e}"));
+    }
+}
+
+#[test]
+fn absence_refuses_a_negation_that_ignores_unknowns() {
+    let unused = "called{f: F} :- call{to: F}.
+                  ?- function{id: F, public: true}, !called{f: F}.";
+    let error = findings(unused);
+    assert!(
+        error.message.contains("absence: this query negates `called`, whose unresolved observations are in `unknown_call`"),
+        "{error}"
+    );
+    // Accounting for the unknowns in the same rule is accepted: the
+    // three-way split a question about use needs.
+    checked(
+        "called{f: F} :- call{to: F}.
+         maybe{name: S} :- unknown_call{spelling: S}.
+         status{f: F, status: \"called\"} :- function{id: F}, called{f: F}.
+         status{f: F, status: \"candidate\"} :- function{id: F, name: N}, !called{f: F}, maybe{name: N}.
+         status{f: F, status: \"unobserved\"} :- function{id: F, name: N}, !called{f: F}, !maybe{name: N}.
+         ?- status{f: F, status: S}.",
+        &Options::default(),
+    )
+    .unwrap();
+    // A relation without unknowns may be negated freely.
+    checked("?- function{id: F}, !type{id: F}.", &Options::default()).unwrap();
+}
+
+#[test]
+fn accepting_a_check_runs_and_reports_it() {
+    let (relations, nodes, edges) = graph(5);
+    let source = "called{f: F} :- call{to: F}.\n?- function{id: F}, !called{f: F}.";
+    let refused = check(
+        &parse(source).unwrap(),
+        &relations.families,
+        &Options::default(),
+    );
+    assert!(refused.is_err());
+    let options = Options::default().accept(Check::Absence);
+    let checked = check(&parse(source).unwrap(), &relations.families, &options).unwrap();
+    assert_eq!(checked.accepted().len(), 1);
+    let answer = run(&checked, &relations, Limits::default()).unwrap();
+    assert!(
+        answer.accepted[0].starts_with("accepted absence: query:2:1:"),
+        "{:?}",
+        answer.accepted
+    );
+    assert!(
+        answer.notes.iter().any(|n| n.contains("`unknown_call`")),
+        "{:?}",
+        answer.notes
+    );
+    let targets: BTreeSet<u64> = edges.iter().map(|&(_, b)| b).collect();
+    assert_eq!(
+        answer.tables[0].total,
+        usize::try_from(nodes).unwrap() - targets.len()
+    );
+    // Accepting one check does not accept the other.
+    let error = checked_for(
+        "?- mention_target{target: T}, !mention{id: T}.",
+        &Options::default().accept(Check::Absence),
+    );
+    assert!(error.message.contains("basis:"), "{error}");
+}
+
+fn checked_for(source: &str, options: &Options) -> Error {
+    check(&parse(source).unwrap(), &Family::ALL, options).unwrap_err()
+}
+
+#[test]
+fn the_prelude_passes_both_checks() {
+    let prelude = syntax::parse(PRELUDE, Origin::Prelude).unwrap();
+    // One query per prelude relation, reading every field, so every rule
+    // the prelude has is checked.
+    let queries: Vec<String> = prelude
+        .clauses
+        .iter()
+        .filter_map(|clause| match &clause.kind {
+            syntax::ClauseKind::Rule { relation, head, .. } => {
+                let fields: Vec<String> = head
+                    .iter()
+                    .enumerate()
+                    .map(|(i, f)| format!("{}: X{i}", f.name))
+                    .collect();
+                Some(format!("?- {relation}{{{}}}.", fields.join(", ")))
+            }
+            syntax::ClauseKind::Query { .. } => None,
+        })
+        .collect();
+    if !queries.is_empty() {
+        checked(&queries.join("\n"), &Options::default()).unwrap();
+    }
+}
+
+fn chain(length: u64) -> Relations {
+    let (mut relations, _, _) = graph(0);
+    let call = relations.get("call").unwrap().schema;
+    let rows = (0..length)
+        .map(|e| {
+            vec![
+                Cell::Text(format!("call:{e}")),
+                Cell::Text(format!("n{e}")),
+                Cell::Text(format!("n{}", e + 1)),
+                Cell::Text("src/m.rs".into()),
+                Cell::Integer(e),
+                Cell::Integer(1),
+            ]
+        })
+        .collect();
+    relations.relations[1] = Relation { schema: call, rows };
+    relations
+}
+
+#[test]
+fn limits_refuse_with_the_relation_that_grew() {
+    let relations = chain(300);
+    let source = format!("{LINEAR}?- reach{{from: A, to: B}}.");
+    let program = parse(&source).unwrap();
+    let options = Options::default().accept(Check::Absence);
+    let checked = check(&program, &relations.families, &options).unwrap();
+    // The closure of a 300-edge chain has 45,150 pairs.
+    let answer = run(&checked, &relations, Limits::default()).unwrap();
+    assert_eq!(answer.tables[0].total, 45_150);
+    let error = run(&checked, &relations, Limits::default().rows(10_000)).unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Limit);
+    assert!(
+        error
+            .message
+            .contains("`reach` grew past the limit of 10000 derived rows"),
+        "{error}"
+    );
+    let error = run(&checked, &relations, Limits::default().rounds(20)).unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("`reach` was still growing after 20 rounds"),
+        "{error}"
+    );
+    let error = run(
+        &checked,
+        &relations,
+        Limits::default().time(std::time::Duration::ZERO),
+    )
+    .unwrap_err();
+    assert!(error.message.contains("time limit of 0 s"), "{error}");
 }

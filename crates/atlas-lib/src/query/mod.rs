@@ -20,18 +20,22 @@
 //! The engine evaluates what the facts observed and nothing more. A row
 //! derived through a candidate mention is a candidate, and a missing call is
 //! not evidence that a function is unused while unresolved calls could
-//! match; the facts keep both in their own columns and relations, and a
-//! query decides whether to read them.
+//! match; the facts keep both in their own columns and relations. Two
+//! [honesty checks](Check) refuse a rule that drops a resolution basis or
+//! reads a missing row as absence without its unknowns; a caller may accept
+//! either by name, and the acceptance travels with the answer.
 mod check;
 mod eval;
+mod honesty;
 mod syntax;
 
 pub use check::Checked;
+pub use honesty::Check;
 pub use syntax::Program;
 
 use crate::relations::{Cell, Family, Relations};
 use serde::Serialize;
-use std::{fmt, time::Duration};
+use std::{collections::BTreeSet, fmt, time::Duration};
 
 /// Rules every program may read: command-equivalent questions over the
 /// facts, written in the language itself. `cargo atlas query --prelude`
@@ -69,6 +73,8 @@ pub enum ErrorKind {
     Safety,
     /// A relation depends on itself through negation or `count`.
     Stratification,
+    /// A rule drops a resolution basis or reads absence without unknowns.
+    Honesty,
     /// Evaluation passed a limit before finishing.
     Limit,
     /// The facts given do not hold what the program reads.
@@ -210,22 +216,47 @@ fn millis<S: serde::Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_u64(u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
+/// How [`check`] treats the honesty checks.
+#[derive(Clone, Debug, Default)]
+#[non_exhaustive]
+pub struct Options {
+    /// Checks whose findings are reported with the answer instead of
+    /// refusing the program.
+    pub accept: BTreeSet<Check>,
+}
+impl Options {
+    #[must_use]
+    pub fn accept(mut self, check: Check) -> Self {
+        self.accept.insert(check);
+        self
+    }
+}
+
 /// Read a program's text.
 pub fn parse(source: &str) -> Result<Program, Error> {
     syntax::parse(source, Origin::Program)
 }
 
 /// Resolve `program` against the facts schema and the prelude for facts of
-/// the given families, and keep only the rules its queries need.
-pub fn check(program: &Program, families: &[Family]) -> Result<Checked, Error> {
+/// the given families, keep only the rules its queries need, and refuse a
+/// finding of an honesty check that `options` does not accept.
+pub fn check(program: &Program, families: &[Family], options: &Options) -> Result<Checked, Error> {
     let prelude = syntax::parse(PRELUDE, Origin::Prelude)?;
-    check::check(program, &prelude, families)
+    check::check(program, &prelude, families, &options.accept)
 }
 
 /// Evaluate a checked program over `relations`, which must hold the
-/// relations it reads ([`Checked::families`]).
+/// relations it reads ([`Checked::families`]). The answer carries the
+/// accepted findings, the unknowns the program did not read and, when it
+/// reads qualified facts, their limitations.
 pub fn run(checked: &Checked, relations: &Relations, limits: Limits) -> Result<Answer, Error> {
-    eval::run(checked, relations, limits)
+    let mut answer = eval::run(checked, relations, limits)?;
+    answer.accepted.clone_from(&checked.accepted);
+    answer.notes.clone_from(&checked.notes);
+    if checked.families.contains(&Family::Qualified) {
+        answer.notes.extend(relations.limitations.iter().cloned());
+    }
+    Ok(answer)
 }
 
 #[cfg(test)]
