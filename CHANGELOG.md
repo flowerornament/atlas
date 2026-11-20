@@ -15,6 +15,11 @@ resolve. Every 0.18 spelling still works; the superseded ones print one note
 on stderr. JSON outputs are unchanged or gain fields, apart from the
 suggested commands in `orient` and `compare`'s notes.
 
+- **Library:** `atlas-lib`'s crate docs say what it is, where to start and
+ how its evidence differs, with an example that runs as a doctest (capture,
+ census, and the same count as a query); the module `atlas_lib::guide` is the
+ library guide (`cargo atlas help library`), and a test keeps the crate's copy
+ equal to it.
 - From an agent's first session with only the binary:
   - The prelude gains `possible_call{to: F, call: C}`, the unresolved calls
   written with F's name, as `callers` reads "possibly" (a test holds them

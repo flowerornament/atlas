@@ -220,3 +220,18 @@ fn every_guide_cross_link_names_its_topic() {
         }
     }
 }
+
+/// atlas-lib's rustdoc guide is the library topic, word for word: the crate
+/// is published on its own, so it carries a copy.
+#[test]
+fn the_library_crate_carries_the_library_guide() {
+    let copy = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/atlas-lib/src/guide.md"),
+    )
+    .expect("the crate's copy");
+    assert_eq!(
+        copy,
+        file("library"),
+        "copy docs/library.md to crates/atlas-lib/src/guide.md"
+    );
+}
