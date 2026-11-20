@@ -4,7 +4,7 @@ Atlas has two packages: `cargo-atlas` (the `cargo atlas` command and its
 library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 `atlas-core`. Versions below name the package they apply to.
 
-## Unreleased
+## cargo-atlas 0.18.1 / atlas-lib 0.8.1
 
 - Refusals end with a command to run, built from real names: an ambiguous
  scope suggests this run with the first candidate (`...; run: cargo atlas
