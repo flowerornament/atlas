@@ -33,7 +33,41 @@ fn name(s: &str) -> String {
     }
     out
 }
-fn observations(f: &Facts, query: Option<&Query>) -> Result<BTreeMap<(String, String), String>> {
+/// A function's key without its signature: its file and its name, with
+/// generic arguments left out.
+fn base_key(function: &crate::types::Function) -> String {
+    format!(
+        "{}::{}",
+        function.file,
+        name(if function.qualified.is_empty() {
+            &function.name
+        } else {
+            &function.qualified
+        })
+    )
+}
+/// The base keys that name more than one function on either side, as
+/// several impls of one generic trait do (`impl From<&str> for Cell` and
+/// `impl From<bool> for Cell` both define `Cell::from`). Both sides key those
+/// functions by signature too, so a function keeps one key across the two.
+fn shared_keys(sides: [&Facts; 2]) -> BTreeSet<String> {
+    let mut shared = BTreeSet::new();
+    for facts in sides {
+        let mut seen = BTreeSet::new();
+        for function in &facts.functions {
+            let key = base_key(function);
+            if !seen.insert(key.clone()) {
+                shared.insert(key);
+            }
+        }
+    }
+    shared
+}
+fn observations(
+    f: &Facts,
+    query: Option<&Query>,
+    shared: &BTreeSet<String>,
+) -> Result<BTreeMap<(String, String), String>> {
     let types: BTreeMap<_, _> = f
         .types
         .iter()
@@ -56,18 +90,13 @@ fn observations(f: &Facts, query: Option<&Query>) -> Result<BTreeMap<(String, St
         .functions
         .iter()
         .map(|x| {
-            (
-                x.id.as_str(),
-                format!(
-                    "{}::{}",
-                    x.file,
-                    name(if x.qualified.is_empty() {
-                        &x.name
-                    } else {
-                        &x.qualified
-                    })
-                ),
-            )
+            let key = base_key(x);
+            let key = if shared.contains(&key) {
+                format!("{key} [{}]", x.signature)
+            } else {
+                key
+            };
+            (x.id.as_str(), key)
         })
         .collect();
     let selected: BTreeSet<_> = f
@@ -236,8 +265,9 @@ pub fn compare(
     query: Option<&Query>,
     labels: (String, String),
 ) -> Result<Comparison> {
-    let a = observations(before, query)?;
-    let b = observations(after, query)?;
+    let shared = shared_keys([before, after]);
+    let a = observations(before, query, &shared)?;
+    let b = observations(after, query, &shared)?;
     let mut changes = Vec::new();
     let keys: BTreeSet<_> = a.keys().chain(b.keys()).cloned().collect();
     for (kind, key) in keys {
@@ -257,7 +287,7 @@ pub fn compare(
         after: labels.1,
         changes,
         notes: vec![
-            "Keys are physical file + source symbol, not line number. Moves/renames are reported as removal/addition; ambiguous keys refuse.".into(),
+            "Keys are physical file + source symbol, not line number. Moves/renames are reported as removal/addition. Functions that share a symbol (several impls of one generic trait) are keyed by signature too; a key still shared refuses.".into(),
             "Contracts, field syntax, literal-site counts and direct producer-call sequences are separate source observations, not semantic equivalence or runtime value flow.".into(),
             format!(
                 "Unknown observations: before {} types / {} calls; after {} types / {} calls. No missing-edge claim is made.",

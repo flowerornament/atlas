@@ -6,6 +6,12 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `compare` no longer refuses a project where one type has several impls of
+ one generic trait (`impl From<&str> for Cell`, `impl From<bool> for Cell`:
+ both define `Cell::from`), which made it unusable on most real projects,
+ Atlas included. Functions that share a symbol are keyed by their signature
+ too, on both sides; a key still shared, such as `cfg` alternatives with one
+ signature, still refuses, and no candidate is picked. The JSON `notes` say so.
 - One output flag on every command: `--as FORMAT`, with the formats that
  command can produce (`--help` lists them). `--as text` is the default
  wherever text exists; `--as json` is the same as `--json`, which stays a

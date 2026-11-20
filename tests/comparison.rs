@@ -64,3 +64,45 @@ fn selected_contract_and_constructor_ambiguity_still_refuses() {
         );
     }
 }
+#[test]
+fn several_impls_of_one_generic_trait_are_compared_one_by_one() {
+    // `impl From<&str> for Cell` and `impl From<bool> for Cell` both define
+    // `Cell::from`: ordinary Rust, so the comparison keys each by its
+    // signature instead of refusing the run.
+    let impls = "pub struct Cell;\nimpl From<&str> for Cell {\n    fn from(_: &str) -> Self { Cell }\n}\nimpl From<bool> for Cell {\n    fn from(_: bool) -> Self { Cell }\n}\n";
+    let before = facts(impls);
+    let after = facts(&format!(
+        "{impls}impl From<usize> for Cell {{\n    fn from(_: usize) -> Self {{ Cell }}\n}}\n"
+    ));
+    let query: Query =
+        serde_json::from_str(r#"{"title":"Cells","types":[{"name":"Cell"}]}"#).unwrap();
+    let report = comparison::compare(
+        &before,
+        &after,
+        Some(&query),
+        ("before".into(), "after".into()),
+    )
+    .expect("several From impls are not an ambiguity");
+    let added: Vec<_> = report
+        .changes
+        .iter()
+        .filter(|change| change.before.is_none())
+        .map(|change| change.subject.as_str())
+        .collect();
+    assert!(!added.is_empty(), "{:?}", report.changes);
+    assert!(
+        added
+            .iter()
+            .all(|subject| subject.contains("fn from(_: usize) -> Self")),
+        "{added:?}"
+    );
+    // The impls both sides share are unchanged, so they are not reported.
+    assert!(
+        report
+            .changes
+            .iter()
+            .all(|change| !change.subject.contains("&str") && !change.subject.contains("bool")),
+        "{:?}",
+        report.changes
+    );
+}
