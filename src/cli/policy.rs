@@ -15,6 +15,7 @@ pub(crate) struct Options {
     /// Native schema-1 authored policy, relative to the workspace or absolute.
     #[arg(long)]
     policy: PathBuf,
+    /// Print the same answer as JSON, for scripts and agents.
     #[arg(long)]
     json: bool,
 }

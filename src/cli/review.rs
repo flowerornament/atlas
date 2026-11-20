@@ -11,6 +11,7 @@ pub(crate) struct Options {
     /// Physical source scope, including removed files or folders.
     #[arg(long, default_value = ".")]
     scope: String,
+    /// Print the same answer as JSON, for scripts and agents.
     #[arg(long)]
     json: bool,
 }
@@ -322,6 +323,7 @@ pub(super) struct SourceReviewArgs {
     /// Physical source file or directory; no matches is an error.
     #[arg(long, conflicts_with = "path")]
     scope: Option<String>,
+    /// Print the same answer as JSON, for scripts and agents.
     #[arg(long)]
     json: bool,
 }

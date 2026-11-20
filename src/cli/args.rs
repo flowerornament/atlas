@@ -142,7 +142,7 @@ pub(super) enum Command {
     NontestLoc(review::SourceReviewArgs),
     /// Report missing documentation comments.
     #[command(
-        after_help = "Answers: which files lack a //! header, which headers cite nothing, and which items lack a /// comment?\n--citation-markers lists the strings that count as a citation (such as docs/ or RFC-); without it, citations are not checked.\nReads //! and /// comments only, not #[doc] attributes or block comments. No pass or fail.\nExample: cargo atlas comments --audit --scope src --population pub-ish"
+        after_help = "Answers: which files lack a //! header, which headers cite nothing, and which items lack a /// comment?\n--citation-markers lists the strings that count as a citation (such as docs/ or RFC-); without it, citations are not checked.\nReads //! and /// comments only, not #[doc] attributes or block comments. No pass or fail.\nExample: cargo atlas comments --scope src --population pub-ish"
     )]
     Comments(documentation::Options),
     /// Draw which files call each other or use each other's types.

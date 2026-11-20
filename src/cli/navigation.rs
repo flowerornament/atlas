@@ -14,7 +14,7 @@ pub(crate) struct PopulationArgs {
     /// Native source-tree subjects: all, pub-ish or pub. LOC remains outside test modules.
     #[arg(long = "population", conflicts_with = "pub_only")]
     selection: Option<VisibilitySelection>,
-    /// Compatibility spelling of --population pub; enables the native-style report.
+    /// Deprecated spelling of --population pub, still accepted.
     #[arg(long)]
     pub_only: bool,
 }
@@ -282,6 +282,7 @@ pub(super) struct ScopeArgs {
     scope: Option<String>,
     #[arg(long = "scope", conflicts_with = "scope")]
     named_scope: Option<String>,
+    /// Print the same answer as JSON, for scripts and agents.
     #[arg(long)]
     json: bool,
     #[command(flatten)]
@@ -296,6 +297,7 @@ pub(super) struct RelatedNameArgs {
     /// Include incoming/outgoing approximate lexical co-mentions, not qualified uses.
     #[arg(long)]
     relations: bool,
+    /// Print the same answer as JSON, for scripts and agents.
     #[arg(long)]
     json: bool,
     #[command(flatten)]
@@ -307,6 +309,7 @@ pub(super) struct ModuleArgs {
     /// Compatibility positional project root; prefer --root.
     pub(super) root: Option<PathBuf>,
     pub(super) name: String,
+    /// Print the same answer as JSON, for scripts and agents.
     #[arg(long)]
     json: bool,
     #[command(flatten)]
@@ -324,6 +327,7 @@ pub(super) struct NameArgs {
     /// Compatibility positional project root; prefer --root.
     pub(super) root: Option<PathBuf>,
     pub(super) name: String,
+    /// Print the same answer as JSON, for scripts and agents.
     #[arg(long)]
     json: bool,
     #[command(flatten)]
@@ -333,6 +337,7 @@ pub(super) struct NameArgs {
 pub(super) struct DumpArgs {
     /// Compatibility positional project root; prefer --root.
     pub(super) root: Option<PathBuf>,
+    /// Print the same answer as JSON, for scripts and agents.
     #[arg(long)]
     json: bool,
     #[command(flatten)]

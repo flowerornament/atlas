@@ -16,7 +16,7 @@ no scripting language to learn.
 | `stages` | Do the stages of the program only use earlier stages? |
 | `delta` | Does a change break a rule or make anything worse than before? |
 | `seams` | Which items cross stage boundaries, and which tests reach into other stages? Needs a [project wrapper](#project-wrappers); on its own it reports `UNAVAILABLE`. |
-| `comments --audit` | Which files and items are missing documentation? |
+| `comments` | Which files and items are missing documentation? |
 
 ## Three possible outcomes
 
@@ -178,15 +178,16 @@ the full report, including every read it judged.
 `stages` is a report. It always exits successfully and never claims a full
 pass, because it checks only part of the policy. Use `delta` to gate changes.
 
-## Checking documentation with `comments --audit`
+## Checking documentation with `comments`
 
 ```sh
-cargo atlas comments --audit --scope src --population pub-ish
-cargo atlas comments --audit --citation-markers docs/,RFC- --json
+cargo atlas comments --scope src --population pub-ish
+cargo atlas comments --citation-markers docs/,RFC- --json
 ```
 
 This lists files with no `//!` header, headers that cite nothing, and items
-with no `///` comment. `--citation-markers` lists the strings that count as a
+with no `///` comment. (`--audit`, which earlier versions required, is still
+accepted.) `--citation-markers` lists the strings that count as a
 citation, such as a path prefix (`docs/`) or an identifier prefix (`RFC-`).
 Without it, citations are not checked. The audit reads `//!` and `///`
 comments only, not `#[doc]` attributes or block comments. It reports coverage

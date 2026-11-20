@@ -33,6 +33,7 @@ pub(crate) struct Options {
     /// Explicit features whose module remaps are permitted as project test support.
     #[arg(long, value_delimiter = ',')]
     test_support_features: Vec<String>,
+    /// Print the report as JSON. A REFUSE verdict is then data and exits successfully; UNAVAILABLE still fails.
     #[arg(long)]
     json: bool,
 }

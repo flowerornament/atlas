@@ -532,3 +532,60 @@ fn dependencies_draws_every_package_by_default() {
         .collect();
     assert_eq!(nodes, ["crates/one/src/lib.rs", "crates/two/src/lib.rs"]);
 }
+
+#[test]
+fn every_json_flag_is_documented_and_comments_needs_no_audit_flag() {
+    let help = |command: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .args(["atlas", command, "--help"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+    // `flow` and `map` write their JSON beside the drawing; `facts` has --format.
+    for command in [
+        "orient",
+        "census",
+        "name",
+        "module",
+        "dump",
+        "diff",
+        "moved",
+        "visibility",
+        "spans",
+        "concentration",
+        "nontest-loc",
+        "comments",
+        "dependencies",
+        "types",
+        "compare",
+        "overview",
+        "program",
+        "delta",
+        "stages",
+        "policy",
+        "seams",
+    ] {
+        let text = help(command);
+        let line = text
+            .lines()
+            .skip_while(|line| !line.trim_start().starts_with("--json"))
+            .take(2)
+            .collect::<String>();
+        assert!(line.contains("as JSON"), "{command}: {line:?}");
+    }
+    let f = fixture();
+    for audit in [None, Some("--audit")] {
+        let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .args(["atlas", "comments", "--json", "--root"])
+            .arg(f.path())
+            .args(audit)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{audit:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}

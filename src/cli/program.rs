@@ -25,6 +25,7 @@ pub(super) struct Options {
     path: Option<String>,
     #[arg(long, requires = "path")]
     function: Option<String>,
+    /// Print the same answer as JSON, for scripts and agents.
     #[arg(long)]
     json: bool,
     #[command(flatten)]

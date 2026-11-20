@@ -13,6 +13,7 @@ pub(crate) struct Options {
     /// Rows shown in each list; every list reports what it left out.
     #[arg(long, default_value_t = 5)]
     rows: usize,
+    /// Print the same answer as JSON, for scripts and agents.
     #[arg(long)]
     json: bool,
 }

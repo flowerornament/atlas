@@ -214,7 +214,7 @@ what its answer is based on, and gives an example.
 | Which bodies only moved, and which really changed? | `cargo atlas moved HEAD~1` |
 | What became more or less public? | `cargo atlas visibility HEAD~1` |
 | Where are the large files and blocks? | `cargo atlas concentration`, `cargo atlas spans` |
-| Which public items lack doc comments? | `cargo atlas comments --audit` |
+| Which public items lack doc comments? | `cargo atlas comments` |
 | Does this change break our architecture rules? | `cargo atlas delta HEAD~1 --policy .config/architecture.toml` |
 | Everything Atlas found, to query yourself | `cargo atlas facts` (or `dump` for the source graph) |
 

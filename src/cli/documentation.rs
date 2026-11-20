@@ -10,12 +10,13 @@ use clap::Args;
 pub(crate) struct Options {
     #[arg(long, default_value = ".")]
     scope: String,
-    /// Select the documentation audit; without it the command refuses.
-    #[arg(long = "audit", required = true)]
+    /// Accepted for compatibility: the audit is all this command does.
+    #[arg(long = "audit")]
     _audit: bool,
     /// Item visibility: all, pub or pub-ish. Test modules remain excluded.
     #[arg(long, default_value = "pub-ish")]
     population: VisibilitySelection,
+    /// Deprecated spelling of --population pub, still accepted.
     #[arg(long, conflicts_with = "population")]
     pub_only: bool,
     /// Header scope: file or any-module (the native coverage metric).
@@ -24,6 +25,7 @@ pub(crate) struct Options {
     /// Citation substrings; omission leaves citation checking explicitly unrequested.
     #[arg(long, value_delimiter = ',')]
     citation_markers: Option<Vec<String>>,
+    /// Print the same answer as JSON, for scripts and agents.
     #[arg(long)]
     json: bool,
 }

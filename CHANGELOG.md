@@ -6,6 +6,11 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Help: `--json` is described on every command that has it, as are
+ `flow --architecture` and `--path`, `--backend`, `--format` and
+ `--evidence-dir`. `--pub-only` is marked as the deprecated spelling of
+ `--population pub`. `comments` runs its audit without `--audit`, which is
+ still accepted.
 - A positional project root (`cargo atlas census path/to/project`) still
  works but prints a warning naming `--root`. One that is a directory without
  a `Cargo.toml`, such as `cargo atlas dependencies crates` inside a

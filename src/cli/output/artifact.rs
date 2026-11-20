@@ -12,6 +12,8 @@ use std::{
 #[derive(Args)]
 #[group(id = "artifact_output")]
 pub(crate) struct Options {
+    /// `ascii` draws in the terminal; `pele` draws an SVG image (needs
+    /// Node.js 20 or newer).
     #[arg(long, value_enum, default_value = "ascii")]
     pub backend: Backend,
     /// Colours for Pele images.
@@ -25,6 +27,7 @@ pub(crate) struct Options {
     /// Output path; Pele defaults to target/atlas/NAME.svg. ASCII defaults to stdout.
     #[arg(long)]
     pub out: Option<PathBuf>,
+    /// Print the same answer as JSON, for scripts and agents.
     #[arg(long)]
     pub json: bool,
 }

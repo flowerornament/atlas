@@ -32,8 +32,12 @@ pub(super) struct Options {
     /// Select a declared workflow without a positional ROOT.
     #[arg(long = "anchor", conflicts_with = "anchor")]
     named_anchor: Option<String>,
+    /// An architecture profile (JSON) whose declared workflows to draw,
+    /// instead of one function named with --path and --function.
     #[arg(long)]
     architecture: Option<PathBuf>,
+    /// The file that holds the function to draw, relative to the project
+    /// root, such as `src/main.rs`; needs --function.
     #[arg(long, requires = "function")]
     path: Option<String>,
     /// The function in --path: its name, a qualified name (module::name,

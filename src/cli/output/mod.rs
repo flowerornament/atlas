@@ -270,8 +270,11 @@ pub(super) enum Format {
 }
 #[derive(Args)]
 pub(super) struct RenderOptions {
+    /// `ascii` draws in the terminal; `pele` draws an image (needs Node.js 20
+    /// or newer).
     #[arg(long, value_enum, default_value = "ascii")]
     pub(super) backend: Backend,
+    /// For `--backend pele`: an HTML page with the evidence, or the SVG alone.
     #[arg(long, value_enum, default_value = "html")]
     pub(super) format: Format,
     /// Colours for Pele images and pages.
@@ -280,6 +283,8 @@ pub(super) struct RenderOptions {
     /// Relative output paths are resolved against the Cargo workspace root.
     #[arg(long)]
     pub(super) out: Option<PathBuf>,
+    /// Where to write the JSON evidence files; defaults to `target/atlas`.
+    /// Relative paths are resolved against the Cargo workspace root.
     #[arg(long)]
     pub(super) evidence_dir: Option<PathBuf>,
 }
