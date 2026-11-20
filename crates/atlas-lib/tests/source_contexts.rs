@@ -958,3 +958,47 @@ fn a_workspace_alias_of_a_foreign_type_is_a_foreign_impl_owner() {
     };
     assert_eq!(index.functions()[own].flow.function, "Board::recip");
 }
+
+#[test]
+fn a_package_scope_counts_only_that_packages_diagnostics_everywhere() {
+    // `shared.rs` is read by both packages, and each package context has its
+    // own `Self` diagnostic there. Scoped to `left`, every report counts
+    // left's diagnostic and the physical ones, never right's.
+    let fixture = Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[workspace]\nmembers=['left','right']\nresolver='3'\n",
+        ),
+        (
+            "left/Cargo.toml",
+            "[package]\nname='left'\nversion='0.0.0'\nedition='2024'\n[lib]\npath='../shared.rs'\n",
+        ),
+        (
+            "right/Cargo.toml",
+            "[package]\nname='right'\nversion='0.0.0'\nedition='2024'\n[lib]\npath='../shared.rs'\n",
+        ),
+        (
+            "shared.rs",
+            "pub struct Shared;\npub fn make() -> Self { loop {} }\n",
+        ),
+    ]);
+    let snapshot = discovery::snapshot_workspace(fixture.path()).unwrap();
+    let graph = snapshot.graph();
+    let left = |d: &&atlas_lib::model::Diagnostic| d.package.as_deref() != Some("right");
+    let expected = graph.diagnostics.iter().filter(left).count();
+    assert!(
+        expected < graph.diagnostics.len(),
+        "the fixture has a right-only diagnostic"
+    );
+    let census = queries::census(graph, Some("left")).unwrap();
+    let module = queries::module(graph, "left").unwrap();
+    let orient = queries::orient::orient(&snapshot, Some("left"), 5).unwrap();
+    assert_eq!(
+        (
+            census.diagnostics,
+            module.diagnostics.len(),
+            orient.resolution.diagnostics
+        ),
+        (expected, expected, expected)
+    );
+}

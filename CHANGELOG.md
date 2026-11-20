@@ -4,6 +4,12 @@ Atlas has two packages: `cargo-atlas` (the `cargo atlas` command and its
 library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 `atlas-core`. Versions below name the package they apply to.
 
+## Unreleased
+
+- `orient` scoped to a package counts the same diagnostics as `census` and
+ `module`: on a file another package also reads, only this package's (and
+ the file's own) diagnostics. Before, it also counted the other package's.
+
 ## cargo-atlas 0.18.0 / atlas-lib 0.8.0
 
 - **Breaking (library):** `source_index::Target::Summarized` holds a

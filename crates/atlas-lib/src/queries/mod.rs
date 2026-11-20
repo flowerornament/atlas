@@ -38,7 +38,6 @@ pub struct Census {
 pub fn census(graph: &SourceGraph, scope: Option<&str>) -> Result<Census> {
     let files = files(graph, scope)?;
     let paths: BTreeSet<_> = files.iter().map(|f| &f.path).collect();
-    let packages: BTreeSet<_> = files.iter().map(|file| file.crate_name.as_str()).collect();
     let production_paths: BTreeSet<_> = files
         .iter()
         .filter(|file| !file.test_only)
@@ -59,16 +58,7 @@ pub fn census(graph: &SourceGraph, scope: Option<&str>) -> Result<Census> {
         relationships: 0,
         ambiguous: 0,
         unresolved: 0,
-        diagnostics: graph
-            .diagnostics
-            .iter()
-            .filter(|d| {
-                paths.contains(&d.file)
-                    && d.package
-                        .as_deref()
-                        .is_none_or(|package| packages.contains(package))
-            })
-            .count(),
+        diagnostics: diagnostics_of(graph, &files).count(),
         basis: if files.len() == paths.len() {
             BASIS
         } else {
@@ -178,8 +168,6 @@ pub struct ModuleCard<'a> {
 /// Physical path/module basename or Cargo package; no architecture is inferred.
 pub fn module<'a>(graph: &'a SourceGraph, scope: &str) -> Result<ModuleCard<'a>> {
     let files = files(graph, Some(scope))?;
-    let paths: BTreeSet<_> = files.iter().map(|f| &f.path).collect();
-    let packages: BTreeSet<_> = files.iter().map(|file| file.crate_name.as_str()).collect();
     let ids: BTreeSet<_> = files
         .iter()
         .flat_map(|f| f.declarations.iter().map(|d| &d.id))
@@ -201,18 +189,25 @@ pub fn module<'a>(graph: &'a SourceGraph, scope: &str) -> Result<ModuleCard<'a>>
                     }
             })
             .collect(),
-        diagnostics: graph
-            .diagnostics
-            .iter()
-            .filter(|d| {
-                paths.contains(&d.file)
-                    && d.package
-                        .as_deref()
-                        .is_none_or(|package| packages.contains(package))
-            })
-            .collect(),
+        diagnostics: diagnostics_of(graph, &files).collect(),
         files,
         basis: BASIS,
+    })
+}
+/// The diagnostics about `files`: on one of their paths, and either about the
+/// physical file or from one of their packages. Under a package scope, a path
+/// another package also reads keeps only this package's observations.
+pub(crate) fn diagnostics_of<'a>(
+    graph: &'a SourceGraph,
+    files: &[&SourceFile],
+) -> impl Iterator<Item = &'a Diagnostic> {
+    let paths: BTreeSet<&str> = files.iter().map(|f| f.path.as_str()).collect();
+    let packages: BTreeSet<&str> = files.iter().map(|f| f.crate_name.as_str()).collect();
+    graph.diagnostics.iter().filter(move |d| {
+        paths.contains(d.file.as_str())
+            && d.package
+                .as_deref()
+                .is_none_or(|package| packages.contains(package))
     })
 }
 fn files<'a>(graph: &'a SourceGraph, scope: Option<&str>) -> Result<Vec<&'a SourceFile>> {

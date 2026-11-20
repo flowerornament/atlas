@@ -342,7 +342,7 @@ pub fn orient(snapshot: &Snapshot, scope: Option<&str>, rows: usize) -> Result<O
         })
         .collect();
     let mut kinds = BTreeMap::new();
-    for diagnostic in graph.diagnostics.iter().filter(|d| in_scope(&d.file)) {
+    for diagnostic in super::diagnostics_of(graph, &observations) {
         resolution.diagnostics += 1;
         tally(&mut kinds, code(&diagnostic.code), &diagnostic.message);
     }
