@@ -44,14 +44,14 @@ Here is Atlas looking at its own source:
 
 ```console
 $ cargo atlas name Snapshot
-Snapshot: 4 declaration sites (ambiguous)
+Snapshot: 2 declaration sites (ambiguous), and 2 impl blocks
 
-crates/atlas-lib/src/source/discovery/mod.rs:39:Snapshot [Pub Struct]
+crates/atlas-lib/src/source/discovery/mod.rs:39:Snapshot [pub struct]
   Source bytes and their derived lexical graph from one discovery pass.
   4 outgoing, 45 incoming candidate-unique, 0 incoming ambiguous
   pub struct Snapshot {
 
-src/adapter/snapshot.rs:27:Snapshot [Pub Struct]
+src/adapter/snapshot.rs:27:Snapshot [pub struct]
   2 outgoing, 4 incoming candidate-unique, 0 incoming ambiguous
   pub struct Snapshot {
 

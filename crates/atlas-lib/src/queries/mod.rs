@@ -1,6 +1,7 @@
 //! Developer questions over captured source: lexical and selected native navigation,
 //! source review and documentation audits. Their populations and wire meanings stay
 //! distinct; a query never redefines physical membership or source grammar.
+use crate::source::{ItemKind, Visibility};
 use crate::{
     Result, discovery,
     model::{Declaration, Diagnostic, Relationship, Resolution, SourceFile, SourceGraph},
@@ -248,19 +249,41 @@ impl Census {
 }
 impl Names<'_> {
     pub fn text(&self, related: bool) -> String {
+        // An impl block is not another thing with this name: count it under
+        // the declarations, so one type and its impl are not "ambiguous".
+        let impls = self
+            .matches
+            .iter()
+            .filter(|card| card.declaration.item_kind() == Some(ItemKind::Impl))
+            .count();
+        let sites = self.matches.len() - impls;
         let mut out = format!(
-            "{}: {} declaration site{}{}\n",
+            "{}: {sites} declaration site{}{}{}\n",
             self.query,
-            self.matches.len(),
-            if self.matches.len() == 1 { "" } else { "s" },
-            if self.ambiguous { " (ambiguous)" } else { "" }
+            if sites == 1 { "" } else { "s" },
+            if sites > 1 { " (ambiguous)" } else { "" },
+            match impls {
+                0 => String::new(),
+                1 => ", and 1 impl block".to_owned(),
+                n => format!(", and {n} impl blocks"),
+            }
         );
         for card in &self.matches {
-            let _ = writeln!(
-                out,
-                "\n{} [{} {}]",
-                card.declaration.id, card.declaration.visibility, card.declaration.kind
-            );
+            let declaration = card.declaration;
+            let kind: &str = match declaration.item_kind() {
+                Some(kind) => kind.keyword(),
+                None => &declaration.kind,
+            };
+            let label = if declaration.item_kind() == Some(ItemKind::Impl) {
+                kind.to_owned()
+            } else {
+                let visibility: &str = match Visibility::from_tag(&declaration.visibility) {
+                    Some(visibility) => visibility.keyword(),
+                    None => &declaration.visibility,
+                };
+                format!("{visibility} {kind}")
+            };
+            let _ = writeln!(out, "\n{} [{label}]", declaration.id);
             if let Some(summary) = &card.declaration.summary {
                 let _ = writeln!(out, "  {summary}");
             }
@@ -282,7 +305,7 @@ impl Names<'_> {
                 for (direction, relation) in all.iter().take(30) {
                     let _ = writeln!(
                         out,
-                        "  {direction}: {} --{}--> {} [{:?}]",
+                        "  {direction}: {} --{}--> {} [{}]",
                         relation.source,
                         relation.evidence.label(),
                         relation.spelling,

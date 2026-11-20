@@ -133,11 +133,11 @@ fn name(report: &navigation::Name) -> Result<String> {
     for site in report.matches.iter().take(30) {
         writeln!(
             text,
-            "{}:{} ({}) {:?} {} {}",
+            "{}:{} ({}) {} {} {}",
             site.file,
             site.line,
             site.package,
-            site.kind,
+            site.kind.keyword(),
             site.visibility_restriction.as_ref().map_or_else(
                 || site.visibility.label().to_owned(),
                 |scope| {
@@ -217,9 +217,9 @@ fn module(report: &navigation::Module, items: bool, graph: bool) -> Result<Strin
             for item in &context.items {
                 writeln!(
                     text,
-                    "  {} {:?} {} {} · {}",
+                    "  {} {} {} {} · {}",
                     item.line,
-                    item.kind,
+                    item.kind.keyword(),
                     item.visibility.label(),
                     item.name,
                     item.doc.as_deref().unwrap_or("MISSING doc comment")
@@ -239,7 +239,7 @@ fn edges(text: &mut String, edges: &[navigation::Edge]) -> Result<()> {
     for edge in edges.iter().take(8) {
         writeln!(
             text,
-            "  {}:{} {} -{}-> {} [{:?}]",
+            "  {}:{} {} -{}-> {} [{}]",
             edge.source.file,
             edge.source.line,
             edge.source.name,

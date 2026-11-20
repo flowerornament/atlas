@@ -6,6 +6,14 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `name` text counts impl blocks apart from the declarations they belong
+ to (`Snapshot: 2 declaration sites (ambiguous), and 2 impl blocks`, not
+ `4 declaration sites`), so one type with an impl is no longer ambiguous.
+ Kinds and visibility read as Rust spells them (`[pub struct]`, `[impl]`,
+ not `[Pub Struct]`), and a mention's target as its declaration ID, `one
+ of ...` or `unresolved: ...`, not `Unique("...")`. JSON is unchanged.
+ **Library:** `ItemKind::keyword`, `Visibility::keyword`, and `Display` for
+ `model::Resolution`.
 - `flow` text heads each body once (`main (src/main.rs:8)`, not `main` and
  then that line) unless a profile anchor's name differs from its function,
  and shows `if let P = e` as one branch step after `e`'s own steps, not

@@ -62,6 +62,26 @@ impl ItemKind {
             Self::Extern => "Extern",
         }
     }
+    /// The kind as Rust spells it, for text: `struct`, `pub use`, `macro_rules!`.
+    pub const fn keyword(self) -> &'static str {
+        match self {
+            Self::Struct => "struct",
+            Self::Enum => "enum",
+            Self::Union => "union",
+            Self::Trait => "trait",
+            Self::TypeAlias => "type",
+            Self::Fn => "fn",
+            Self::Mod => "mod",
+            Self::MacroRules => "macro_rules!",
+            Self::PubUse => "pub use",
+            Self::Const => "const",
+            Self::Static => "static",
+            Self::Impl => "impl",
+            Self::Use => "use",
+            Self::MacroCall => "macro call",
+            Self::Extern => "extern",
+        }
+    }
     /// Decode a supported schema-1 tag. Unknown wire tags remain unknown.
     pub fn from_tag(tag: &str) -> Option<Self> {
         match tag {
@@ -113,6 +133,16 @@ impl Visibility {
             Self::PubIn => "PubIn",
             Self::PubSuper => "PubSuper",
             Self::Private => "Private",
+        }
+    }
+    /// The visibility as Rust spells it, for text; `private` for none.
+    pub const fn keyword(self) -> &'static str {
+        match self {
+            Self::Pub => "pub",
+            Self::PubCrate => "pub(crate)",
+            Self::PubIn => "pub(in ..)",
+            Self::PubSuper => "pub(super)",
+            Self::Private => "private",
         }
     }
     /// Decode a supported schema-1 tag. Unknown wire tags remain unknown.

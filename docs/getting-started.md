@@ -57,7 +57,7 @@ different kinds of evidence Atlas uses.
 $ cargo atlas name Tree
 Tree: 1 declaration site
 
-src/parse.rs:4:Tree [Pub Struct]
+src/parse.rs:4:Tree [pub struct]
   The parsed program.
   0 outgoing, 3 incoming candidate-unique, 0 incoming ambiguous
   pub struct Tree {
@@ -74,12 +74,12 @@ Now try a name that is used twice:
 $ cargo atlas name check
 check: 2 declaration sites (ambiguous)
 
-src/check.rs:10:check [Pub Fn]
+src/check.rs:10:check [pub fn]
   Check a parsed tree.
   2 outgoing, 0 incoming candidate-unique, 0 incoming ambiguous
   pub fn check(tree: Tree) -> Result<Checked, String> {
 
-src/lib.rs:2:check [Pub Mod]
+src/lib.rs:2:check [pub mod]
   0 outgoing, 0 incoming candidate-unique, 0 incoming ambiguous
   pub mod check;
 ```

@@ -95,6 +95,16 @@ pub enum Resolution {
     Ambiguous(Vec<String>),
     Unresolved(String),
 }
+/// For text: the declaration ID, `one of ...`, or `unresolved: reason`.
+impl std::fmt::Display for Resolution {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unique(id) => f.write_str(id),
+            Self::Ambiguous(ids) => write!(f, "one of {}", ids.join(", ")),
+            Self::Unresolved(reason) => write!(f, "unresolved: {reason}"),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]

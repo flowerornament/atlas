@@ -79,8 +79,8 @@ fn navigation_commands_match_the_getting_started_guide() {
     assert!(census.starts_with("workspace: 5 files (0 test-only), 11 production declarations\n"));
     let name = stdout(&atlas(root, &["name", "check"]));
     assert!(name.starts_with("check: 2 declaration sites (ambiguous)\n"));
-    assert!(name.contains("src/check.rs:10:check [Pub Fn]"));
-    assert!(name.contains("src/lib.rs:2:check [Pub Mod]"));
+    assert!(name.contains("src/check.rs:10:check [pub fn]"));
+    assert!(name.contains("src/lib.rs:2:check [pub mod]"));
     let calls = stdout(&atlas(root, &["dependencies", "--relation", "calls"]));
     assert!(calls.contains("[main.rs] --calls: main calls check (1 site)--> [check.rs]"));
     let contracts = stdout(&atlas(

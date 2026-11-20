@@ -648,3 +648,27 @@ fn flow_text_names_the_function_once_and_an_if_let_once() {
         "{text}"
     );
 }
+
+#[test]
+fn name_text_counts_impls_under_their_type_and_uses_rust_spellings() {
+    let f = Fixture::new(&[(
+        "src/lib.rs",
+        "pub struct Foo;\nimpl Foo {\n    pub fn new() -> Foo { Foo }\n}\n",
+    )]);
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .args(["atlas", "name", "Foo", "--relations", "--root"])
+        .arg(f.path())
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        text.starts_with("Foo: 1 declaration site, and 1 impl block\n"),
+        "{text}"
+    );
+    assert!(text.contains("src/lib.rs:1:Foo [pub struct]"), "{text}");
+    assert!(text.contains("src/lib.rs:2:Foo [impl]"), "{text}");
+    assert!(
+        !text.contains("Unique(") && !text.contains("Pub Struct"),
+        "{text}"
+    );
+}
