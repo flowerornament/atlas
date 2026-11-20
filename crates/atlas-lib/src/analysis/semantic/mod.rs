@@ -213,6 +213,14 @@ impl SemanticIndex {
             });
         Self { provenance, tables }
     }
+    /// An index that could not be obtained, such as an unreadable file: every
+    /// reading from it is unavailable with `reason`.
+    pub fn unavailable_because(reason: String) -> Self {
+        let mut index = Self::read(&[]);
+        index.provenance.index_digest.clear();
+        index.tables = Err(reason);
+        index
+    }
     pub fn provenance(&self) -> &Provenance {
         &self.provenance
     }

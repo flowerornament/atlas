@@ -47,6 +47,13 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  sets the list length, `--json` gives the same report with a stable section
  `id`. `cargo atlas --help` now starts with it and a question-to-command map.
 - **Library:** `queries::orient::orient` builds the same report.
+- `dump --json --scip FILE` adds a `semantic` field, and `flow --scip FILE`
+ writes a `.semantic.json` evidence file beside its workflow evidence: each
+ call read against a SCIP index you supply (for example from
+ `rust-analyzer scip .`), with the index's provenance and coverage. `dump` also
+ compares each call with its qualified target. Without `--scip` nothing
+ changes; with it nothing else changes. Atlas runs no indexer. An unreadable
+ or unusable index is reported unavailable and the command still answers.
 - **Library:** `analysis::semantic` reads semantic call evidence from a SCIP
  index you supply (for example from `rust-analyzer scip`), with no new
  dependencies, and `Analysis::semantic` compares it with each call's qualified

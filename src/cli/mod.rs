@@ -17,6 +17,7 @@ mod policy;
 mod profile;
 mod program;
 mod review;
+mod semantic;
 mod stages;
 mod types;
 use args::{Cli, Command};

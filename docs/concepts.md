@@ -39,6 +39,20 @@ it uses.
 | **Qualified** | Atlas followed `use` statements, modules and Cargo targets to work out exactly which item a call or type refers to. If it cannot work it out, the item is marked *unresolved*. | `dependencies`, `types`, `compare`, `overview`, `flow --depth` |
 | **Declared** | You wrote it down: an architecture policy, or a table in your code that an adapter reads. | `stages`, `seams`, `policy`, `delta`, `program`, `map --architecture` |
 
+A fourth kind, **semantic**, comes from outside Atlas: a SCIP index that a
+compiler front end such as rust-analyzer wrote (`rust-analyzer scip .`). Pass
+it with `--scip FILE` to `dump --json` or `flow`, and each call gets a second,
+labelled reading beside Atlas's own: which item the indexer resolved it to, a
+trait method whose implementation is chosen at run time, an item of another
+package, or nothing usable. `dump` also says whether the two readings agree.
+Atlas does not run the indexer, so producing the index is your step, and it
+runs your project's build scripts and procedural macros. The index reflects
+one build configuration, the indexer's host target and default features, and
+every reading says so. Atlas checks each call's name against the source it
+read; an index of different text reads as *not indexed* there. An index that
+names nothing from the standard library (what rust-analyzer writes when it
+cannot find `rust-src`) is reported *unavailable*.
+
 Atlas never mixes these up. A rule you declared is never drawn as if it had
 been observed in the code. A relationship observed in the code is never hidden
 just because your rules do not allow it.

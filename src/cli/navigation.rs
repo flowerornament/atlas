@@ -337,6 +337,12 @@ pub(super) struct DumpArgs {
     json: bool,
     #[command(flatten)]
     population: PopulationArgs,
+    /// Add a `semantic` field: every production call read against this SCIP
+    /// index (for example from `rust-analyzer scip`), beside its qualified
+    /// target. A relative path is resolved against the workspace root. Atlas
+    /// runs no indexer.
+    #[arg(long, value_name = "FILE")]
+    scip: Option<PathBuf>,
 }
 
 // Legacy lexical output and native selected populations intentionally have different schemas.
@@ -386,6 +392,28 @@ pub(super) fn run_module(metadata: &cargo_metadata::Metadata, args: &ModuleArgs)
     )
 }
 pub(super) fn run_dump(metadata: &cargo_metadata::Metadata, args: &DumpArgs) -> Result<()> {
+    if let Some(file) = &args.scip {
+        let snapshot = discovery::snapshot_metadata(metadata)?;
+        let index = super::semantic::index(metadata.workspace_root.as_std_path(), file);
+        let semantic = atlas_lib::analysis::Analysis::new(&snapshot)?.semantic(&index)?;
+        let text = if let Some(population) = args.population.selected() {
+            let dump = Navigation::new(&snapshot, population)?.dump()?;
+            report_json(
+                "dump",
+                &super::semantic::WithSemantic {
+                    report: &dump,
+                    semantic: &semantic,
+                },
+            )?
+        } else {
+            super::json(&super::semantic::WithSemantic {
+                report: &cargo_atlas::discovery::scan_metadata(metadata)?,
+                semantic: &semantic,
+            })?
+        };
+        print!("{text}");
+        return Ok(());
+    }
     dispatch(
         metadata,
         args.population.selected(),

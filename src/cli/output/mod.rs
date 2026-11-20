@@ -103,6 +103,18 @@ impl Destination {
         profile: Option<&str>,
         details: Option<(&str, &str)>,
     ) -> Result<Pending> {
+        self.prepare_with(graph, diagram, profile, details, None)
+    }
+    /// As `prepare`, plus one more evidence file: its file-name kind, its
+    /// link label and its JSON.
+    pub fn prepare_with(
+        &self,
+        graph: Option<&SourceGraph>,
+        diagram: &mut Diagram,
+        profile: Option<&str>,
+        details: Option<(&str, &str)>,
+        extra: Option<(&str, &str, &str)>,
+    ) -> Result<Pending> {
         let mut files = Vec::new();
         if let Some(graph) = graph {
             let path = self.evidence.join(format!("{}.source.json", self.base));
@@ -118,6 +130,13 @@ impl Destination {
                 relative_url(&self.reference, &path)?,
             ));
             files.push((path, details.as_bytes().to_vec()));
+        }
+        if let Some((kind, label, json)) = extra {
+            let path = self.evidence.join(format!("{}.{kind}.json", self.base));
+            diagram
+                .evidence_links
+                .push((label.to_owned(), relative_url(&self.reference, &path)?));
+            files.push((path, json.as_bytes().to_vec()));
         }
         let diagram_path = self.evidence.join(format!("{}.diagram.json", self.base));
         diagram.evidence_links.push((

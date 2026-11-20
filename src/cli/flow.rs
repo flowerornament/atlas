@@ -41,6 +41,12 @@ pub(super) struct Options {
     /// or the LINE (or LINE:COLUMN) where its name is written.
     #[arg(long, requires = "path")]
     function: Option<String>,
+    /// Write the selected bodies' calls, read against this SCIP index (for
+    /// example from `rust-analyzer scip`), as a separate semantic evidence
+    /// file. A relative path is resolved against the workspace root. Atlas
+    /// runs no indexer.
+    #[arg(long, value_name = "FILE")]
+    scip: Option<PathBuf>,
     #[command(flatten)]
     render: RenderOptions,
 }
@@ -126,14 +132,33 @@ pub(super) fn run(
                 .architecture
                 .iter()
                 .map(|path| root.join(path))
-                .chain(anchors.iter().map(|anchor| root.join(&anchor.path))),
+                .chain(anchors.iter().map(|anchor| root.join(&anchor.path)))
+                .chain(options.scip.iter().map(|path| root.join(path))),
         ),
     );
-    let pending = destination.prepare(
+    let semantic = options
+        .scip
+        .as_deref()
+        .map(|file| {
+            json(&super::semantic::read_workflows(
+                root,
+                &super::semantic::index(root, file),
+                &flows,
+            ))
+        })
+        .transpose()?;
+    let pending = destination.prepare_with(
         None,
         &mut diagram,
         profile_text.as_deref(),
         Some(("workflow", &json(&flows)?)),
+        semantic.as_deref().map(|json| {
+            (
+                "semantic",
+                "semantic call evidence (supplied SCIP index, host cfg)",
+                json,
+            )
+        }),
     )?;
     let artifact = if options.render.backend == Backend::Ascii
         && (options.depth > 0 || options.detail == workflow::Detail::Control)
