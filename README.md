@@ -46,20 +46,20 @@ Here is Atlas looking at its own source:
 $ cargo atlas name Snapshot
 Snapshot: 4 declaration sites (ambiguous)
 
-crates/atlas-lib/src/source/discovery/mod.rs:38:Snapshot [Pub Struct]
+crates/atlas-lib/src/source/discovery/mod.rs:39:Snapshot [Pub Struct]
   Source bytes and their derived lexical graph from one discovery pass.
-  4 outgoing, 42 incoming candidate-unique, 0 incoming ambiguous
+  4 outgoing, 45 incoming candidate-unique, 0 incoming ambiguous
   pub struct Snapshot {
 
-src/adapter/snapshot.rs:23:Snapshot [Pub Struct]
-  2 outgoing, 3 incoming candidate-unique, 0 incoming ambiguous
+src/adapter/snapshot.rs:27:Snapshot [Pub Struct]
+  2 outgoing, 4 incoming candidate-unique, 0 incoming ambiguous
   pub struct Snapshot {
 
 (and the two `impl Snapshot` blocks)
 ```
 
-There are two different types named `Snapshot`. About 42 places refer to the
-first and 3 to the second, so you know which one a change would ripple
+There are two different types named `Snapshot`. About 45 places refer to the
+first and 4 to the second, so you know which one a change would ripple
 through. When a name could mean more than one thing, Atlas shows you every
 match. It never picks one for you.
 
@@ -84,10 +84,15 @@ they're formatted. You only need to review the 10 that changed.
 
 ```console
 $ cargo atlas dependencies --relation calls
+...
 RELATIONSHIPS
   [main.rs] --calls: main calls check (1 site)--> [check.rs]
   [main.rs] --calls: main calls parse (1 site)--> [parse.rs]
+...
+  - 0 outside-scope observations retained in evidence; 11 unresolved/external call observations are not proved absent.
 ```
+
+Calls Atlas could not follow are counted, not dropped.
 
 Add `--backend pele` to draw the same thing as an SVG image. Atlas can also
 draw which functions produce and consume a type, and every path a function can
@@ -145,22 +150,8 @@ Some features need more tools:
 
 - **SVG diagrams** need Node.js 20 or newer. You don't install anything else;
   the drawing code is built into Atlas.
-- **Comparing commits** needs Git and `tar`. If your project uses
-  [jj](https://github.com/jj-vcs/jj), Atlas also needs `jj`, and you name
-  commits the jj way: `@-` is the change before the one you are working on.
-  If you give a git spelling such as `HEAD~1`, Atlas says what jj calls it.
-
-Atlas keeps the syntax facts of each file it reads in your user cache
-directory (`~/Library/Caches/atlas` on macOS, `~/.cache/atlas` or
-`$XDG_CACHE_HOME/atlas` on Linux, `%LOCALAPPDATA%\atlas` on Windows), so the
-next command skips files whose bytes have not changed. An entry is keyed by
-the file's exact bytes, its path and the Atlas executable, so answers are the
-same with the cache on or off. It holds names, doc lines and declaration text
-from your code, is readable only by you on Unix, and stays under 1 GiB. Set
-`ATLAS_CACHE=off` or pass `--no-cache` to turn it off, `ATLAS_CACHE_DIR` to move
-it, `ATLAS_CACHE=stats` to see what it served, and `ATLAS_CACHE=verify` to check
-every entry against a fresh parse. Atlas never puts the cache inside the
-project it reads.
+- **Comparing commits** needs Git and `tar`, and `jj` too if your project
+  uses [jj](https://github.com/jj-vcs/jj).
 
 To get the same Atlas every time, for example in CI, add `--version <version>`
 to the install command. To try unreleased changes, install from the
@@ -188,9 +179,98 @@ cargo atlas flow --path src/main.rs --function main     # what paths can main ta
 [Getting started](https://github.com/flowerornament/atlas/blob/main/docs/getting-started.md) walks you through it step by step,
 ending with the rule check shown above.
 
-On your own project, run the same commands from its root directory, or pass
-`--root path/to/project`. Add `--json` to any command for machine-readable
-output, and run `cargo atlas <command> --help` to see what a command counts.
+## How to use Atlas
+
+### Start in your project
+
+Run Atlas from the directory that holds your project's `Cargo.toml` (in a
+workspace, the root), or point it there with `--root path/to/project`. Start
+with `orient`: one page with the project's entry points, where most of the code
+lives, the largest functions and types, the most-used ones, how much Atlas
+could resolve, and the next commands worth running, already filled in for your
+project.
+
+```sh
+cd path/to/your/project
+cargo atlas orient
+```
+
+Each command answers one question. `cargo atlas --help` lists them by
+question, and `cargo atlas <command> --help` says what that command counts,
+what its answer is based on, and gives an example.
+
+### Pick the command for your question
+
+| You want to know | Run |
+|---|---|
+| Where do I start in this project? | `cargo atlas orient` |
+| What does the project contain? | `cargo atlas census` |
+| Where is `Name` defined, and what refers to it? | `cargo atlas name Name` (or `module::Name`, or `src/file.rs:12`) |
+| What is in this file, directory or package? | `cargo atlas module src/parse.rs` |
+| What steps and branches does this function take? | `cargo atlas flow --path src/main.rs --function main` |
+| Which files call which, or use each other's types? | `cargo atlas dependencies --relation calls` |
+| Which functions take, return or build these types? | `cargo atlas types --type Tree,Checked` |
+| What changed since an earlier commit? | `cargo atlas diff HEAD~1`, then `--items` for declarations |
+| Which bodies only moved, and which really changed? | `cargo atlas moved HEAD~1` |
+| What became more or less public? | `cargo atlas visibility HEAD~1` |
+| Where are the large files and blocks? | `cargo atlas concentration`, `cargo atlas spans` |
+| Which public items lack doc comments? | `cargo atlas comments --audit` |
+| Does this change break our architecture rules? | `cargo atlas delta HEAD~1 --policy .config/architecture.toml` |
+| Everything Atlas found, to query yourself | `cargo atlas facts` (or `dump` for the source graph) |
+
+To look at part of a project, add `--scope` with a file or directory, such as
+`--scope src/parse.rs` or `--scope crates/core/src`. A file or directory name
+that is unique in the project also works, such as `--scope parse.rs`.
+
+### Choose the output
+
+- **Text** is the default: a short report for people, ending with what the
+  answer is based on and what Atlas could not resolve.
+- **JSON**: add `--json` for the same answer as data, for scripts and agents
+  (`flow` and `map` write their JSON beside the drawing instead). `facts`
+  exports everything as flat tables (JSON or `--format jsonl`), described
+  column by column in
+  [facts](https://github.com/flowerornament/atlas/blob/main/docs/facts.md).
+- **Diagrams**: `dependencies`, `types`, `flow`, `compare` and `overview` draw
+  text diagrams in the terminal, or an image with `--backend pele`: an SVG (an
+  HTML page for `flow`) under `target/atlas/`, with its JSON evidence beside
+  it, and the path printed when it is written. Use `--out` to choose the file,
+  `--theme light` for a white background and `--bare` for the drawing alone.
+  See
+  [diagrams](https://github.com/flowerornament/atlas/blob/main/docs/diagrams.md).
+
+### Compare with an earlier commit
+
+`diff`, `moved`, `visibility`, `compare` and `delta` take a commit to compare
+against: anything Git understands, such as `HEAD~1`, a branch or a tag. In a
+[jj](https://github.com/jj-vcs/jj) repository, use jj's names: `@-` is the
+change before the one you are working on. Atlas reads the earlier commit into
+a temporary directory, so your working copy is never touched. If you give a
+git spelling such as `HEAD~1` in a jj repository, Atlas says what jj calls it.
+
+### Use it in CI
+
+`delta` checks a change against rules you write down (for example, "the output
+code may use the checker but not the parser", or "this crate stays under 2,000
+lines"). It exits with an error when the change breaks a rule or when evidence
+the rules need is missing, so it can fail a build directly. With `--json` a
+broken rule is returned as data instead. Install a fixed version in CI (see
+[Install](#install)), and see
+[architecture checks](https://github.com/flowerornament/atlas/blob/main/docs/checks.md) for writing rules.
+
+## The syntax-facts cache
+
+Atlas keeps the syntax facts of each file it reads in your user cache
+directory (`~/Library/Caches/atlas` on macOS, `~/.cache/atlas` or
+`$XDG_CACHE_HOME/atlas` on Linux, `%LOCALAPPDATA%\atlas` on Windows), so the
+next command skips files whose bytes have not changed. An entry is keyed by
+the file's exact bytes, its path and the Atlas executable, so answers are the
+same with the cache on or off. It holds names, doc lines and declaration text
+from your code, is readable only by you on Unix, and stays under 1 GiB. Set
+`ATLAS_CACHE=off` or pass `--no-cache` to turn it off, `ATLAS_CACHE_DIR` to move
+it, `ATLAS_CACHE=stats` to see what it served, and `ATLAS_CACHE=verify` to check
+every entry against a fresh parse. Atlas never puts the cache inside the
+project it reads.
 
 ## What Atlas can't see
 
