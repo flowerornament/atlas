@@ -1,7 +1,5 @@
 //! Native source-tree mounts: separate population, shared captured source bytes.
-use super::{
-    Loaded, child_directory, has_symlink, normalize_path, rel_display, resolve_module_path,
-};
+use super::{Loaded, has_symlink, module_files, normalize_path, rel_display};
 use crate::{Result, model::Diagnostic, source::Captured};
 use serde::Serialize;
 use std::{
@@ -60,9 +58,12 @@ pub(super) fn outside_mounts(
         let Some(source) = file.source.facts() else {
             continue;
         };
-        for (name, path, _) in source.file_module_declarations() {
-            if let Some(path) = path {
-                let rel = resolve_module_path(&file.rel, path);
+        for declaration in source.file_module_declarations() {
+            if declaration.path.is_none() {
+                continue;
+            }
+            let name = declaration.module_path().collect::<Vec<_>>().join("::");
+            for rel in module_files(&file.rel, false, declaration) {
                 if !rel.starts_with(&inside) {
                     let module = parent
                         .as_ref()
@@ -100,11 +101,9 @@ pub(super) fn outside_mounts(
         let Some(source) = source.facts() else {
             continue;
         };
-        for (name, path, _) in source.file_module_declarations() {
-            let children = path.as_ref().map_or_else(
-                || module_candidates(&child_directory(&rel), name).to_vec(),
-                |path| vec![resolve_module_path(&rel, path)],
-            );
+        for declaration in source.file_module_declarations() {
+            let name = declaration.module_path().collect::<Vec<_>>().join("::");
+            let children = module_files(&rel, false, declaration);
             let mut found = false;
             for child in &children {
                 if capture_optional(root, child, sources, diagnostics)?.is_some() {

@@ -130,10 +130,16 @@ pub(crate) fn native_limitation(source: &Source) -> Option<(usize, &'static str)
                 "mixed test/production declarations on one native accounting line; place them on separate lines",
             ));
         }
+        // A file module inside inline modules is mounted; one inside any
+        // other item (a function body, say) is not.
         if by_site
             && item.kind == super::ItemKind::Mod
             && !item.top_level
             && item.declaration_block.trim_end().ends_with(';')
+            && !source
+                .file_module_declarations()
+                .iter()
+                .any(|module| module.item == item.syntax_span.start)
         {
             return Some((
                 item.line,

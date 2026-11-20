@@ -33,8 +33,8 @@ fn test_module_declarations(text: &str) -> Vec<(String, Option<String>)> {
         .unwrap()
         .file_module_declarations()
         .iter()
-        .filter(|(_, _, tests)| *tests)
-        .map(|(n, p, _)| (n.clone(), p.clone()))
+        .filter(|module| module.test_gated)
+        .map(|module| (module.name.clone(), module.path.clone()))
         .collect()
 }
 #[cfg(test)]

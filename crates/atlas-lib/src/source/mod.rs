@@ -96,7 +96,7 @@ pub struct Source {
     individually_gated: BTreeSet<usize>,
     gated_bytes: Vec<std::ops::Range<usize>>,
     module_bytes: Vec<std::ops::Range<usize>>,
-    modules: Vec<(String, Option<String>, bool)>,
+    modules: Vec<syntax::ModuleDeclaration>,
     imports: Vec<Import>,
     code_without_imports: std::sync::OnceLock<String>,
 }
@@ -129,7 +129,7 @@ impl Source {
             code_without_imports: std::sync::OnceLock::new(),
         }
     }
-    pub(crate) fn file_module_declarations(&self) -> &[(String, Option<String>, bool)] {
+    pub(crate) fn file_module_declarations(&self) -> &[syntax::ModuleDeclaration] {
         &self.modules
     }
     pub(crate) fn code_without_imports(&self) -> &str {

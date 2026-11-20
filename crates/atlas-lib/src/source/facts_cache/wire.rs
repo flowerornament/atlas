@@ -20,7 +20,7 @@ pub(super) struct WireFacts {
     gated_bytes: Vec<(usize, usize)>,
     module_bytes: Vec<(usize, usize)>,
     imports: Vec<WireImport>,
-    modules: Vec<(String, Option<String>, bool)>,
+    modules: Vec<crate::source::syntax::ModuleDeclaration>,
 }
 
 #[derive(Serialize, Deserialize)]

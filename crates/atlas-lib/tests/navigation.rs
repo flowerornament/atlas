@@ -669,3 +669,29 @@ fn shared_export_sites_keep_distinct_occurrence_and_declaration_ids() {
         );
     }
 }
+
+#[test]
+fn inline_module_paths_survive_a_graph_read_back_from_json() {
+    // Two `repeated` functions are told apart only by their inline module.
+    let f = Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[package]\nname='fixture'\nversion='0.0.0'\nedition='2024'\n[workspace]\n",
+        ),
+        (
+            "src/lib.rs",
+            "pub mod duplicate {\n    pub mod a {\n        pub fn repeated() {}\n    }\n    pub mod b {\n        pub fn repeated() {}\n    }\n}\n",
+        ),
+    ]);
+    let snapshot = snapshot_workspace(f.path()).unwrap();
+    let json = serde_json::to_string(snapshot.graph()).unwrap();
+    assert!(json.contains(r#""modules":["duplicate","a"]"#), "{json}");
+    let graph: atlas_lib::model::SourceGraph = serde_json::from_str(&json).unwrap();
+    let names = atlas_lib::queries::name(&graph, "a::repeated").unwrap();
+    let lines: Vec<_> = names
+        .matches
+        .iter()
+        .map(|card| card.declaration.line)
+        .collect();
+    assert_eq!(lines, [3]);
+}

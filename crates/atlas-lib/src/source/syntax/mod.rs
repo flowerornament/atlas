@@ -15,7 +15,40 @@ pub(super) struct Facts {
     pub gated_bytes: Vec<std::ops::Range<usize>>,
     pub module_bytes: Vec<std::ops::Range<usize>>,
     pub imports: Vec<super::Import>,
-    pub modules: Vec<(String, Option<String>, bool)>,
+    pub modules: Vec<ModuleDeclaration>,
+}
+/// A file module declaration (`mod name;`) as written, with the inline
+/// modules around it. Where its file is found is discovery's decision.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct ModuleDeclaration {
+    /// The name as written; a raw identifier keeps its `r#`.
+    pub name: String,
+    /// A `#[path]` attribute's value.
+    pub path: Option<String>,
+    /// Under a test-only gate, on the declaration or an enclosing module.
+    pub test_gated: bool,
+    /// The enclosing inline `mod` blocks, outermost first.
+    pub inline: Vec<InlineModule>,
+    /// The declaring item's `syntax_span.start` in the file's outline.
+    pub item: usize,
+}
+impl ModuleDeclaration {
+    /// The module's path below the declaring file's module: the enclosing
+    /// inline modules, then its own name.
+    pub fn module_path(&self) -> impl Iterator<Item = &str> {
+        self.inline
+            .iter()
+            .map(|inline| inline.name.as_str())
+            .chain(std::iter::once(self.name.as_str()))
+    }
+}
+/// An inline `mod name { ... }` around a file module declaration.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct InlineModule {
+    pub name: String,
+    /// Its `#[path]` attribute's value, which replaces its name as the
+    /// directory its file modules are found in.
+    pub path: Option<String>,
 }
 pub(super) fn read(path: &Path, projection: &RustSourceProjection) -> Result<Facts, SyntaxError> {
     let ast = parse_file(projection.text()).map_err(SyntaxError::from)?;

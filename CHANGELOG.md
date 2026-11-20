@@ -14,10 +14,21 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  could not resolve are rows in an unknowns relation that each resolved
  relation names. Qualified functions and types name the lexical declaration
  at their site. `facts --schema` prints every relation and column; see
- docs/facts.md. Lexical declarations carry their enclosing inline modules,
- which `dump` leaves out.
+ docs/facts.md. Lexical declarations carry their enclosing inline modules.
 - **Library:** `atlas_lib::relations` builds the same relations
  (`Relations::capture`), with the schema as data in `relations::schema`.
+- A file module declared inside inline modules, such as syn's
+ `mod gen { pub mod fold; }`, is now mounted at the path Rust loads it from:
+ each inline module adds a directory (its `#[path]` if it has one), after the
+ file's own stem in a non-mod-rs file, and a `#[path]` inside one is relative
+ to that directory. Before, the file was outside every target's module tree
+ and `census --population pub` refused the declaring file. A file module
+ inside a function body is still refused, now on its own. A raw-identifier
+ module such as `mod r#match;` is loaded from `match.rs`.
+- `dump` and other graph JSON list a declaration's enclosing inline modules
+ as `modules`, when it has any, so a graph read back from JSON keeps them and
+ `MODULE::NAME` selectors match through them. **Library:**
+ `model::Declaration::modules` is public.
 - **Breaking (CLI):** the `representations` command is now `types`, and its
  Pele output defaults to `target/atlas/types.svg`. `representations` still
  works as an alias.

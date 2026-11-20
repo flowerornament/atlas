@@ -721,3 +721,95 @@ fn impls_of_workspace_types_behind_restricted_reexports_still_resolve() {
         assert_eq!(index.functions()[found].flow.function, expected);
     }
 }
+
+#[test]
+fn file_modules_declared_inside_inline_modules_are_mounted() {
+    // syn's shape (edition 2021): `mod gen { pub mod fold; }` in lib.rs loads
+    // src/gen/fold.rs.
+    // An inline module adds a directory; in a non-mod-rs file the file's own
+    // stem comes first, a `#[path]` inside an inline module is relative to
+    // that directory, and a `#[path]` on the inline module renames it.
+    let fixture = Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[package]\nname='fixture'\nversion='0.0.0'\nedition='2021'\n[workspace]\n",
+        ),
+        (
+            "src/lib.rs",
+            "mod outer;\n\
+             pub mod gen {\n    pub mod fold;\n    #[path = \"visit_impl.rs\"]\n    pub mod visit;\n}\n\
+             #[path = \"thread_files\"]\nmod thread {\n    mod local;\n}\n\
+             #[cfg(test)]\nmod support {\n    mod fixtures;\n}\n\
+             pub use gen::fold::Fold;\nmod r#match;\n",
+        ),
+        ("src/gen/fold.rs", "pub trait Fold {}\nmod helper;\n"),
+        ("src/gen/fold/helper.rs", "pub fn help() {}\n"),
+        ("src/gen/visit_impl.rs", "pub trait Visit {}\n"),
+        ("src/thread_files/local.rs", "pub fn local() {}\n"),
+        ("src/support/fixtures.rs", "pub fn fixture() {}\n"),
+        ("src/match.rs", "pub fn matched() {}\n"),
+        ("src/outer.rs", "mod inner {\n    mod leaf;\n}\n"),
+        ("src/outer/inner/leaf.rs", "pub fn leaf() {}\n"),
+    ]);
+    let snapshot = discovery::snapshot_workspace(fixture.path()).unwrap();
+    let graph = snapshot.graph();
+    let mounted = |path: &str| {
+        let file = graph
+            .files
+            .iter()
+            .find(|file| file.path == path)
+            .unwrap_or_else(|| panic!("{path} captured"));
+        let modules: Vec<_> = file.mounts.iter().map(|m| m.modules.join("::")).collect();
+        (modules, file.test_only)
+    };
+    for (path, module, test_only) in [
+        ("src/gen/fold.rs", "gen::fold", false),
+        ("src/gen/fold/helper.rs", "gen::fold::helper", false),
+        ("src/gen/visit_impl.rs", "gen::visit", false),
+        ("src/thread_files/local.rs", "thread::local", false),
+        ("src/support/fixtures.rs", "support::fixtures", true),
+        ("src/outer/inner/leaf.rs", "outer::inner::leaf", false),
+        ("src/match.rs", "r#match", false),
+    ] {
+        assert_eq!(
+            mounted(path),
+            (vec![module.to_owned()], test_only),
+            "{path}"
+        );
+    }
+    let mount_diagnostics: Vec<_> = graph
+        .diagnostics
+        .iter()
+        .filter(|d| d.message.contains("mount"))
+        .collect();
+    assert!(mount_diagnostics.is_empty(), "{mount_diagnostics:?}");
+    let native: Vec<_> = graph
+        .diagnostics
+        .iter()
+        .filter(|d| d.message.contains("native source"))
+        .collect();
+    assert!(native.is_empty(), "{native:?}");
+}
+
+#[test]
+fn a_file_module_inside_a_function_body_stays_a_native_limitation() {
+    // Rust accepts `#[path] mod x;` inside a block. Atlas does not mount
+    // it, and says so.
+    let fixture = Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[package]\nname='fixture'\nversion='0.0.0'\nedition='2024'\n[workspace]\n",
+        ),
+        (
+            "src/lib.rs",
+            "pub fn f() {\n    #[path = \"x.rs\"]\n    mod x;\n}\n",
+        ),
+        ("src/x.rs", "pub fn x() {}\n"),
+    ]);
+    let snapshot = discovery::snapshot_workspace(fixture.path()).unwrap();
+    assert!(snapshot.graph().diagnostics.iter().any(|d| {
+        d.file == "src/lib.rs"
+            && d.message
+                .contains("nested file module has no supported native mount")
+    }));
+}

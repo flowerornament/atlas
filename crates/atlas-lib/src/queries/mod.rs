@@ -119,9 +119,7 @@ pub struct Names<'a> {
 /// A `NAME`, `MODULE::NAME` or `FILE:LINE[:COLUMN]` selector, or an exact
 /// declaration ID; multiple sites stay explicit. The modules match the end of
 /// the declaration's module path: its file's directories and name, then
-/// enclosing inline `mod` blocks. This is lexical, not Rust path resolution;
-/// a graph read back from JSON has no inline modules, so paths through them
-/// do not match.
+/// enclosing inline `mod` blocks. This is lexical, not Rust path resolution.
 pub fn name<'a>(graph: &'a SourceGraph, name: &str) -> Result<Names<'a>> {
     let selector = selector::Selector::parse(name)?;
     let mut matches = Vec::new();

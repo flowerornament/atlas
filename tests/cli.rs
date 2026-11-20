@@ -444,3 +444,20 @@ fn representations_remains_an_alias_of_types() {
     );
     assert_eq!(types.stdout, alias.stdout);
 }
+
+#[test]
+fn census_reads_file_modules_inside_inline_modules() {
+    // syn's lib.rs declares `mod gen { pub mod fold; }`.
+    let f = Fixture::new(&[
+        ("src/lib.rs", "pub mod tree {\n    pub mod fold;\n}\n"),
+        ("src/tree/fold.rs", "pub trait Fold {}\n"),
+    ]);
+    let output = run(&f, &["census", "--population", "pub", "--json"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let census = String::from_utf8_lossy(&output.stdout);
+    assert!(census.contains("src/tree/fold.rs"), "{census}");
+}

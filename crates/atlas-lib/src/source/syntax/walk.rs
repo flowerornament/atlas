@@ -26,7 +26,11 @@ pub(super) struct Walk<'a> {
     gated: BTreeSet<usize>,
     gated_bytes: Vec<std::ops::Range<usize>>,
     module_bytes: Vec<std::ops::Range<usize>>,
-    modules: Vec<(String, Option<String>, bool)>,
+    modules: Vec<super::ModuleDeclaration>,
+    /// One entry per item being visited, outermost first: the inline module
+    /// it opens, or `None` for any other item. A file module is only
+    /// declared where every enclosing item is an inline module.
+    scopes: Vec<Option<super::InlineModule>>,
     imports: Vec<Import>,
     error: Option<SyntaxError>,
 }
@@ -48,6 +52,7 @@ impl<'a> Walk<'a> {
             gated_bytes: Vec::new(),
             module_bytes: Vec::new(),
             modules: Vec::new(),
+            scopes: Vec::new(),
             imports: Vec::new(),
             error: None,
         }
@@ -360,7 +365,7 @@ impl<'ast> Visit<'ast> for Walk<'_> {
                 });
             }
             syn::Item::Mod(n) => {
-                self.record(
+                let index = self.record(
                     ItemKind::Mod,
                     n.ident.to_string(),
                     n.span(),
@@ -381,26 +386,17 @@ impl<'ast> Visit<'ast> for Walk<'_> {
                     self.regions.push(gate..=n.span().end().line);
                     self.module_bytes.push(n.span().byte_range());
                 }
-                if n.content.is_none() && self.depth == 0 {
-                    let path = n.attrs.iter().find_map(|a| match &a.meta {
-                        syn::Meta::NameValue(meta) if meta.path.is_ident("path") => {
-                            match &meta.value {
-                                syn::Expr::Lit(expr) => match &expr.lit {
-                                    syn::Lit::Str(value) => Some(value.value()),
-                                    _ => None,
-                                },
-                                _ => None,
-                            }
-                        }
-                        _ => None,
-                    });
-                    self.modules.push((
-                        n.ident.to_string(),
-                        path,
-                        self.gated_bytes
+                if n.content.is_none() && self.scopes.iter().all(Option::is_some) {
+                    self.modules.push(super::ModuleDeclaration {
+                        name: n.ident.to_string(),
+                        path: path_attribute(&n.attrs),
+                        test_gated: self
+                            .gated_bytes
                             .iter()
                             .any(|range| range.contains(&n.span().byte_range().start)),
-                    ));
+                        inline: self.scopes.iter().flatten().cloned().collect(),
+                        item: self.outline[index].syntax_span.start,
+                    });
                 }
             }
             syn::Item::Impl(n) => {
@@ -464,9 +460,17 @@ impl<'ast> Visit<'ast> for Walk<'_> {
             syn::Item::Verbatim(tokens) => self.unsupported(tokens.span(), "verbatim item"),
             _ => self.unsupported(item.span(), "unknown syn item"),
         }
+        self.scopes.push(match item {
+            syn::Item::Mod(n) if n.content.is_some() => Some(super::InlineModule {
+                name: n.ident.to_string(),
+                path: path_attribute(&n.attrs),
+            }),
+            _ => None,
+        });
         self.depth += 1;
         visit::visit_item(self, item);
         self.depth -= 1;
+        self.scopes.pop();
     }
     fn visit_impl_item(&mut self, item: &'ast syn::ImplItem) {
         match item {
@@ -496,9 +500,11 @@ impl<'ast> Visit<'ast> for Walk<'_> {
             syn::ImplItem::Macro(node) => self.macro_member(&node.attrs, &node.mac, node.span()),
             _ => self.unsupported(item.span(), "unsupported impl member"),
         }
+        self.scopes.push(None);
         self.depth += 1;
         visit::visit_impl_item(self, item);
         self.depth -= 1;
+        self.scopes.pop();
     }
     fn visit_trait_item(&mut self, item: &'ast syn::TraitItem) {
         let private = syn::Visibility::Inherited;
@@ -529,9 +535,11 @@ impl<'ast> Visit<'ast> for Walk<'_> {
             syn::TraitItem::Macro(node) => self.macro_member(&node.attrs, &node.mac, node.span()),
             _ => self.unsupported(item.span(), "unsupported trait member"),
         }
+        self.scopes.push(None);
         self.depth += 1;
         visit::visit_trait_item(self, item);
         self.depth -= 1;
+        self.scopes.pop();
     }
     fn visit_foreign_item(&mut self, item: &'ast syn::ForeignItem) {
         match item {
@@ -568,4 +576,18 @@ fn type_head(ty: &syn::Type) -> Option<String> {
         syn::Type::Reference(r) => type_head(&r.elem),
         _ => None,
     }
+}
+
+/// The value of a `#[path = "..."]` attribute, when it is a string literal.
+fn path_attribute(attrs: &[syn::Attribute]) -> Option<String> {
+    attrs.iter().find_map(|attribute| match &attribute.meta {
+        syn::Meta::NameValue(meta) if meta.path.is_ident("path") => match &meta.value {
+            syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(value),
+                ..
+            }) => Some(value.value()),
+            _ => None,
+        },
+        _ => None,
+    })
 }

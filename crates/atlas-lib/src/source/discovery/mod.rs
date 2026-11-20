@@ -562,6 +562,58 @@ pub(crate) fn child_directory(rel: &str) -> String {
     }
 }
 
+/// The files a module declaration in `declaring_file` may load, by Rust's
+/// rules. `beside_file` reads the declaring file as a mod-rs file (a crate
+/// root, a `mod.rs`, or a file loaded through `#[path]`), whose modules sit in
+/// its own directory; any other file's modules sit in a directory named by its
+/// stem. Each enclosing inline module adds its name, or its `#[path]`, as a
+/// directory. A `#[path]` on a declaration outside inline modules is relative
+/// to the declaring file's directory; inside them, to that inline directory.
+fn module_files(
+    declaring_file: &str,
+    beside_file: bool,
+    module: &crate::source::syntax::ModuleDeclaration,
+) -> Vec<String> {
+    if module.inline.is_empty()
+        && let Some(path) = &module.path
+    {
+        return vec![resolve_module_path(declaring_file, path)];
+    }
+    let mut directory = PathBuf::from(if beside_file {
+        declaring_file
+            .rsplit_once('/')
+            .map_or("", |(directory, _)| directory)
+            .to_owned()
+    } else {
+        child_directory(declaring_file)
+    });
+    for inline in &module.inline {
+        directory.push(
+            inline
+                .path
+                .as_deref()
+                .unwrap_or_else(|| unraw(&inline.name)),
+        );
+    }
+    match &module.path {
+        Some(path) => vec![
+            normalize_path(&directory.join(path))
+                .to_string_lossy()
+                .replace('\\', "/"),
+        ],
+        None => mounted::module_candidates(
+            &directory.to_string_lossy().replace('\\', "/"),
+            unraw(&module.name),
+        )
+        .to_vec(),
+    }
+}
+
+/// A module's file name: a raw identifier `r#match` is loaded from `match.rs`.
+fn unraw(name: &str) -> &str {
+    name.strip_prefix("r#").unwrap_or(name)
+}
+
 fn resolve_module_path(declaring_file: &str, explicit_path: &str) -> String {
     let directory = Path::new(declaring_file)
         .parent()
@@ -598,17 +650,13 @@ fn mark_test_files(
             continue;
         };
         let declarations = source.file_module_declarations();
-        for (name, explicit, _) in declarations {
-            let candidates = explicit.as_ref().map_or_else(
-                || {
-                    let parent = file.rel.rsplit_once('/').map_or("", |(parent, _)| parent);
-                    [parent.to_owned(), child_directory(&file.rel)]
-                        .into_iter()
-                        .flat_map(|directory| mounted::module_candidates(&directory, name))
-                        .collect::<Vec<_>>()
-                },
-                |path| vec![resolve_module_path(&file.rel, path)],
-            );
+        for module in declarations {
+            let mut candidates = module_files(&file.rel, true, module);
+            for candidate in module_files(&file.rel, false, module) {
+                if !candidates.contains(&candidate) {
+                    candidates.push(candidate);
+                }
+            }
             if !candidates
                 .iter()
                 .any(|candidate| by_path.contains_key(candidate))
@@ -618,7 +666,8 @@ fn mark_test_files(
                     file: file.rel.clone(),
                     line: None,
                     message: format!(
-                        "module {name} has no discovered file mount (missing, outside the inventory, or excluded): {}",
+                        "module {} has no discovered file mount (missing, outside the inventory, or excluded): {}",
+                        module.module_path().collect::<Vec<_>>().join("::"),
                         candidates.join(", ")
                     ),
                 });
@@ -629,31 +678,19 @@ fn mark_test_files(
                 file: index,
                 beside_file,
             };
-            let directory = if beside_file {
-                file.rel
-                    .rsplit_once('/')
-                    .map_or("", |(directory, _)| directory)
-                    .to_owned()
-            } else {
-                child_directory(&file.rel)
-            };
             let mut edges = Vec::new();
-            for (name, explicit_path, test_only) in declarations {
-                let paths = if let Some(path) = explicit_path {
-                    vec![resolve_module_path(&file.rel, path)]
-                } else {
-                    mounted::module_candidates(&directory, name).to_vec()
-                };
-                for path in paths {
+            for module in declarations {
+                for path in module_files(&file.rel, beside_file, module) {
                     if let Some(&child) = by_path.get(&path) {
                         mounted.insert(child);
                         edges.push((
                             ModuleMount {
                                 file: child,
-                                beside_file: explicit_path.is_some(),
+                                // A file loaded through `#[path]` reads as mod-rs.
+                                beside_file: module.path.is_some(),
                             },
-                            *test_only,
-                            name.clone(),
+                            module.test_gated,
+                            module.module_path().map(str::to_owned).collect::<Vec<_>>(),
                         ));
                     }
                 }
@@ -746,9 +783,9 @@ fn mark_test_files(
                     test_only: in_tests,
                     target: target.clone(),
                 });
-            for (child, gated, name) in children.get(&mount).into_iter().flatten() {
+            for (child, gated, names) in children.get(&mount).into_iter().flatten() {
                 let mut namespace = modules.clone();
-                namespace.push(name.clone());
+                namespace.extend(names.iter().cloned());
                 pending.push((*child, namespace, in_tests || *gated, ancestry.clone()));
             }
         }
