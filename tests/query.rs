@@ -187,6 +187,55 @@ fn name_cards_agree(root: &Path, name: &str) {
     assert_eq!(got, expected, "{name} in {}", root.display());
 }
 
+/// `callers`/`callees` and the prelude's `calls_function` and `reaches`:
+/// depth 1 is one `calls_function` step, and depth 16 (more than any chain
+/// here) is every `reaches` row.
+fn calls_agree(root: &Path, selector: &str) {
+    let ends = |question: &str, depth: &str| -> (String, BTreeSet<String>) {
+        let report = json(root, &[question, selector, "--depth", depth, "--json"]);
+        let answer = &report["answers"][0];
+        let other = if question == "callers" { "from" } else { "to" };
+        let ends = answer["resolved"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .map(|row| s(&row[other]))
+            .collect();
+        (s(&answer["function"]["id"]), ends)
+    };
+    let (id, callers) = ends("callers", "1");
+    let steps = |program: String| -> BTreeSet<String> {
+        rows(root, &program).iter().map(|row| s(&row[0])).collect()
+    };
+    assert_eq!(
+        callers,
+        steps(format!("?- calls_function{{from: F, to: {id:?}}}.")),
+        "{selector}"
+    );
+    let (_, all) = ends("callers", "16");
+    assert_eq!(
+        all,
+        steps(format!("?- reaches{{from: F, to: {id:?}}}.")),
+        "{selector}"
+    );
+    let (_, callees) = ends("callees", "1");
+    assert_eq!(
+        callees,
+        steps(format!("?- calls_function{{from: {id:?}, to: G}}.")),
+        "{selector}"
+    );
+    let (_, reached) = ends("callees", "16");
+    assert_eq!(
+        reached,
+        steps(format!("?- reaches{{from: {id:?}, to: G}}.")),
+        "{selector}"
+    );
+    assert!(
+        !all.is_empty() || !reached.is_empty(),
+        "{selector} has no calls"
+    );
+}
+
 #[test]
 fn the_prelude_restates_its_commands_on_a_fixture() {
     let fixture = fixture();
@@ -195,6 +244,8 @@ fn the_prelude_restates_its_commands_on_a_fixture() {
     file_calls_agree(fixture.path(), Some("src"));
     name_cards_agree(fixture.path(), "Token");
     name_cards_agree(fixture.path(), "lonely");
+    calls_agree(fixture.path(), "b::build");
+    calls_agree(fixture.path(), "entry");
 }
 
 #[test]
@@ -206,6 +257,7 @@ fn the_prelude_restates_its_commands_on_this_workspace() {
     file_calls_agree(root, Some("crates/atlas-lib/src/query"));
     name_cards_agree(root, "Relation");
     name_cards_agree(root, "Snapshot");
+    calls_agree(root, "Snapshot::graph");
 }
 
 #[test]
@@ -345,4 +397,57 @@ fn exits_say_whether_the_program_ran_not_what_it_found() {
     assert_eq!(answer["tables"][0]["columns"], serde_json::json!(["N"]));
     assert_eq!(answer["tables"][0]["kinds"], serde_json::json!(["integer"]));
     assert!(answer["facts"].as_str().expect("facts").contains("lexical"));
+}
+
+#[test]
+fn query_reads_its_rules_and_bounds_text_like_every_command() {
+    let fixture = fixture();
+    let root = fixture.path();
+    let program = "?- function{id: F}.";
+    let bounded = run(root, &["query", program, "--rows", "2"]);
+    let text = String::from_utf8_lossy(&bounded.stdout);
+    let tail = text
+        .lines()
+        .find_map(|line| line.trim_start().strip_prefix("… "))
+        .expect("a tail");
+    assert!(tail.ends_with(" --all"), "{tail}");
+    assert!(tail.contains(&format!(" '{program}' ")), "{tail}");
+    // --show is the 0.18 spelling of --rows.
+    let shown = run(root, &["query", program, "--show", "2"]);
+    assert_eq!(shown.stdout, bounded.stdout);
+    assert!(String::from_utf8_lossy(&shown.stderr).contains("--show is now --rows"));
+    // --as jsonl: a header, then one line per row.
+    let jsonl = run(root, &["query", program, "--as", "jsonl"]);
+    let lines: Vec<Value> = String::from_utf8_lossy(&jsonl.stdout)
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("JSON line"))
+        .collect();
+    let all = json(root, &["query", "--json", program]);
+    assert_eq!(lines[0]["schema"], 1);
+    assert_eq!(
+        lines.len() - 1,
+        all["tables"][0]["rows"].as_array().expect("rows").len()
+    );
+    assert_eq!(lines[1]["row"], all["tables"][0]["rows"][0]);
+    // Scope and revision flags are refused: the rules choose what they read.
+    let restrict = "file{path: P}, under(P, \"src\")";
+    for flag in ["--in", "-p", "--vs", "--at"] {
+        let refused = run(root, &["query", program, flag, "x"]);
+        assert!(!refused.status.success(), "{flag}");
+        assert_eq!(
+            String::from_utf8_lossy(&refused.stderr),
+            format!(
+                "atlas: query reads the whole workspace's facts; restrict inside the rules (for example {restrict})\n"
+            ),
+            "{flag}"
+        );
+    }
+    // The example in the refusal is a query that runs.
+    let example = run(root, &["query", &format!("?- {restrict}.")]);
+    assert!(
+        example.status.success(),
+        "{}",
+        String::from_utf8_lossy(&example.stderr)
+    );
+    assert!(String::from_utf8_lossy(&example.stdout).contains("src/lib.rs"));
 }

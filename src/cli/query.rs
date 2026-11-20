@@ -3,6 +3,7 @@
 //! reports rows and nothing else; it exits 0 whenever the program ran,
 //! whatever the rows, and refuses (exit 1) a program it cannot check, an
 //! honesty finding not accepted, or a limit passed.
+use crate::cli::output::form::As;
 use atlas_lib::{
     analysis::Analysis,
     discovery,
@@ -47,9 +48,20 @@ pub(crate) struct Options {
     accept: Vec<Accept>,
     #[command(flatten)]
     output: crate::cli::output::form::Report,
-    /// Rows to print per query in text output (JSON prints all).
-    #[arg(long, default_value_t = 100)]
-    show: usize,
+    #[command(flatten)]
+    rows: crate::cli::output::rows::Rows,
+    /// Superseded by --rows.
+    #[arg(long, value_name = "N", conflicts_with_all = ["rows", "all"])]
+    show: Option<usize>,
+    /// Refused: the rules restrict what they read (spec §3.8).
+    #[arg(long = "in", hide = true)]
+    in_path: Option<String>,
+    #[arg(short = 'p', long, hide = true)]
+    package: Option<String>,
+    #[arg(long, hide = true)]
+    vs: Option<String>,
+    #[arg(long, hide = true)]
+    at: Option<String>,
     /// Refuse once the rules derive more rows than this.
     #[arg(long, default_value_t = 20_000_000)]
     max_rows: usize,
@@ -60,6 +72,9 @@ pub(crate) struct Options {
     #[arg(long)]
     prelude: bool,
 }
+
+/// The restriction the scope-flag refusal shows; a test runs it in a query.
+const RESTRICT: &str = "file{path: P}, under(P, \"src\")";
 
 fn program_text(options: &Options) -> Result<String> {
     match (&options.program, &options.file) {
@@ -132,6 +147,7 @@ fn render(cell: &Cell) -> String {
 }
 
 fn text(answer: &query::Answer, source: &str, show: usize) -> String {
+    let more = crate::cli::output::rows::rerun_all(None);
     let mut out = String::new();
     for (i, table) in answer.tables.iter().enumerate() {
         if i > 0 {
@@ -177,7 +193,8 @@ fn text(answer: &query::Answer, source: &str, show: usize) -> String {
             (0, _) => writeln!(out, "  (no rows)"),
             (total, listed) if shown < listed => writeln!(
                 out,
-                "  ({total} rows, {shown} shown; raise --show or use --json)"
+                "{}\n  ({total} rows)",
+                crate::cli::output::rows::tail("  ", listed - shown, &more)
             ),
             (total, listed) if listed < total => {
                 writeln!(
@@ -207,6 +224,16 @@ fn text(answer: &query::Answer, source: &str, show: usize) -> String {
 }
 
 pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Result<()> {
+    if options.in_path.is_some()
+        || options.package.is_some()
+        || options.vs.is_some()
+        || options.at.is_some()
+    {
+        return Err(format!(
+            "query reads the whole workspace's facts; restrict inside the rules (for example {RESTRICT})"
+        )
+        .into());
+    }
     if options.prelude {
         std::io::stdout()
             .lock()
@@ -259,6 +286,9 @@ pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Res
     notes.append(&mut answer.notes);
     answer.notes = notes;
     let mut stdout = std::io::stdout().lock();
+    if options.output.chosen() == Some(As::Jsonl) {
+        return write_jsonl(&mut stdout, &source, &answer);
+    }
     if options.output.json() {
         #[derive(serde::Serialize)]
         struct Document<'a> {
@@ -276,7 +306,35 @@ pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Res
             .as_bytes(),
         )?;
     } else {
-        stdout.write_all(text(&answer, &source, options.show).as_bytes())?;
+        let show = options.show.unwrap_or_else(|| options.rows.limit(20));
+        stdout.write_all(text(&answer, &source, show).as_bytes())?;
+    }
+    Ok(())
+}
+/// JSON Lines: one header object (the answer without its rows, each table's
+/// rows replaced by its row count), then one `{"table": i, "row": [...]}`
+/// object per row, in table order.
+fn write_jsonl(out: &mut impl Write, source: &str, answer: &query::Answer) -> Result<()> {
+    let mut header = serde_json::to_value(answer)?;
+    let mut rows = Vec::new();
+    if let Some(tables) = header.get_mut("tables").and_then(|t| t.as_array_mut()) {
+        for (index, table) in tables.iter_mut().enumerate() {
+            if let Some(serde_json::Value::Array(listed)) =
+                table.as_object_mut().and_then(|t| t.remove("rows"))
+            {
+                rows.extend(listed.into_iter().map(|row| (index, row)));
+            }
+        }
+    }
+    if let Some(object) = header.as_object_mut() {
+        object.insert("schema".into(), 1.into());
+        object.insert("facts".into(), source.into());
+    }
+    serde_json::to_writer(&mut *out, &header)?;
+    writeln!(out)?;
+    for (table, row) in rows {
+        serde_json::to_writer(&mut *out, &serde_json::json!({"table": table, "row": row}))?;
+        writeln!(out)?;
     }
     Ok(())
 }

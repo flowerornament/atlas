@@ -17,8 +17,19 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  calling (or called) functions in part of the project; `--path FILE
  --function NAME` also works. JSON schemas `atlas.callers/1` and
  `atlas.callees/1`. **Library:** `queries::callers::{callers, callees}`.
+- `callers` and `callees` take `--depth N` (1 to 16): they follow resolved
+ calls level by level, list each function at the first depth it is reached
+ (with `via`, the function one level nearer), and count the unresolved calls
+ beyond depth 1 per depth instead of listing them. The prelude gains
+ `calls_function` (one step) and `reaches` (any depth); a test holds the
+ commands to them.
+- `query` follows the shared output rules: `--rows N`/`--all` bound its text
+ tables (default 20, with a runnable tail; `--show N` still works with a
+ notice), `--as jsonl` prints a header and one line per row, and `--in`,
+ `-p`, `--vs` and `--at` are refused, since the rules choose what they read.
 - `name` reads `Type::method` (`cargo atlas name Snapshot::graph`), the
- spelling `orient` and `callers` print; it refused it before. `name
+ spelling `orient` and `callers` print; it refused it before (with
+ `--population` it still does). `name
  --relations` text ends with `for calls, cargo atlas callers X`, since a
  co-mention is not a call.
 - `compare` no longer refuses a project where one type has several impls of

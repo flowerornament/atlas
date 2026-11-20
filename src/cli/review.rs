@@ -465,7 +465,7 @@ pub(super) fn source_review(
                     &file.items,
                     items,
                     "  ",
-                    || narrower("spans", &file.file),
+                    || narrower("spans", &file.file, &[]),
                     |item| {
                         println!(
                             "  {}:{}-{} {} {}",

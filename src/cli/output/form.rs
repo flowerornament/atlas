@@ -44,6 +44,11 @@ impl Report {
     pub(crate) fn json(&self) -> bool {
         self.json || self.form == Some(As::Json)
     }
+    /// The format `--as` chose, for a command that offers more than text and
+    /// JSON.
+    pub(crate) fn chosen(&self) -> Option<As> {
+        self.form
+    }
 }
 
 /// Note each superseded output spelling this invocation used. `--json` is a
@@ -56,6 +61,7 @@ pub(crate) fn note_superseded(matches: &ArgMatches, notices: &mut Notices) {
         ("types", "--type", "the bare TYPES argument"),
         ("before", "--before", "--vs"),
         ("after", "--after", "--at"),
+        ("show", "--show", "--rows"),
     ] {
         if given(matches, id).is_some() {
             notices.superseded(old, new);

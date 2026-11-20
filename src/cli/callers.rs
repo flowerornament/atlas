@@ -15,6 +15,10 @@ pub(crate) struct Options {
     function: Function,
     #[command(flatten)]
     within: Within,
+    /// Follow resolved calls this many levels (1 to 16); each row carries
+    /// its depth.
+    #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=i64::from(callers::MAX_DEPTH)))]
+    depth: u32,
     #[command(flatten)]
     rows: Rows,
     #[command(flatten)]
@@ -38,7 +42,7 @@ pub(crate) fn run(
     let more = |_: Option<&str>| rerun_all(None);
     match direction {
         Direction::Callers => {
-            let report = callers::callers(graph, &facts, selector, file, &within)?;
+            let report = callers::callers(graph, &facts, selector, file, options.depth, &within)?;
             if options.output.json() {
                 print!("{}", json(&report)?);
             } else {
@@ -48,7 +52,7 @@ pub(crate) fn run(
             }
         }
         Direction::Callees => {
-            let report = callers::callees(graph, &facts, selector, file, &within)?;
+            let report = callers::callees(graph, &facts, selector, file, options.depth, &within)?;
             if options.output.json() {
                 print!("{}", json(&report)?);
             } else {

@@ -485,7 +485,7 @@ fn legacy(
                 result.text_bounded(relations, cards, rows.nested(shown, 40), &|id| {
                     id.map_or_else(
                         || rerun_all(None),
-                        |id| narrower("name", &format!("{id} --relations")),
+                        |id| narrower("name", id, &["--relations"]),
                     )
                 })
             }
@@ -499,7 +499,7 @@ fn legacy(
                 let shown = files.min(result.files.len());
                 // 8 files of 3 declarations, or one file of 24, fill a page.
                 result.text_bounded(files, rows.nested(shown, 24), &|file| {
-                    file.map_or_else(|| rerun_all(None), |file| narrower("module", file))
+                    file.map_or_else(|| rerun_all(None), |file| narrower("module", file, &[]))
                 })
             }
         }

@@ -1,9 +1,13 @@
 //! Who calls a function, and what it calls, from the qualified calls Atlas
-//! resolved (one level). A resolved row is a call whose target is the
+//! resolved, up to `depth` calls away. A resolved row is a call whose target is the
 //! function. A call Atlas could not resolve is never counted as a caller:
 //! when it is written with the function's name it is a *possible* caller,
 //! counted by the reason it stayed unresolved. A selector that matches
 //! several functions answers each on its own; no candidate is picked.
+//!
+//! Depth follows resolved calls only, the step the prelude's
+//! `calls_function` names: each function is listed at the first depth it is
+//! reached, and unresolved calls beyond depth 1 are counted, not listed.
 //!
 //! Limits: calls inside macro input, through function pointers or closures
 //! passed elsewhere, and trait dispatch Atlas cannot follow are not recorded,
@@ -12,10 +16,13 @@ use super::{More, selector::Selector};
 use crate::{
     Result,
     model::{Declaration, SourceGraph},
-    representations::{Facts, Function},
+    representations::{Facts, Function, ResolvedCall, UnknownCall},
 };
 use serde::Serialize;
-use std::{collections::BTreeMap, fmt::Write as _};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Write as _,
+};
 
 const BASIS: &str = "Basis: qualified calls resolved through use statements and modules; possible callers are unresolved calls written with the same name.";
 
@@ -45,6 +52,11 @@ pub struct Caller {
     pub site: Site,
     pub depth: u32,
     pub reading: &'static str,
+    /// Beyond depth 1: the function one level nearer that this call reaches.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via_name: Option<String>,
 }
 /// One resolved call out of the function.
 #[derive(Clone, Debug, Serialize)]
@@ -55,6 +67,11 @@ pub struct Callee {
     pub site: Site,
     pub depth: u32,
     pub reading: &'static str,
+    /// Beyond depth 1: the function one level nearer that makes this call.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via_name: Option<String>,
 }
 /// A call Atlas did not resolve, with the reason kind it stayed unresolved.
 #[derive(Clone, Debug, Serialize)]
@@ -79,7 +96,11 @@ pub struct CallerAnswer {
     /// it, never counted as callers.
     pub possibly: Vec<Unresolved>,
     pub possibly_by_kind: BTreeMap<String, usize>,
+    /// Unresolved calls written with the name of a function reached at a
+    /// depth below this one, by depth: counted, not listed.
     pub possibly_beyond_depth_1: usize,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub possibly_by_depth: BTreeMap<u32, usize>,
 }
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
@@ -90,6 +111,11 @@ pub struct CalleeAnswer {
     /// not absent.
     pub unresolved: Vec<Unresolved>,
     pub unresolved_by_kind: BTreeMap<String, usize>,
+    /// Unresolved calls inside the functions reached above this depth, by
+    /// depth: counted, not listed.
+    pub unresolved_beyond_depth_1: usize,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub unresolved_by_depth: BTreeMap<u32, usize>,
 }
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
@@ -173,54 +199,134 @@ fn select<'a>(
     Ok(matches)
 }
 
-/// The functions that call what `selector` names. `within` keeps the
-/// calling functions in a part of the project, by file.
+/// The deepest `depth` a call question follows.
+pub const MAX_DEPTH: u32 = 16;
+
+/// The resolved calls `depth` steps out from `start`, by level: at level k,
+/// the calls between a function first reached at k-1 and one not reached
+/// before k (every call at level 1), and the functions first reached at k.
+/// `backward` walks from callee to caller.
+fn levels<'a>(
+    facts: &'a Facts,
+    start: &'a str,
+    depth: u32,
+    backward: bool,
+) -> Vec<(Vec<&'a ResolvedCall>, BTreeSet<&'a str>)> {
+    let ends = |call: &'a ResolvedCall| {
+        if backward {
+            (call.to.as_str(), call.from.as_str())
+        } else {
+            (call.from.as_str(), call.to.as_str())
+        }
+    };
+    let mut seen = BTreeSet::from([start]);
+    let mut frontier = BTreeSet::from([start]);
+    let mut out = Vec::new();
+    for level in 1..=depth {
+        let calls: Vec<&ResolvedCall> = facts
+            .calls
+            .iter()
+            .filter(|call| {
+                let (near, far) = ends(call);
+                frontier.contains(near) && (level == 1 || !seen.contains(far))
+            })
+            .collect();
+        let reached: BTreeSet<&str> = calls
+            .iter()
+            .map(|call| ends(call).1)
+            .filter(|far| !seen.contains(far))
+            .collect();
+        seen.extend(&reached);
+        out.push((calls, reached.clone()));
+        if reached.is_empty() {
+            break;
+        }
+        frontier = reached;
+    }
+    out
+}
+/// The functions that call what `selector` names, up to `depth` calls away
+/// (1 to [`MAX_DEPTH`]). `within` keeps the calling functions in a part of
+/// the project, by file.
 pub fn callers(
     graph: &SourceGraph,
     facts: &Facts,
     selector: &str,
     file: Option<&str>,
+    depth: u32,
     within: &dyn Fn(&str) -> bool,
 ) -> Result<Report<CallerAnswer>> {
+    let depth = checked_depth(depth)?;
     let names = Names::new(graph, facts);
+    let kept = |id: &str| {
+        names
+            .functions
+            .get(id)
+            .is_some_and(|function| within(&function.file))
+    };
     let answers = select(graph, facts, selector, file)?
         .into_iter()
         .map(|function| {
-            let mut resolved: Vec<Caller> = facts
-                .calls
-                .iter()
-                .filter(|call| call.to == function.id)
-                .filter_map(|call| {
-                    let from = names.functions.get(call.from.as_str())?;
-                    within(&from.file).then(|| Caller {
+            let levels = levels(facts, &function.id, depth, true);
+            let mut resolved: Vec<Caller> = Vec::new();
+            for (level, (calls, _)) in (1..).zip(&levels) {
+                for call in calls {
+                    let Some(from) = names.functions.get(call.from.as_str()) else {
+                        continue;
+                    };
+                    if !within(&from.file) {
+                        continue;
+                    }
+                    let via = (level > 1)
+                        .then(|| names.functions.get(call.to.as_str()))
+                        .flatten();
+                    resolved.push(Caller {
                         from: call.from.clone(),
                         from_name: names.display(from),
                         site: site(&call.site),
-                        depth: 1,
+                        depth: level,
                         reading: "qualified",
+                        via: via.map(|via| via.id.clone()),
+                        via_name: via.map(|via| names.display(via)),
+                    });
+                }
+            }
+            resolved.sort_by(|a, b| (a.depth, &a.site).cmp(&(b.depth, &b.site)));
+            let written = |wanted: &BTreeSet<&str>| -> Vec<&UnknownCall> {
+                facts
+                    .unknown_calls
+                    .iter()
+                    .filter(|unknown| {
+                        wanted.contains(last(&unknown.call.spelling)) && kept(&unknown.from)
                     })
-                })
-                .collect();
-            resolved.sort_by(|a, b| a.site.cmp(&b.site));
-            let wanted = last(&function.name);
-            let possibly: Vec<Unresolved> = facts
-                .unknown_calls
-                .iter()
-                .filter(|unknown| last(&unknown.call.spelling) == wanted)
-                .filter(|unknown| {
-                    names
-                        .functions
-                        .get(unknown.from.as_str())
-                        .is_some_and(|from| within(&from.file))
-                })
+                    .collect()
+            };
+            let possibly: Vec<Unresolved> = written(&BTreeSet::from([last(&function.name)]))
+                .into_iter()
                 .map(unresolved)
+                .collect();
+            // Beyond depth 1, the calls written as the name of a caller
+            // one level nearer.
+            let possibly_by_depth: BTreeMap<u32, usize> = (2..)
+                .zip(&levels)
+                .take_while(|(level, _)| *level <= depth)
+                .map(|(level, (_, reached))| {
+                    let wanted = reached
+                        .iter()
+                        .filter_map(|id| names.functions.get(id))
+                        .map(|function| last(&function.name))
+                        .collect();
+                    (level, written(&wanted).len())
+                })
+                .filter(|(_, count)| *count > 0)
                 .collect();
             CallerAnswer {
                 function: subject(&names, function),
                 resolved,
                 possibly_by_kind: by_kind(&possibly),
                 possibly,
-                possibly_beyond_depth_1: 0,
+                possibly_beyond_depth_1: possibly_by_depth.values().sum(),
+                possibly_by_depth,
             }
         })
         .collect();
@@ -228,51 +334,79 @@ pub fn callers(
         schema: "atlas.callers/1",
         question: "callers",
         selector: selector.to_owned(),
-        depth: 1,
+        depth,
         answers,
         basis: BASIS,
     })
 }
-/// What the functions `selector` names call. `within` keeps the called
-/// functions in a part of the project, by file.
+/// What the functions `selector` names call, up to `depth` calls away.
+/// `within` keeps the called functions in a part of the project, by file.
 pub fn callees(
     graph: &SourceGraph,
     facts: &Facts,
     selector: &str,
     file: Option<&str>,
+    depth: u32,
     within: &dyn Fn(&str) -> bool,
 ) -> Result<Report<CalleeAnswer>> {
+    let depth = checked_depth(depth)?;
     let names = Names::new(graph, facts);
     let answers = select(graph, facts, selector, file)?
         .into_iter()
         .map(|function| {
-            let mut resolved: Vec<Callee> = facts
-                .calls
-                .iter()
-                .filter(|call| call.from == function.id)
-                .filter_map(|call| {
-                    let to = names.functions.get(call.to.as_str())?;
-                    within(&to.file).then(|| Callee {
+            let levels = levels(facts, &function.id, depth, false);
+            let mut resolved: Vec<Callee> = Vec::new();
+            for (level, (calls, _)) in (1..).zip(&levels) {
+                for call in calls {
+                    let Some(to) = names.functions.get(call.to.as_str()) else {
+                        continue;
+                    };
+                    if !within(&to.file) {
+                        continue;
+                    }
+                    let via = (level > 1)
+                        .then(|| names.functions.get(call.from.as_str()))
+                        .flatten();
+                    resolved.push(Callee {
                         to: call.to.clone(),
                         to_name: names.display(to),
                         site: site(&call.site),
-                        depth: 1,
+                        depth: level,
                         reading: "qualified",
-                    })
-                })
-                .collect();
-            resolved.sort_by(|a, b| a.site.cmp(&b.site));
+                        via: via.map(|via| via.id.clone()),
+                        via_name: via.map(|via| names.display(via)),
+                    });
+                }
+            }
+            resolved.sort_by(|a, b| (a.depth, &a.site).cmp(&(b.depth, &b.site)));
             let unresolved: Vec<Unresolved> = facts
                 .unknown_calls
                 .iter()
                 .filter(|unknown| unknown.from == function.id)
                 .map(unresolved)
                 .collect();
+            // Beyond depth 1, the calls inside the functions one level nearer
+            // that Atlas could not follow.
+            let unresolved_by_depth: BTreeMap<u32, usize> = (2..)
+                .zip(&levels)
+                .take_while(|(level, _)| *level <= depth)
+                .map(|(level, (_, reached))| {
+                    let count = facts
+                        .unknown_calls
+                        .iter()
+                        .filter(|unknown| reached.contains(unknown.from.as_str()))
+                        .count();
+                    (level, count)
+                })
+                .filter(|(_, count)| *count > 0)
+                .collect();
             CalleeAnswer {
                 function: subject(&names, function),
                 resolved,
                 unresolved_by_kind: by_kind(&unresolved),
                 unresolved,
+                unresolved_beyond_depth_1: unresolved_by_depth.values().sum(),
+                unresolved_by_depth,
             }
         })
         .collect();
@@ -280,10 +414,17 @@ pub fn callees(
         schema: "atlas.callees/1",
         question: "callees",
         selector: selector.to_owned(),
-        depth: 1,
+        depth,
         answers,
         basis: BASIS,
     })
+}
+fn checked_depth(depth: u32) -> Result<u32> {
+    if (1..=MAX_DEPTH).contains(&depth) {
+        Ok(depth)
+    } else {
+        Err(format!("--depth must be 1 to {MAX_DEPTH}, not {depth}").into())
+    }
 }
 
 impl Report<CallerAnswer> {
@@ -332,7 +473,15 @@ impl Report<CallerAnswer> {
                 .unwrap_or(0);
             for row in answer.resolved.iter().take(rows) {
                 let at = format!("{}:{}", row.site.path, row.site.line);
-                let _ = writeln!(out, "      {at:width$}  {}", row.from_name);
+                let name = match &row.via_name {
+                    Some(via) => format!("{} → {via}", row.from_name),
+                    None => row.from_name.clone(),
+                };
+                let _ = writeln!(
+                    out,
+                    "      {}{at:width$}  {name}",
+                    level(self.depth, row.depth)
+                );
             }
             tail(&mut out, "    ", answer.resolved.len(), rows, more);
             if !answer.possibly.is_empty() {
@@ -353,6 +502,15 @@ impl Report<CallerAnswer> {
                     &answer.possibly_by_kind,
                     rows,
                     more,
+                );
+            }
+            if answer.possibly_beyond_depth_1 > 0 {
+                let _ = writeln!(
+                    out,
+                    "  possibly, beyond depth 1: {} unresolved call{} written as the name of a caller ({})",
+                    answer.possibly_beyond_depth_1,
+                    plural(answer.possibly_beyond_depth_1),
+                    per_depth(&answer.possibly_by_depth)
                 );
             }
         }
@@ -400,7 +558,15 @@ impl Report<CalleeAnswer> {
                 .unwrap_or(0);
             for row in answer.resolved.iter().take(rows) {
                 let at = format!("{}:{}", row.site.path, row.site.line);
-                let _ = writeln!(out, "      {at:width$}  {}", row.to_name);
+                let name = match &row.via_name {
+                    Some(via) => format!("{via} → {}", row.to_name),
+                    None => row.to_name.clone(),
+                };
+                let _ = writeln!(
+                    out,
+                    "      {}{at:width$}  {name}",
+                    level(self.depth, row.depth)
+                );
             }
             tail(&mut out, "    ", answer.resolved.len(), rows, more);
             if !answer.unresolved.is_empty() {
@@ -418,6 +584,15 @@ impl Report<CalleeAnswer> {
                     more,
                 );
             }
+            if answer.unresolved_beyond_depth_1 > 0 {
+                let _ = writeln!(
+                    out,
+                    "  unresolved, beyond depth 1: {} call{} inside the functions above, external or unknown, not absent ({})",
+                    answer.unresolved_beyond_depth_1,
+                    plural(answer.unresolved_beyond_depth_1),
+                    per_depth(&answer.unresolved_by_depth)
+                );
+            }
         }
         if self.answers.len() > answers {
             let _ = writeln!(out);
@@ -428,6 +603,22 @@ impl Report<CalleeAnswer> {
     }
 }
 
+/// A row's depth column, shown only when the question went deeper than 1.
+fn level(asked: u32, depth: u32) -> String {
+    if asked > 1 {
+        format!("{depth:>2}  ")
+    } else {
+        String::new()
+    }
+}
+/// `depth 2: 3, depth 3: 1`.
+fn per_depth(counts: &BTreeMap<u32, usize>) -> String {
+    counts
+        .iter()
+        .map(|(depth, count)| format!("depth {depth}: {count}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 /// The heading of an answer for several functions (R16).
 fn heading(selector: &str, answers: usize) -> String {
     if answers > 1 {

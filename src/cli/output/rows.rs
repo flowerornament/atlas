@@ -45,9 +45,10 @@ pub(crate) fn rerun_all(subject: Option<(&str, &str)>) -> String {
     let mut kept = Vec::with_capacity(args.len() + 1);
     let mut words = args.into_iter();
     while let Some(arg) = words.next() {
-        if arg == "--rows" {
+        // `--show` is query's 0.18 spelling of `--rows`.
+        if arg == "--rows" || arg == "--show" {
             words.next();
-        } else if !arg.starts_with("--rows=") && arg != "--all" {
+        } else if !arg.starts_with("--rows=") && !arg.starts_with("--show=") && arg != "--all" {
             kept.push(arg);
         }
     }
@@ -58,24 +59,44 @@ pub(crate) fn rerun_all(subject: Option<(&str, &str)>) -> String {
         }
     }
     kept.push("--all".to_owned());
-    format!("cargo atlas {}", kept.join(" "))
+    let words: Vec<String> = kept.iter().map(|word| quoted(word)).collect();
+    format!("cargo atlas {}", words.join(" "))
 }
-/// `cargo atlas COMMAND SUBJECT --all`, keeping this run's `--root`: the
-/// narrower command a nested list's tail names.
-pub(crate) fn narrower(command: &str, subject: &str) -> String {
+/// `word` as a shell reads it back: as is when it is plain, otherwise in
+/// single quotes (a query program has spaces, quotes and braces).
+fn quoted(word: &str) -> String {
+    // `~` is plain inside a word (`HEAD~1`); only a leading one expands.
+    let plain = !word.is_empty()
+        && !word.starts_with('~')
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_-./:@=,+%^~".contains(c));
+    if plain {
+        word.to_owned()
+    } else {
+        format!("'{}'", word.replace('\'', "'\\''"))
+    }
+}
+/// `cargo atlas COMMAND SUBJECT [FLAGS] --all`, keeping this run's
+/// `--root`: the narrower command a nested list's tail names.
+pub(crate) fn narrower(command: &str, subject: &str, flags: &[&str]) -> String {
     let args: Vec<String> = std::env::args().collect();
     let root = args
         .iter()
         .position(|arg| arg == "--root")
         .and_then(|at| args.get(at + 1))
-        .map(|root| format!(" --root {root}"))
+        .map(|root| format!(" --root {}", quoted(root)))
         .or_else(|| {
             args.iter()
                 .find_map(|arg| arg.strip_prefix("--root="))
-                .map(|root| format!(" --root {root}"))
+                .map(|root| format!(" --root {}", quoted(root)))
         })
         .unwrap_or_default();
-    format!("cargo atlas {command} {subject}{root} --all")
+    let flags: String = flags.iter().flat_map(|flag| [" ", flag]).collect();
+    format!(
+        "cargo atlas {command} {}{flags}{root} --all",
+        quoted(subject)
+    )
 }
 /// Print up to `limit` of `rows` with `line`, then the tail if any were left
 /// out.

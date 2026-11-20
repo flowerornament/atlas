@@ -5,7 +5,7 @@ mod support;
 use std::process::Command;
 use support::Fixture;
 
-const LIB: &str = "pub mod a;\npub mod b;\npub struct S;\nimpl S {\n    pub fn method(&self) {}\n}\npub fn two() {}\npub fn one() {}\npub fn none() {}\npub fn caller_x() {\n    two();\n}\npub fn caller_y() {\n    two();\n    one();\n}\npub fn guess() {\n    let value = make();\n    value.one();\n}\npub fn mixed() {\n    two();\n    let _items: Vec<u8> = Vec::new();\n    make().go();\n}\npub fn both() {\n    crate::a::run();\n    crate::b::run();\n}\n";
+const LIB: &str = "pub mod a;\npub mod b;\npub struct S;\nimpl S {\n    pub fn method(&self) {}\n}\npub fn two() {}\npub fn one() {}\npub fn none() {}\npub fn caller_x() {\n    two();\n}\npub fn caller_y() {\n    two();\n    one();\n}\npub fn guess() {\n    let value = make();\n    value.one();\n}\npub fn mixed() {\n    two();\n    let _items: Vec<u8> = Vec::new();\n    make().go();\n}\npub fn both() {\n    crate::a::run();\n    crate::b::run();\n}\npub fn chain_a() {\n    chain_b();\n}\npub fn chain_b() {\n    chain_c();\n}\npub fn chain_c() {\n    chain_d();\n}\npub fn chain_d() {}\npub fn hidden() {\n    make().chain_c();\n}\n";
 
 fn fixture() -> Fixture {
     Fixture::new(&[
@@ -171,4 +171,48 @@ fn name_relations_says_where_calls_are_answered() {
     assert!(!text(&f, &["name", "two"]).contains("for calls"));
     // `name` reads `Type::method`, the spelling `orient` and `callers` print.
     assert!(text(&f, &["name", "S::method"]).starts_with("S::method: 1 declaration site\n"));
+}
+
+#[test]
+fn depth_follows_resolved_calls_and_counts_what_it_cannot() {
+    let f = fixture();
+    // AT8: a -> b -> c -> d. Depth 2 from d lists c at 1 and b at 2, not a.
+    let report = json(&f, &["callers", "chain_d", "--depth", "2"]);
+    assert_eq!(report["depth"], 2);
+    let rows: Vec<(String, u64)> = report["answers"][0]["resolved"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .map(|row| {
+            (
+                row["from_name"].as_str().expect("name").to_owned(),
+                row["depth"].as_u64().expect("depth"),
+            )
+        })
+        .collect();
+    assert_eq!(rows, [("chain_c".to_owned(), 1), ("chain_b".to_owned(), 2)]);
+    assert_eq!(report["answers"][0]["resolved"][1]["via_name"], "chain_c");
+    // An unresolved call written as a depth-1 caller's name is counted at depth 2.
+    assert_eq!(report["answers"][0]["possibly_by_depth"]["2"], 1);
+    assert_eq!(report["answers"][0]["possibly_beyond_depth_1"], 1);
+    let text = text(&f, &["callers", "chain_d", "--depth", "2"]);
+    assert!(
+        text.contains(
+            "       1  src/lib.rs:37  chain_c\n       2  src/lib.rs:34  chain_b → chain_c\n"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("  possibly, beyond depth 1: 1 unresolved call written as the name of a caller (depth 2: 1)\n"), "{text}");
+    // Forward from a: b, c, d at depths 1, 2, 3.
+    let callees = json(&f, &["callees", "chain_a", "--depth", "16"]);
+    let depths: Vec<u64> = callees["answers"][0]["resolved"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .map(|row| row["depth"].as_u64().expect("depth"))
+        .collect();
+    assert_eq!(depths, [1, 2, 3]);
+    // Depth above 16 is refused.
+    let (ok, _, stderr) = atlas(&f, &["callers", "chain_d", "--depth", "17"]);
+    assert!(!ok && stderr.contains("17 is not in 1..=16"), "{stderr}");
 }

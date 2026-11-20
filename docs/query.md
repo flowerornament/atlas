@@ -6,7 +6,7 @@ asks: join observations, follow them transitively, negate, and count.
 
 ```sh
 cargo atlas query '?- file_calls{from: A, to: B, calls: N}, under(A, "src") order by N desc limit 10.'
-cargo atlas query -f questions.dl --json
+cargo atlas query -f questions.dl --as json
 cargo atlas facts --out target/atlas/facts.json        # capture once,
 cargo atlas query --facts target/atlas/facts.json -f questions.dl   # ask many times
 ```
@@ -90,6 +90,8 @@ commands, each kept equal to its command by a test:
 | `file_call` | `from`, `to`, `call` | one resolved call between two files, with its witness id |
 | `file_calls` | `from`, `to`, `calls` | `dependencies --relation calls`: file edges and their call counts; restrict both ends with `under` for a scope |
 | `name_match` | `name`, `declaration` | the production declarations `name NAME` matches |
+| `calls_function` | `from`, `to` | `callers` and `callees`: one step, a function with at least one resolved call to another |
+| `reaches` | `from`, `to` | `callers --depth` and `callees --depth`: the functions reached through resolved calls at any depth |
 | `name_card` | `name`, `declaration`, `relation`, `mention` | `name NAME --relations`: `outgoing`, `incoming` and `possible` mentions |
 | `production_path` | `path` | a path some package reads outside a test build |
 | `census` | `metric`, `key`, `n` | `census`, as one row per metric (`key` is the kind or package for `kinds` and `crates`); a metric with nothing to count has no row |
@@ -154,11 +156,18 @@ grow quickly; start it from the rows you care about.
 
 ## Output
 
-Text output prints each query's rows under its columns, at most `--show`
-rows (100) per query, then the accepted findings and notes. `--json` prints
+Text output prints each query's rows under its columns, at most `--rows N`
+rows (20) per query, ending a cut table with `… N more;` and the same command
+with `--all`; then the accepted findings and notes. `--as json` (or `--json`)
+prints
 `schema`, `facts` (where the rows came from), `tables` (each with `query`,
 `columns`, `kinds`, `rows` and `total`), `derived`, `elapsed` (milliseconds),
-`accepted` and `notes`.
+`accepted` and `notes`. `--as jsonl` prints that document without the rows
+on its first line, then one `{"table": i, "row": [...]}` line per row.
+
+The rules choose what they read, so `--in`, `-p`, `--vs` and `--at` are
+refused. The 0.18 spelling `--show N` still works until 1.0, with a note on
+stderr.
 
 ## From a library
 

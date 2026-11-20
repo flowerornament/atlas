@@ -137,6 +137,7 @@ pub(super) enum Command {
     #[command(
         after_help = "Answers: any question the facts can answer, written as rules over named fields: join, recurse, negate and count.\nExample: cargo atlas query '?- file_calls{from: A, to: B, calls: N}, under(A, \"src\") order by N desc limit 10.'\nThe prelude (--prelude) restates file_calls (dependencies), name_card (name --relations) and census. Fields are those of `cargo atlas facts --schema`.\nHonesty: a rule that drops a candidate's basis, or negates calls without reading unknown_call, is refused unless you --accept that check; the acceptance is printed with the answer. Rows are observations: an empty answer is not proof of absence.\nExit 0 whenever the program ran, whatever the rows. See docs/query.md."
     )]
+    #[command(mut_arg("as", |arg| arg.value_parser(formats(&[As::Text, As::Json, As::Jsonl]))))]
     Query(query::Options),
     /// Compare file sizes and shapes, or declarations, with an earlier commit.
     #[command(
