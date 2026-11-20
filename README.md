@@ -300,6 +300,10 @@ for what it checks before trusting an index.
 
 ## Documentation
 
+Every guide below is also in the binary: `cargo atlas help topics` lists
+them and `cargo atlas help concepts` prints one (`query` and `facts` are also
+commands, so their guides are `cargo atlas help --topic query`).
+
 - [Getting started](https://github.com/flowerornament/atlas/blob/main/docs/getting-started.md): a guided tour of the example project
 - [How Atlas works](https://github.com/flowerornament/atlas/blob/main/docs/concepts.md): the ideas behind every command, and a glossary
 - [Diagrams](https://github.com/flowerornament/atlas/blob/main/docs/diagrams.md): each kind of diagram and how to read it

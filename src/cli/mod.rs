@@ -10,6 +10,7 @@ mod documentation;
 mod evidence;
 mod facts;
 mod flow;
+mod help;
 mod map;
 mod navigation;
 mod orient;
@@ -35,6 +36,10 @@ pub(crate) fn run() -> Result<()> {
     }
     let matches = Cli::command().get_matches_from(&args);
     let mut cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    // Help reads no project.
+    if let Command::Help(options) = &cli.command {
+        return help::run(options);
+    }
     let options = matches.subcommand().map(|(_, options)| options);
     let mut notices = output::notice::Notices::default();
     if let Some(options) = options {
@@ -69,6 +74,7 @@ pub(crate) fn run() -> Result<()> {
             stages::run(&root, &metadata, &options, stages::Question::Stages)
         }
         Command::Seams(options) => stages::seams(&root, &metadata, &options),
+        Command::Help(options) => help::run(&options),
         Command::Comments(options) => documentation::run(&metadata, &options),
         Command::Diff(options) => review::diff(&root, &metadata, &options),
         Command::Visibility(options) => {

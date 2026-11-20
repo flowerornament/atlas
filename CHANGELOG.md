@@ -15,6 +15,13 @@ resolve. Every 0.18 spelling still works; the superseded ones print one note
 on stderr. JSON outputs are unchanged or gain fields, apart from the
 suggested commands in `orient` and `compare`'s notes.
 
+- The guides are in the binary: `cargo atlas help topics` lists them and
+ `cargo atlas help TOPIC` prints one, exactly as its `docs/` file reads, so a
+ reader with only `cargo install` has them. `query` and `facts` are commands
+ too: `cargo atlas help query` prints the command's help, and their guides
+ are `cargo atlas help --topic query`. `cargo atlas help COMMAND`
+ prints what `COMMAND --help` does. Help text points at topics, not at
+ `docs/*.md` paths.
 - `callers`, `callees`, `dependencies` and `flow` take `--evidence
  auto|lexical|qualified|semantic`, reserved for 0.20: `auto` and `qualified`
  are their reading; `lexical` and `semantic` are refused with what to run.

@@ -5,8 +5,8 @@ use super::output::{
 };
 use super::subject;
 use super::{
-    callers, comparison, delta, dependencies, documentation, facts, flow, map, navigation, orient,
-    overview, policy, program, query, review, stages, types,
+    callers, comparison, delta, dependencies, documentation, facts, flow, help, map, navigation,
+    orient, overview, policy, program, query, review, stages, types,
 };
 use cargo_atlas::Result;
 use clap::{Parser, Subcommand};
@@ -15,8 +15,9 @@ use std::path::PathBuf;
 #[command(
     version,
     bin_name = "cargo atlas",
+    disable_help_subcommand = true,
     about = "Answer questions about how a Rust codebase is put together",
-    after_help = "Start here: orient (entry points, where the code is, and what Atlas could not resolve)\nAsk by question: what is X, who names X: name · what is in a directory: module · who calls X, what X calls: callers, callees · steps in a function: flow · which files call which: dependencies · what takes or returns a type: types · what changed: diff, moved, visibility · rules: policy, delta · every fact as tables: facts · your own question over the facts: query\n\nFind your way around: orient, census, name, module, callers, callees, dump, facts, query\nReview a change: diff, moved, visibility, compare\nMeasure: spans, concentration, nontest-loc, comments\nDraw diagrams: dependencies, types, flow, overview, program, map\nCheck architecture: delta, stages, policy, seams\n\nCommands read the Cargo project in the current directory, or the one given with --root.\nAdd --as json (or --json) for machine-readable output, or --as svg for an image; flow and map write their JSON evidence beside the drawing instead. Atlas never changes the code it reads.\nGuides: https://github.com/flowerornament/atlas#documentation"
+    after_help = "Start here: orient (entry points, where the code is, and what Atlas could not resolve)\nAsk by question: what is X, who names X: name · what is in a directory: module · who calls X, what X calls: callers, callees · steps in a function: flow · which files call which: dependencies · what takes or returns a type: types · what changed: diff, moved, visibility · rules: policy, delta · every fact as tables: facts · your own question over the facts: query\n\nFind your way around: orient, census, name, module, callers, callees, dump, facts, query\nReview a change: diff, moved, visibility, compare\nMeasure: spans, concentration, nontest-loc, comments\nDraw diagrams: dependencies, types, flow, overview, program, map\nCheck architecture: delta, stages, policy, seams\n\nCommands read the Cargo project in the current directory, or the one given with --root.\nAdd --as json (or --json) for machine-readable output, or --as svg for an image; flow and map write their JSON evidence beside the drawing instead. Atlas never changes the code it reads.\nGuides: cargo atlas help topics lists them; cargo atlas help TOPIC prints one (also at https://github.com/flowerornament/atlas#documentation)"
 )]
 pub(super) struct Cli {
     /// Cargo project directory; defaults to the current directory. A project directory as the first bare word still works until 1.0.
@@ -130,12 +131,12 @@ pub(super) enum Command {
     Dump(navigation::DumpArgs),
     /// Export what Atlas found as flat tables (relations), for your own queries.
     #[command(
-        after_help = "Answers: what did Atlas observe, as tables a tool can join?\nRelations: lexical (files, declarations, mentions and their candidates) and qualified (functions, types, calls, references), each with documented columns. An ambiguous mention has one row per candidate with a basis column; an unresolved call or type is a row in its unknowns relation, never left out.\n--schema prints every relation and column without reading the source. See docs/facts.md.\nExample: cargo atlas facts --as jsonl --out target/atlas/facts.jsonl"
+        after_help = "Answers: what did Atlas observe, as tables a tool can join?\nRelations: lexical (files, declarations, mentions and their candidates) and qualified (functions, types, calls, references), each with documented columns. An ambiguous mention has one row per candidate with a basis column; an unresolved call or type is a row in its unknowns relation, never left out.\n--schema prints every relation and column without reading the source. See cargo atlas help --topic facts.\nExample: cargo atlas facts --as jsonl --out target/atlas/facts.jsonl"
     )]
     Facts(facts::Options),
     /// Ask your own question over the facts, in Datalog.
     #[command(
-        after_help = "Answers: any question the facts can answer, written as rules over named fields: join, recurse, negate and count.\nExample: cargo atlas query '?- file_calls{from: A, to: B, calls: N}, under(A, \"src\") order by N desc limit 10.'\nThe prelude (--prelude) restates file_calls (dependencies), name_card (name --relations) and census. Fields are those of `cargo atlas facts --schema`.\nHonesty: a rule that drops a candidate's basis, or negates calls without reading unknown_call, is refused unless you --accept that check; the acceptance is printed with the answer. Rows are observations: an empty answer is not proof of absence.\nExit 0 whenever the program ran, whatever the rows. See docs/query.md."
+        after_help = "Answers: any question the facts can answer, written as rules over named fields: join, recurse, negate and count.\nExample: cargo atlas query '?- file_calls{from: A, to: B, calls: N}, under(A, \"src\") order by N desc limit 10.'\nThe prelude (--prelude) restates file_calls (dependencies), name_card (name --relations) and census. Fields are those of `cargo atlas facts --schema`.\nHonesty: a rule that drops a candidate's basis, or negates calls without reading unknown_call, is refused unless you --accept that check; the acceptance is printed with the answer. Rows are observations: an empty answer is not proof of absence.\nExit 0 whenever the program ran, whatever the rows. See cargo atlas help --topic query."
     )]
     #[command(mut_arg("as", |arg| arg.value_parser(formats(&[As::Text, As::Json, As::Jsonl]))))]
     Query(query::Options),
@@ -197,7 +198,7 @@ pub(super) enum Command {
     Compare(comparison::Options),
     /// Draw the stages a project declares in its code, using an adapter.
     #[command(
-        after_help = "Answers: how do the stages a project declares (for example in a const PIPELINE table) hand types to each other?\n--adapter names a program that reads the project's declarations; see docs/extensions.md. Atlas checks its answer against the source.\nEvidence: qualified signatures, organized by the declared stages; not execution order.\nExample: cargo atlas overview --adapter ./my-adapter --as svg --out target/atlas/overview.svg"
+        after_help = "Answers: how do the stages a project declares (for example in a const PIPELINE table) hand types to each other?\n--adapter names a program that reads the project's declarations; see cargo atlas help extensions. Atlas checks its answer against the source.\nEvidence: qualified signatures, organized by the declared stages; not execution order.\nExample: cargo atlas overview --adapter ./my-adapter --as svg --out target/atlas/overview.svg"
     )]
     Overview(overview::Options),
     /// Follow entry functions across the groups in an architecture profile (older view).
@@ -216,7 +217,7 @@ pub(super) enum Command {
     Map(map::Options),
     /// Check whether a change breaks the architecture policy.
     #[command(
-        after_help = "Answers: does the candidate commit break a rule in the policy, or make a measured number worse than the baseline REFERENCE?\nVerdicts: PASS, REFUSE (a rule is broken) or UNAVAILABLE (evidence is missing). REFUSE and UNAVAILABLE exit with an error; with --json, REFUSE is data and exits successfully.\nThe policy must be committed. See docs/checks.md.\nExample: cargo atlas delta HEAD~1 --policy .config/architecture.toml --citation-markers docs/"
+        after_help = "Answers: does the candidate commit break a rule in the policy, or make a measured number worse than the baseline REFERENCE?\nVerdicts: PASS, REFUSE (a rule is broken) or UNAVAILABLE (evidence is missing). REFUSE and UNAVAILABLE exit with an error; with --json, REFUSE is data and exits successfully.\nThe policy must be committed. See cargo atlas help checks.\nExample: cargo atlas delta HEAD~1 --policy .config/architecture.toml --citation-markers docs/"
     )]
     #[command(mut_arg("json", |arg| arg.help("Print the report as JSON. A REFUSE verdict is then data and exits successfully; UNAVAILABLE still fails.")))]
     #[command(mut_arg("bare", |arg| {
@@ -231,14 +232,16 @@ pub(super) enum Command {
     Stages(stages::Options),
     /// Check that an architecture policy is valid and matches the code.
     #[command(
-        after_help = "Answers: is the policy file valid, and do its declared homes and limits match the code?\nVerdicts: PASS, REFUSE or UNAVAILABLE. Rules that need project-specific information report UNAVAILABLE here; see docs/checks.md.\nThis does not compare commits; use delta for that.\nExample: cargo atlas policy --policy .config/architecture.toml"
+        after_help = "Answers: is the policy file valid, and do its declared homes and limits match the code?\nVerdicts: PASS, REFUSE or UNAVAILABLE. Rules that need project-specific information report UNAVAILABLE here; see cargo atlas help checks.\nThis does not compare commits; use delta for that.\nExample: cargo atlas policy --policy .config/architecture.toml"
     )]
     Policy(policy::Options),
     /// Report items and tests that cross stage boundaries (needs a project wrapper).
     #[command(
-        after_help = "Answers: which items cross stage boundaries, who builds shared types, and which tests reach into other stages?\nStage boundaries are project-specific, so without a project wrapper this reports UNAVAILABLE. See docs/checks.md.\nExample: cargo atlas seams --policy .config/architecture.toml --items --json"
+        after_help = "Answers: which items cross stage boundaries, who builds shared types, and which tests reach into other stages?\nStage boundaries are project-specific, so without a project wrapper this reports UNAVAILABLE. See cargo atlas help checks.\nExample: cargo atlas seams --policy .config/architecture.toml --items --json"
     )]
     Seams(stages::SeamOptions),
+    /// Show a command's help, or a guide: cargo atlas help topics lists them.
+    Help(help::Options),
 }
 impl Command {
     fn name(&self) -> &'static str {
@@ -271,6 +274,7 @@ impl Command {
             Self::Stages(_) => "stages",
             Self::Policy(_) => "policy",
             Self::Seams(_) => "seams",
+            Self::Help(_) => "help",
         }
     }
     /// Read the bare words into the command's subject, returning the
@@ -316,7 +320,8 @@ impl Command {
             | Self::Query(_)
             | Self::Stages(_)
             | Self::Policy(_)
-            | Self::Seams(_) => Ok(None),
+            | Self::Seams(_)
+            | Self::Help(_) => Ok(None),
         }
     }
 }
