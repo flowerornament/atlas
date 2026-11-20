@@ -6,6 +6,21 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- New commands `callers FN` and `callees FN`: the functions that call FN, or
+ that FN calls, from the calls Atlas resolved, one row per call site. An
+ unresolved call written with FN's name is listed apart as a *possible*
+ caller, counted by why it stayed unresolved, and never counted as a caller;
+ `callees` counts the calls it could not follow as external or unknown, not
+ absent. A function with neither says so and never reads as unused. FN is
+ `FILE:LINE`, a declaration id, `Type::method`, `module::name` or a name;
+ several matches are each answered on their own. `--in`/`-p` keep the
+ calling (or called) functions in part of the project; `--path FILE
+ --function NAME` also works. JSON schemas `atlas.callers/1` and
+ `atlas.callees/1`. **Library:** `queries::callers::{callers, callees}`.
+- `name` reads `Type::method` (`cargo atlas name Snapshot::graph`), the
+ spelling `orient` and `callers` print; it refused it before. `name
+ --relations` text ends with `for calls, cargo atlas callers X`, since a
+ co-mention is not a call.
 - `compare` no longer refuses a project where one type has several impls of
  one generic trait (`impl From<&str> for Cell`, `impl From<bool> for Cell`:
  both define `Cell::from`), which made it unusable on most real projects,

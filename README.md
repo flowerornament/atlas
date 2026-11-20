@@ -207,6 +207,7 @@ what its answer is based on, and gives an example.
 | What does the project contain? | `cargo atlas census` |
 | Where is `Name` defined, and what refers to it? | `cargo atlas name Name` (or `module::Name`, or `src/file.rs:12`) |
 | What is in this file, directory or package? | `cargo atlas module src/parse.rs` |
+| Which functions call this one, and what does it call? | `cargo atlas callers Type::method`, `cargo atlas callees main` |
 | What steps and branches does this function take? | `cargo atlas flow --path src/main.rs --function main` |
 | Which files call which, or use each other's types? | `cargo atlas dependencies --relation calls` |
 | Which functions take, return or build these types? | `cargo atlas types Tree,Checked` |

@@ -11,6 +11,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write,
 };
+pub mod callers;
 pub mod documentation;
 pub mod navigation;
 pub mod orient;
@@ -107,8 +108,8 @@ pub struct Names<'a> {
     pub matches: Vec<NameCard<'a>>,
     pub basis: &'static str,
 }
-/// A `NAME`, `MODULE::NAME` or `FILE:LINE[:COLUMN]` selector, or an exact
-/// declaration ID; multiple sites stay explicit. The modules match the end of
+/// A `NAME`, `MODULE::NAME`, `Type::method` or `FILE:LINE[:COLUMN]`
+/// selector, or an exact declaration ID; multiple sites stay explicit. The modules match the end of
 /// the declaration's module path: its file's directories and name, then
 /// enclosing inline `mod` blocks. This is lexical, not Rust path resolution.
 pub fn name<'a>(graph: &'a SourceGraph, name: &str) -> Result<Names<'a>> {
@@ -120,7 +121,8 @@ pub fn name<'a>(graph: &'a SourceGraph, name: &str) -> Result<Names<'a>> {
                 && (d.id == name
                     || selector.admits(&d.name, &file.path, d.line, None, || {
                         d.modules.iter().map(String::as_str).collect()
-                    }))
+                    })
+                    || selector.owns(&d.name, d.self_type.as_deref()))
         }) {
             let mut card = NameCard {
                 file: &file.path,
@@ -146,7 +148,7 @@ pub fn name<'a>(graph: &'a SourceGraph, name: &str) -> Result<Names<'a>> {
         }
     }
     if matches.is_empty() {
-        return Err(format!("no production declaration matching {name:?}; give NAME, MODULE::NAME (the end of its module path, inline modules included), FILE:LINE or a declaration ID").into());
+        return Err(format!("no production declaration matching {name:?}; give NAME, MODULE::NAME (the end of its module path, inline modules included), Type::method, FILE:LINE or a declaration ID").into());
     }
     Ok(Names {
         schema: 1,
@@ -266,13 +268,22 @@ impl Names<'_> {
         relations: usize,
         more: More<'_>,
     ) -> String {
-        self.render(related, cards, relations, &|id, hidden| {
+        let mut out = self.render(related, cards, relations, &|id, hidden| {
             format!(
                 "{}… {hidden} more; {}",
                 if id.is_some() { "  " } else { "" },
                 more(id)
             )
-        })
+        });
+        // A co-mention is not a call: say where calls are answered.
+        if related {
+            let at = out.rfind(&format!("\n{}", self.basis)).unwrap_or(out.len());
+            out.insert_str(
+                at,
+                &format!("\nfor calls, cargo atlas callers {}\n", self.query),
+            );
+        }
+        out
     }
     fn render(
         &self,

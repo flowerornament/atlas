@@ -96,6 +96,8 @@ fn every_cut_list_ends_with_a_command_that_shows_the_rest() {
         &["diff", "HEAD~1", "--items"],
         &["moved", "HEAD~1"],
         &["visibility", "HEAD~1"],
+        &["callers", "run"],
+        &["callees", "run"],
     ] {
         let text = atlas(dir, args);
         assert!(

@@ -47,6 +47,32 @@ impl<'a> Selector<'a> {
         }
     }
 
+    /// Whether `Type::method` names a method `name` of an impl for
+    /// `self_type`: the spelling `orient` prints. Generic arguments and the
+    /// type's path are ignored, so `Snapshot::graph` names a method of
+    /// `crate::discovery::Snapshot<'a>`.
+    pub(crate) fn owns(&self, name: &str, self_type: Option<&str>) -> bool {
+        let (
+            Self::Path {
+                modules,
+                name: wanted,
+            },
+            Some(self_type),
+        ) = (self, self_type)
+        else {
+            return false;
+        };
+        let [owner] = modules.as_slice() else {
+            return false;
+        };
+        let bare = self_type.split('<').next().unwrap_or(self_type);
+        name == *wanted
+            && bare
+                .rsplit("::")
+                .next()
+                .is_some_and(|last| last.trim() == *owner)
+    }
+
     /// Whether a declaration named `name` at `file:line:column`, inside the
     /// inline modules `inline` returns (outermost first), is selected.
     /// `inline` runs only for a declaration whose name matches.
@@ -102,7 +128,7 @@ fn site(query: &str) -> Option<Selector<'_>> {
 }
 
 /// A file's directories and stem, without the stems that add no module.
-fn file_modules(file: &str) -> impl Iterator<Item = &str> {
+pub(crate) fn file_modules(file: &str) -> impl Iterator<Item = &str> {
     let mut parts: Vec<&str> = file.split('/').collect();
     if let Some(last) = parts.last_mut() {
         *last = last.strip_suffix(".rs").unwrap_or(last);

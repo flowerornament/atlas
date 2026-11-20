@@ -1,0 +1,174 @@
+//! `callers` and `callees` answer from resolved calls, and say what they could
+//! not resolve: an unresolved call written with the name is a possible
+//! caller, never a caller, and no answer reads as "unused".
+mod support;
+use std::process::Command;
+use support::Fixture;
+
+const LIB: &str = "pub mod a;\npub mod b;\npub struct S;\nimpl S {\n    pub fn method(&self) {}\n}\npub fn two() {}\npub fn one() {}\npub fn none() {}\npub fn caller_x() {\n    two();\n}\npub fn caller_y() {\n    two();\n    one();\n}\npub fn guess() {\n    let value = make();\n    value.one();\n}\npub fn mixed() {\n    two();\n    let _items: Vec<u8> = Vec::new();\n    make().go();\n}\npub fn both() {\n    crate::a::run();\n    crate::b::run();\n}\n";
+
+fn fixture() -> Fixture {
+    Fixture::new(&[
+        ("src/lib.rs", LIB),
+        ("src/a.rs", "pub fn run() {}\n"),
+        ("src/b.rs", "pub fn run() {}\n"),
+    ])
+}
+fn atlas(f: &Fixture, args: &[&str]) -> (bool, String, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
+        .env("ATLAS_CACHE", "off")
+        .env_remove("ATLAS_NOTICES")
+        .args(args)
+        .output()
+        .expect("run Atlas");
+    (
+        output.status.success(),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+fn text(f: &Fixture, args: &[&str]) -> String {
+    let (ok, stdout, stderr) = atlas(f, args);
+    assert!(ok, "{args:?}: {stderr}");
+    assert!(stderr.is_empty(), "{args:?}: {stderr}");
+    stdout
+}
+fn json(f: &Fixture, args: &[&str]) -> serde_json::Value {
+    serde_json::from_str(&text(f, &[args, &["--as", "json"]].concat())).expect("JSON")
+}
+
+#[test]
+fn callers_lists_resolved_calls_and_possible_ones_apart() {
+    let f = fixture();
+    // AT7: resolved callers, one per site.
+    let two = text(&f, &["callers", "two"]);
+    assert!(
+        two.starts_with(
+            "callers of two  src/lib.rs:7\n  resolved: 3 calling functions, 3 call sites\n"
+        ),
+        "{two}"
+    );
+    assert!(two.contains("      src/lib.rs:11  caller_x\n"), "{two}");
+    // A resolved caller and an unresolved call written "one", kept apart.
+    let one = text(&f, &["callers", "one"]);
+    assert!(
+        one.contains(
+            "  resolved: 1 calling function, 1 call site\n      src/lib.rs:15  caller_y\n"
+        ),
+        "{one}"
+    );
+    assert!(
+        one.contains("  possibly: 1 unresolved call is written as \"one\"\n      1  receiver-initializer-unknown  e.g. value.one() at src/lib.rs:19\n"),
+        "{one}"
+    );
+    let report = json(&f, &["callers", "one"]);
+    assert_eq!(report["schema"], "atlas.callers/1");
+    let answer = &report["answers"][0];
+    assert_eq!(answer["resolved"].as_array().map(Vec::len), Some(1));
+    assert_eq!(answer["resolved"][0]["reading"], "qualified");
+    assert_eq!(answer["resolved"][0]["depth"], 1);
+    assert_eq!(answer["possibly"][0]["spelling"], "one");
+    assert_eq!(
+        answer["possibly_by_kind"]["receiver-initializer-unknown"],
+        1
+    );
+    // R19: neither resolved nor possible callers is never "unused".
+    let none = text(&f, &["callers", "none"]);
+    assert!(
+        none.contains("  no resolved callers, and no unresolved call is written as \"none\"; calls Atlas does not record (inside macros, through function pointers or closures passed elsewhere) are not covered\n"),
+        "{none}"
+    );
+    assert!(!none.contains("unused"));
+    // R16: two functions named `run` are answered on their own.
+    let run = text(&f, &["callers", "run"]);
+    assert!(
+        run.starts_with("run matches 2 functions; each is answered on its own\n"),
+        "{run}"
+    );
+    assert!(
+        run.contains("callers of a::run  src/a.rs:1\n")
+            && run.contains("callers of b::run  src/b.rs:1\n"),
+        "{run}"
+    );
+    assert_eq!(
+        json(&f, &["callers", "run"])["answers"]
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
+    // The other selector forms reach the same function.
+    for selector in ["a::run", "src/a.rs:1", "src/a.rs:1:7"] {
+        let answer = json(&f, &["callers", selector]);
+        assert_eq!(
+            answer["answers"].as_array().map(Vec::len),
+            Some(1),
+            "{selector}"
+        );
+        assert_eq!(
+            answer["answers"][0]["function"]["path"], "src/a.rs",
+            "{selector}"
+        );
+    }
+    assert_eq!(
+        json(&f, &["callers", "S::method"])["answers"][0]["function"]["name"],
+        "S::method"
+    );
+    assert_eq!(
+        json(&f, &["callers", "--path", "src/b.rs", "--function", "run"])["answers"][0]["function"]
+            ["path"],
+        "src/b.rs"
+    );
+    // R15.
+    let (ok, stdout, stderr) = atlas(&f, &["callers", "nowhere"]);
+    assert!(!ok && stdout.is_empty());
+    assert_eq!(
+        stderr,
+        "atlas: no function matches \"nowhere\"; try cargo atlas name nowhere\n"
+    );
+    // --in keeps callers in part of the project, never which function is asked.
+    let kept = json(&f, &["callers", "two", "--in", "src/a.rs"]);
+    assert_eq!(
+        kept["answers"][0]["resolved"].as_array().map(Vec::len),
+        Some(0)
+    );
+}
+
+#[test]
+fn callees_lists_resolved_targets_and_counts_the_rest() {
+    let f = fixture();
+    // AT9: one workspace function, Vec::new and an unknown receiver.
+    let mixed = text(&f, &["callees", "mixed"]);
+    assert!(
+        mixed.contains("  resolved: 1 call to 1 function\n      src/lib.rs:22  two\n"),
+        "{mixed}"
+    );
+    assert!(
+        mixed.contains("  unresolved: 3 calls; the rest are external or unknown, not absent\n      2  unresolved-path        e.g. Vec::new() at src/lib.rs:23\n      1  receiver-type-unknown  e.g. make().go() at src/lib.rs:24\n"),
+        "{mixed}"
+    );
+    let report = json(&f, &["callees", "mixed"]);
+    assert_eq!(report["schema"], "atlas.callees/1");
+    assert_eq!(
+        report["answers"][0]["unresolved"].as_array().map(Vec::len),
+        Some(3)
+    );
+    assert_eq!(
+        report["answers"][0]["unresolved_by_kind"]["unresolved-path"],
+        2
+    );
+}
+
+#[test]
+fn name_relations_says_where_calls_are_answered() {
+    let f = fixture();
+    // AT13: co-mentions are not calls.
+    let relations = text(&f, &["name", "two", "--relations"]);
+    assert!(
+        relations.contains("\nfor calls, cargo atlas callers two\n"),
+        "{relations}"
+    );
+    assert!(!text(&f, &["name", "two"]).contains("for calls"));
+    // `name` reads `Type::method`, the spelling `orient` and `callers` print.
+    assert!(text(&f, &["name", "S::method"]).starts_with("S::method: 1 declaration site\n"));
+}

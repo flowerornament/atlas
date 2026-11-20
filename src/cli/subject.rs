@@ -102,6 +102,90 @@ impl Revision {
     }
 }
 
+/// Where the calling (or called) functions of `callers` and `callees` are:
+/// `--in` or `-p`, never which function is asked about.
+#[derive(Args)]
+pub(crate) struct Within {
+    /// Keep the functions in this path or unique file or directory name.
+    #[arg(long = "in", value_name = "PATH", conflicts_with = "package")]
+    in_path: Option<String>,
+    /// Keep the functions in this Cargo package.
+    #[arg(short = 'p', long, value_name = "PACKAGE")]
+    package: Option<String>,
+}
+impl Within {
+    /// Whether a function in `file` is kept.
+    pub(crate) fn filter(
+        &self,
+        graph: &SourceGraph,
+        metadata: &cargo_metadata::Metadata,
+    ) -> Result<impl Fn(&str) -> bool> {
+        let chosen = match (&self.in_path, &self.package) {
+            (Some(path), _) => match path_or_basename(graph, metadata, path)? {
+                Some(path) => Chosen::Path(path),
+                None => {
+                    return Err(format!(
+                        "no path or file name {path:?} in this project; cargo atlas orient lists them"
+                    )
+                    .into());
+                }
+            },
+            (None, Some(package)) => package_named(metadata, package)?,
+            (None, None) => Chosen::Workspace,
+        };
+        let packages: std::collections::BTreeSet<String> = match &chosen {
+            Chosen::Package(name) => graph
+                .files
+                .iter()
+                .filter(|file| file.crate_name == *name)
+                .map(|file| file.path.clone())
+                .collect(),
+            _ => std::collections::BTreeSet::new(),
+        };
+        Ok(move |file: &str| match &chosen {
+            Chosen::Workspace => true,
+            Chosen::Path(path) | Chosen::Written(path) => {
+                cargo_atlas::architecture::contains(path, file)
+            }
+            Chosen::Package(_) => packages.contains(file),
+        })
+    }
+}
+/// The function a call question is about: the bare FN, or flow's spelling
+/// `--path FILE --function NAME`.
+#[derive(Args)]
+pub(crate) struct Function {
+    /// The function: FILE:LINE, a declaration id, Type::method, module::name
+    /// or a name (every function with that name).
+    #[arg(
+        value_name = "FN",
+        required_unless_present = "path",
+        conflicts_with = "path"
+    )]
+    bare: Option<String>,
+    /// The file that holds the function; needs --function.
+    #[arg(long, value_name = "FILE", requires = "function")]
+    path: Option<String>,
+    /// The function's name in --path.
+    #[arg(
+        long = "function",
+        id = "function",
+        value_name = "NAME",
+        requires = "path"
+    )]
+    named: Option<String>,
+}
+impl Function {
+    /// The selector, and the file it is restricted to.
+    pub(crate) fn selector(&self) -> (&str, Option<&str>) {
+        match (&self.bare, &self.named) {
+            (Some(bare), _) => (bare, None),
+            (None, Some(name)) => (name, self.path.as_deref()),
+            (None, None) => ("", None),
+        }
+    }
+}
+
 /// What the bare words may hold besides a project root.
 #[derive(Clone, Copy)]
 enum Kind {

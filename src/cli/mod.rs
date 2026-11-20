@@ -2,6 +2,7 @@
 //! Commands choose their evidence model; legacy navigation is resolved inside navigation.
 mod args;
 mod cache;
+mod callers;
 mod comparison;
 mod delta;
 mod dependencies;
@@ -96,6 +97,8 @@ pub(crate) fn run() -> Result<()> {
         Command::Census(args) => navigation::run_census(&metadata, &args),
         Command::Name(args) => navigation::run_name(&metadata, &args),
         Command::Module(args) => navigation::run_module(&metadata, &args),
+        Command::Callers(options) => callers::run(&metadata, &options, callers::Direction::Callers),
+        Command::Callees(options) => callers::run(&metadata, &options, callers::Direction::Callees),
         Command::Related(args) => navigation::run_related(&metadata, &args),
     };
     cache.finish(result.map_err(with_scope_hint))

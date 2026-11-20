@@ -5,8 +5,8 @@ use super::output::{
 };
 use super::subject;
 use super::{
-    comparison, delta, dependencies, documentation, facts, flow, map, navigation, orient, overview,
-    policy, program, query, review, stages, types,
+    callers, comparison, delta, dependencies, documentation, facts, flow, map, navigation, orient,
+    overview, policy, program, query, review, stages, types,
 };
 use cargo_atlas::Result;
 use clap::{Parser, Subcommand};
@@ -16,7 +16,7 @@ use std::path::PathBuf;
     version,
     bin_name = "cargo atlas",
     about = "Answer questions about how a Rust codebase is put together",
-    after_help = "Start here: orient (entry points, where the code is, and what Atlas could not resolve)\nAsk by question: what is X, who names X: name · what is in a directory: module · steps in a function: flow · who calls whom: dependencies · what takes or returns a type: types · what changed: diff, moved, visibility · rules: policy, delta · every fact as tables: facts · your own question over the facts: query\n\nFind your way around: orient, census, name, module, dump, facts, query\nReview a change: diff, moved, visibility, compare\nMeasure: spans, concentration, nontest-loc, comments\nDraw diagrams: dependencies, types, flow, overview, program, map\nCheck architecture: delta, stages, policy, seams\n\nCommands read the Cargo project in the current directory, or the one given with --root.\nAdd --as json (or --json) for machine-readable output, or --as svg for an image; flow and map write their JSON evidence beside the drawing instead. Atlas never changes the code it reads.\nGuides: https://github.com/flowerornament/atlas#documentation"
+    after_help = "Start here: orient (entry points, where the code is, and what Atlas could not resolve)\nAsk by question: what is X, who names X: name · what is in a directory: module · who calls X, what X calls: callers, callees · steps in a function: flow · which files call which: dependencies · what takes or returns a type: types · what changed: diff, moved, visibility · rules: policy, delta · every fact as tables: facts · your own question over the facts: query\n\nFind your way around: orient, census, name, module, callers, callees, dump, facts, query\nReview a change: diff, moved, visibility, compare\nMeasure: spans, concentration, nontest-loc, comments\nDraw diagrams: dependencies, types, flow, overview, program, map\nCheck architecture: delta, stages, policy, seams\n\nCommands read the Cargo project in the current directory, or the one given with --root.\nAdd --as json (or --json) for machine-readable output, or --as svg for an image; flow and map write their JSON evidence beside the drawing instead. Atlas never changes the code it reads.\nGuides: https://github.com/flowerornament/atlas#documentation"
 )]
 pub(super) struct Cli {
     /// Cargo project directory; defaults to the current directory. A project directory as the first bare word still works until 1.0.
@@ -106,6 +106,16 @@ pub(super) enum Command {
         after_help = "Answers: what is in this file, directory or package, and what mentions it?\nAccepts: a path or a package name. --items lists each declaration; --graph adds the mentions between them.\nEvidence: declarations, imports and approximate mentions (lexical).\nExample: cargo atlas module src/lib.rs --items --graph"
     )]
     Module(navigation::ModuleArgs),
+    /// List the functions that call a function, from resolved calls.
+    #[command(
+        after_help = "Answers: which functions call this one?\nResolved: each call Atlas followed through use statements and modules, with its site. Possibly: calls Atlas could not resolve that are written with the same name, counted by why they stayed unresolved; they are never counted as callers.\nAccepts: FILE:LINE, a declaration id, Type::method, module::name or a name (each match is answered on its own). --in or -p keeps callers in part of the project.\nNo resolved caller is not proof that nothing calls it: calls inside macros, through function pointers or closures passed elsewhere are not recorded.\nExample: cargo atlas callers Snapshot::graph"
+    )]
+    Callers(callers::Options),
+    /// List the functions a function calls, from resolved calls.
+    #[command(
+        after_help = "Answers: what does this function call?\nResolved: each call Atlas followed to a workspace function. The rest are external or unknown, not absent: they are counted by why they stayed unresolved.\nAccepts the same functions as callers. --in or -p keeps called functions in part of the project.\nExample: cargo atlas callees main"
+    )]
+    Callees(callers::Options),
     /// Compatibility spelling of name --relations (approximate lexical evidence).
     #[command(hide = true)]
     #[command(
@@ -236,6 +246,8 @@ impl Command {
             Self::Census(_) => "census",
             Self::Name(_) => "name",
             Self::Module(_) => "module",
+            Self::Callers(_) => "callers",
+            Self::Callees(_) => "callees",
             Self::Related(_) => "related",
             Self::Dump(_) => "dump",
             Self::Facts(_) => "facts",
@@ -298,6 +310,8 @@ impl Command {
             Self::Moved(a) | Self::Visibility(a) => a.revision.read().map(|()| None),
             Self::Delta(a) => a.revision.read().map(|()| None),
             Self::Facts(_)
+            | Self::Callers(_)
+            | Self::Callees(_)
             | Self::Query(_)
             | Self::Stages(_)
             | Self::Policy(_)
