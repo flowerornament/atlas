@@ -167,3 +167,56 @@ fn copy(from: &std::path::Path, to: &std::path::Path) {
         }
     }
 }
+
+/// `query --help` names every relation the prelude defines: the list is
+/// read from the prelude, so a new relation cannot be left out.
+#[test]
+fn query_help_lists_every_prelude_relation() {
+    let (_, prelude, _) = atlas(&["query", "--prelude", "--root", env!("CARGO_MANIFEST_DIR")]);
+    let defined: std::collections::BTreeSet<&str> = prelude
+        .lines()
+        .filter_map(|line| line.split_once('{').map(|(head, _)| head))
+        .filter(|head| !head.is_empty() && head.chars().all(|c| c.is_ascii_lowercase() || c == '_'))
+        .collect();
+    assert!(defined.len() >= 8, "{defined:?}");
+    let (_, help, _) = atlas(&["query", "--help"]);
+    let listed = help
+        .lines()
+        .find(|line| line.starts_with("The prelude (--prelude) restates commands as relations: "))
+        .expect("the prelude line");
+    for relation in &defined {
+        assert!(
+            listed.contains(&format!("{relation},")) || listed.contains(&format!("{relation} (")),
+            "{relation} missing: {listed}"
+        );
+    }
+}
+
+/// A guide's link to another guide also names the topic that prints it, so
+/// it means something in a terminal.
+#[test]
+fn every_guide_cross_link_names_its_topic() {
+    for topic in TOPICS {
+        let text = file(topic);
+        for (at, _) in text.match_indices("](") {
+            let rest = &text[at + 2..];
+            let Some(end) = rest.find(')') else { continue };
+            let target = rest[..end].split('#').next().unwrap_or_default();
+            let Some(linked) = target.strip_suffix(".md") else {
+                continue;
+            };
+            if !TOPICS.contains(&linked) || target.contains('/') {
+                continue;
+            }
+            let spelling = if ["query", "facts"].contains(&linked) {
+                format!("--topic {linked}")
+            } else {
+                linked.to_owned()
+            };
+            assert!(
+                rest[end + 1..].starts_with(&format!(" (`cargo atlas help {spelling}`)")),
+                "docs/{topic}.md links {target} without naming its topic"
+            );
+        }
+    }
+}

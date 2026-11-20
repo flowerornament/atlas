@@ -255,7 +255,7 @@ Cargo targets.
 outside tests".
 
 **Policy.** A TOML file where you write your project's structural rules. See
-[architecture checks](checks.md).
+[architecture checks](checks.md) (`cargo atlas help checks`).
 
 **Production code.** Code outside tests.
 

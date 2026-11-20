@@ -48,7 +48,7 @@ files. "Production" means code outside tests.
 The last line says how much to trust these numbers. Atlas found the
 relationships by matching names in the text ("lexical" evidence). That is
 quick and works everywhere, but two things with the same name can be confused.
-The [concepts guide](concepts.md#three-kinds-of-evidence) explains the
+The [concepts guide](concepts.md#three-kinds-of-evidence) (`cargo atlas help concepts`) explains the
 different kinds of evidence Atlas uses.
 
 ## 2. Look up a name
@@ -293,7 +293,7 @@ rules if the new dependency is intended.
 `--citation-markers docs/` tells Atlas what text in a `//!` header counts as a
 reference to a design document. One of the policy's rules counts headers
 without one; without this option, that rule cannot run and the verdict is
-`UNAVAILABLE`. [Architecture checks](checks.md) explains the policy file and
+`UNAVAILABLE`. [Architecture checks](checks.md) (`cargo atlas help checks`) explains the policy file and
 each check.
 
 ## Next steps
@@ -302,7 +302,7 @@ each check.
   and what to run next.
 - Run `cargo atlas census` and `cargo atlas dependencies --relation calls` in your own
   project.
-- Read [how Atlas works](concepts.md) to understand scopes, populations and the
+- Read [how Atlas works](concepts.md) (`cargo atlas help concepts`) to understand scopes, populations and the
   different kinds of evidence.
-- Browse the [diagrams](diagrams.md) to see every view.
+- Browse the [diagrams](diagrams.md) (`cargo atlas help diagrams`) to see every view.
 - Run `cargo atlas --help` for the full list of commands.

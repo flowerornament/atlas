@@ -6,7 +6,7 @@ Atlas has two extension points:
   structure, so `cargo atlas overview` can draw it.
 - A **rendering backend** draws Atlas's diagrams in a new output format.
 
-To build tools on Atlas's analysis instead, see the [library guide](library.md).
+To build tools on Atlas's analysis instead, see the [library guide](library.md) (`cargo atlas help library`).
 
 ## Declaration adapters
 
@@ -18,7 +18,7 @@ project writes this differently, so Atlas cannot understand all of them. A
 declaration adapter is a small program that understands one project's
 convention.
 
-The [tutorial project](getting-started.md) lists its stages in `src/lib.rs`:
+The [tutorial project](getting-started.md) (`cargo atlas help getting-started`) lists its stages in `src/lib.rs`:
 
 ```rust
 pub enum Role {
@@ -56,7 +56,7 @@ A  REPRESENTATION CONTRACTS
 ```
 
 Compare this with `cargo atlas types` in the
-[getting-started tour](getting-started.md#6-follow-a-type): there, `emit` was
+[getting-started tour](getting-started.md#6-follow-a-type) (`cargo atlas help getting-started`): there, `emit` was
 missing because it does not return a selected type. Here the adapter named
 `emit` as a stage's entry function, so it appears. Modules the adapter marks
 as instruments, such as logging, would get a separate panel.

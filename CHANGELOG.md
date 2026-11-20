@@ -15,6 +15,12 @@ resolve. Every 0.18 spelling still works; the superseded ones print one note
 on stderr. JSON outputs are unchanged or gain fields, apart from the
 suggested commands in `orient` and `compare`'s notes.
 
+- Help that cannot drift: `query --help` lists every prelude relation, read
+ from the prelude by section; a test runs every `Example:` line in `--help`
+ and every `cargo atlas …` example in the agent briefing and the query guide
+ on the tutorial project (an example that needs an adapter, another
+ project's files or a jj workspace must still parse); and each link between
+ guides also names the topic that prints it (`cargo atlas help checks`).
 - `cargo atlas help agent` prints a one-page briefing for an agent's first
  session: what an answer means (resolved, possibly, unobserved; unknown is
  not absent), which command answers which question, how to name and narrow

@@ -15,7 +15,7 @@ atlas-lib = "0.8"
 The optional `clap` feature adds command-line parsing support for diagram
 options. The `cargo-atlas` package re-exports all of `atlas-lib` under the
 same paths, as the `cargo_atlas` library, and adds the renderers and the
-[declaration adapter](extensions.md) protocol.
+[declaration adapter](extensions.md) (`cargo atlas help extensions`) protocol.
 
 ## The basic pattern
 
@@ -155,7 +155,7 @@ the declarations, re-exports and relationships in one value.
 
 `relations::Relations::capture(graph, Some(&facts))` flattens a snapshot's
 lexical graph and its qualified facts into the tables `cargo atlas facts`
-exports, described in [facts.md](facts.md). Pass `None` for the facts to
+exports, described in [facts.md](facts.md) (`cargo atlas help --topic facts`). Pass `None` for the facts to
 capture only the lexical family. `relations::schema::RELATIONS` lists every
 relation's columns, its `basis` column and its unknowns companion as data.
 
@@ -181,7 +181,7 @@ within one schema version, columns are only ever appended.
 ## Queries
 
 `query::parse`, `query::check` and `query::run` evaluate the Datalog of
-[query.md](query.md) over a `Relations`. `check` refuses a program it cannot
+[query.md](query.md) (`cargo atlas help --topic query`) over a `Relations`. `check` refuses a program it cannot
 resolve against the schema, and an honesty finding that `Options` does not
 accept; `Checked::families()` names the families the program reads, so you
 can capture only those. `run` returns each query's rows with the accepted
@@ -255,7 +255,7 @@ format.
 
 ## Architecture checks
 
-The checks described in [architecture checks](checks.md) are functions you can
+The checks described in [architecture checks](checks.md) (`cargo atlas help checks`) are functions you can
 call directly. This is also how you write a *project wrapper*: a small program
 that supplies the project-specific inputs the command line cannot.
 
@@ -305,4 +305,4 @@ Other check functions:
 
 The library has the same limits as the command line: no macro expansion, no
 `cfg` evaluation, no type inference and no trait dispatch. See
-[how Atlas works](concepts.md#limits).
+[how Atlas works](concepts.md#limits) (`cargo atlas help concepts`).

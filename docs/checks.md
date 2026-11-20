@@ -33,7 +33,7 @@ Missing evidence is never counted as a pass.
 
 ## A first policy
 
-The [tutorial project](getting-started.md) is a small program in three stages:
+The [tutorial project](getting-started.md) (`cargo atlas help getting-started`) is a small program in three stages:
 `parse` turns text into a `Tree`, `check` turns a `Tree` into a `Checked`, and
 `emit` turns a `Checked` into text. Its policy,
 [`examples/tutorial/.config/architecture.toml`](../examples/tutorial/.config/architecture.toml),
@@ -335,7 +335,7 @@ called a **project wrapper**:
 The `cargo atlas` command line cannot supply these, so a rule that needs one
 reports `UNAVAILABLE` there. That is deliberate: Atlas reports the gap
 instead of passing a rule it cannot check. See the
-[library guide](library.md#architecture-checks) to build a wrapper.
+[library guide](library.md#architecture-checks) (`cargo atlas help library`) to build a wrapper.
 
 ## Limits
 

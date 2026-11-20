@@ -73,6 +73,38 @@ pub(crate) struct Options {
     prelude: bool,
 }
 
+/// `query --help`'s closing note. Its list of prelude relations is read from
+/// the prelude itself, by section, so it names every relation the prelude
+/// defines.
+pub(crate) fn after_help() -> String {
+    format!(
+        "Answers: any question the facts can answer, written as rules over named fields: join, recurse, negate and count.\nExample: cargo atlas query '?- file_calls{{from: A, to: B, calls: N}}, under(A, \"src\") order by N desc limit 10.'\nThe prelude (--prelude) restates commands as relations: {}. Fields are those of `cargo atlas facts --schema`.\nHonesty: a rule that drops a candidate's basis, or negates calls without reading unknown_call, is refused unless you --accept that check; the acceptance is printed with the answer. Rows are observations: an empty answer is not proof of absence.\nExit 0 whenever the program ran, whatever the rows. Recipes: cargo atlas help agent. The language: cargo atlas help --topic query.",
+        prelude_sections()
+            .iter()
+            .map(|(section, names)| format!("{} ({section})", names.join(", ")))
+            .collect::<Vec<_>>()
+            .join("; ")
+    )
+}
+/// The prelude's sections (`% --- name ---`) and the relations each defines,
+/// in the order written.
+pub(crate) fn prelude_sections() -> Vec<(String, Vec<String>)> {
+    let mut sections: Vec<(String, Vec<String>)> = Vec::new();
+    for line in query::PRELUDE.lines() {
+        if let Some(title) = line.strip_prefix("% --- ") {
+            sections.push((title.trim_end_matches(['-', ' ']).to_owned(), Vec::new()));
+        } else if let Some((head, _)) = line.split_once('{')
+            && !head.is_empty()
+            && head.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+            && let Some((_, names)) = sections.last_mut()
+            && !names.iter().any(|name| name == head)
+        {
+            names.push(head.to_owned());
+        }
+    }
+    sections
+}
+
 /// The restriction the scope-flag refusal shows; a test runs it in a query.
 const RESTRICT: &str = "file{path: P}, under(P, \"src\")";
 

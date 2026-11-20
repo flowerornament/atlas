@@ -14,7 +14,7 @@ wrote.
 | How do the stages my project declares hand data to each other? | [`overview`](#an-overview-from-declared-stages) |
 | How do the groups in my architecture profile connect? | [`map`, `program`](#older-views-map-and-program) |
 
-The examples on this page use the [tutorial project](getting-started.md).
+The examples on this page use the [tutorial project](getting-started.md) (`cargo atlas help getting-started`).
 
 ## Text and images
 
@@ -287,7 +287,7 @@ Atlas does not know your table's format, so you supply a small program called
 a *declaration adapter* that reads it. Atlas parses the table and passes it to
 the adapter; the adapter says what each row means; Atlas checks the answer
 against the source and draws the diagram. Tables computed at run time are
-refused. See [extending Atlas](extensions.md) to write an adapter.
+refused. See [extending Atlas](extensions.md) (`cargo atlas help extensions`) to write an adapter.
 
 In the diagram, the main types are what each stage's entry function returns
 on success. Public functions also appear when they produce a type another
@@ -312,7 +312,7 @@ it would separate types that belong together.
 
 - `map --architecture PROFILE` and `program --architecture PROFILE` draw the
   groups and permissions declared in an *architecture profile*: an older JSON
-  format, separate from the [policy file](checks.md), described by the types in
+  format, separate from the [policy file](checks.md) (`cargo atlas help checks`), described by the types in
   the `cargo_atlas::architecture` module. They show what you declared, not what the
   code does. For new projects, use a policy and `delta` instead.
 - `map --view types`, `name --relations` and `dump` show relationships found by
@@ -323,7 +323,7 @@ it would separate types that belong together.
 
 - Diagrams show how code is written, not what happens when it runs.
 - Macros are not expanded, types are not inferred and trait calls are not
-  resolved. The [concepts guide](concepts.md#limits) lists all the limits.
+  resolved. The [concepts guide](concepts.md#limits) (`cargo atlas help concepts`) lists all the limits.
 - The image renderer accepts at most 16 MiB of input and produces at most
   32 MiB of output. A request larger than that is refused before Node.js
   starts, and output that is too large is refused rather than cut short.

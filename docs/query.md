@@ -1,7 +1,7 @@
 # Query: your own questions over the facts
 
 `cargo atlas query` runs a small Datalog program over the relations that
-[`cargo atlas facts`](facts.md) exports. Use it for a question no command
+[`cargo atlas facts`](facts.md) (`cargo atlas help --topic facts`) exports. Use it for a question no command
 asks: join observations, follow them transitively, negate, and count.
 
 ```sh
@@ -78,7 +78,7 @@ cycle.
 ## Relations
 
 The stored relations, their fields and their kinds are those of
-[facts.md](facts.md), printed by `cargo atlas facts --schema`. A program
+[facts.md](facts.md) (`cargo atlas help --topic facts`), printed by `cargo atlas facts --schema`. A program
 reads only the families it needs, so a lexical-only program does not run the
 slower qualified analysis.
 
