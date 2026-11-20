@@ -86,6 +86,15 @@ again, once each.
 - Modules come from written `mod` declarations. Unusual layouts, such as
   `#[path]` attributes pointing outside the package or symlinked modules, are
   reported as diagnostics rather than guessed at.
+- Capture parses a package's files on several threads; the snapshot is the
+  same as a serial read.
+- To reuse syntax facts across runs, as the `cargo atlas` command does, open
+  and install a cache once per process:
+  `FactsCache::open(&dir, FactsCacheMode::Reuse)?.install()`. An entry is
+  keyed by a file's exact bytes, its path and the running executable, so a
+  hit holds the facts of the bytes just read. Without an installed cache
+  nothing is stored. The cache is never used for a workspace that contains
+  its directory.
 
 ## Qualified analysis
 

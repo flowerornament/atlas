@@ -162,7 +162,7 @@ fn capture_optional(
     }
     match fs::read_to_string(&path) {
         Ok(text) => {
-            let source = Arc::new(Captured::of(Path::new(rel), text));
+            let source = Arc::new(crate::source::capture(root, rel, text));
             sources.insert(rel.to_owned(), Arc::clone(&source));
             Ok(Some(source))
         }

@@ -1,0 +1,7 @@
+# Processes Cargo starts from this checkout (tests, `cargo run`) keep the
+# syntax-facts cache under target/ instead of the user cache directory, and
+# check every cache hit against a fresh parse. A value already set in the
+# environment wins.
+[env]
+ATLAS_CACHE = "verify"
+ATLAS_CACHE_DIR = { value = "target/facts-cache", relative = true }

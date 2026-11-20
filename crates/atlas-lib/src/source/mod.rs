@@ -1,6 +1,8 @@
 //! Captured source bytes and portable written-Rust facts. Syntax has one syn owner;
 //! lexical text policy is separate. Qualified AST caches stay local to Analysis.
+mod capture;
 pub mod discovery;
+mod facts_cache;
 mod items;
 mod lexical;
 pub mod model;
@@ -10,6 +12,8 @@ pub(crate) mod scan;
 mod syntax;
 pub(crate) mod text;
 pub(crate) mod workspace;
+pub(crate) use capture::{capture, capture_files};
+pub use facts_cache::{FactsCache, FactsCacheMode, FactsCacheStats};
 pub(crate) use items::InlineModules;
 pub use items::{Field, Item, ItemKind, TestRegions, Visibility};
 pub use lexical::RustSourceProjection;
@@ -102,6 +106,15 @@ impl Source {
         let projection = RustSourceProjection::of(text);
         let facts = syntax::read(path, &projection)?;
         Ok(Self::from_facts(projection, facts))
+    }
+    /// [`Source::of`] for a file of the workspace at `root`, through the
+    /// installed facts cache when it may serve that workspace.
+    pub(crate) fn of_workspace_file(
+        root: &Path,
+        path: &Path,
+        text: String,
+    ) -> Result<Self, SyntaxError> {
+        facts_cache::source(root, path, text)
     }
     fn from_facts(projection: RustSourceProjection, facts: syntax::Facts) -> Self {
         Self {
@@ -204,16 +217,6 @@ pub(crate) enum Captured {
     Invalid { text: String, error: SyntaxError },
 }
 impl Captured {
-    pub fn of(path: &Path, text: String) -> Self {
-        let projection = RustSourceProjection::of(text);
-        match syntax::read(path, &projection) {
-            Ok(facts) => Self::Parsed(Arc::new(Source::from_facts(projection, facts))),
-            Err(error) => Self::Invalid {
-                text: projection.text().to_owned(),
-                error,
-            },
-        }
-    }
     pub fn facts(&self) -> Option<&Source> {
         match self {
             Self::Parsed(s) => Some(s),

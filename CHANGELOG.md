@@ -17,6 +17,18 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  false self-recursion.
 - **Library:** `workflow::ParsedFile` has a `types` field listing the types
  and traits a file declares.
+- Commands reuse each file's syntax facts from a cache in the user cache
+ directory when the file's bytes, path and the Atlas executable are unchanged,
+ and parse the files it does not hold on several threads. Answers are
+ byte-identical with the cache on, off or empty. `ATLAS_CACHE=off` or
+ `--no-cache` turns it off; `ATLAS_CACHE_DIR` moves it; `ATLAS_CACHE=stats`
+ reports hits and misses on stderr; `ATLAS_CACHE=verify` parses every file
+ anyway and fails the run if an entry differs. A cache directory inside the
+ inspected project is never created or used. The cache prunes itself below
+ 1 GiB and drops other builds' entries after a week unused.
+- atlas-lib: `source::FactsCache` lets a library caller opt in to the same
+ cache with `FactsCache::open(dir, mode)?.install()`. Without it, capture is
+ unchanged apart from parsing a package's files on several threads.
 
 ## cargo-atlas 0.17.1 / atlas-lib 0.7.1
 

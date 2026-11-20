@@ -242,7 +242,7 @@ fn read_metadata(
                 paths.insert(path.to_path_buf());
             }
         }
-        let mut loaded = Vec::new();
+        let mut selected = Vec::new();
         for path in paths {
             let rel = rel_display(&root, &path);
             if !path.starts_with(&root) || has_symlink(&root, &path)? {
@@ -254,22 +254,17 @@ fn read_metadata(
                 });
                 continue;
             }
-            let source = if let Some(source) = captured.get(&rel) {
-                Arc::clone(source)
-            } else {
-                let source = Arc::new(crate::source::Captured::of(
-                    Path::new(&rel),
-                    fs::read_to_string(&path)?,
-                ));
-                captured.insert(rel.clone(), Arc::clone(&source));
-                source
-            };
-            loaded.push(Loaded {
-                rel,
-                source,
-                test_file: false,
-            });
+            selected.push((rel, path));
         }
+        crate::source::capture_files(&root, &selected, captured)?;
+        let mut loaded: Vec<_> = selected
+            .into_iter()
+            .map(|(rel, _)| Loaded {
+                source: Arc::clone(&captured[&rel]),
+                rel,
+                test_file: false,
+            })
+            .collect();
         let outside = mounted::outside_mounts(
             &root,
             &rel_display(&root, &src),

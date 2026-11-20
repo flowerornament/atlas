@@ -1,6 +1,7 @@
 //! Resolve one project root, then dispatch to the command that owns the workflow.
 //! Commands choose their evidence model; legacy navigation is resolved inside navigation.
 mod args;
+mod cache;
 mod comparison;
 mod delta;
 mod dependencies;
@@ -37,7 +38,8 @@ pub(crate) fn run() -> Result<()> {
         .no_deps()
         .exec()?;
     let root = metadata.workspace_root.as_std_path().canonicalize()?;
-    match cli.command {
+    let cache = cache::open(cli.no_cache, &root)?;
+    let result = match cli.command {
         Command::Delta(options) => delta::run(&root, &metadata, &options),
         Command::Policy(options) => policy::run(&root, &metadata, &options),
         Command::Stages(options) => {
@@ -71,7 +73,8 @@ pub(crate) fn run() -> Result<()> {
         Command::Name(args) => navigation::run_name(&metadata, &args),
         Command::Module(args) => navigation::run_module(&metadata, &args),
         Command::Related(args) => navigation::run_related(&metadata, &args),
-    }
+    };
+    cache.finish(result)
 }
 
 fn json(value: &impl serde::Serialize) -> Result<String> {

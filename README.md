@@ -150,6 +150,18 @@ Some features need more tools:
   commits the jj way: `@-` is the change before the one you are working on.
   If you give a git spelling such as `HEAD~1`, Atlas says what jj calls it.
 
+Atlas keeps the syntax facts of each file it reads in your user cache
+directory (`~/Library/Caches/atlas` on macOS, `~/.cache/atlas` or
+`$XDG_CACHE_HOME/atlas` on Linux, `%LOCALAPPDATA%\atlas` on Windows), so the
+next command skips files whose bytes have not changed. An entry is keyed by
+the file's exact bytes, its path and the Atlas executable, so answers are the
+same with the cache on or off. It holds names, doc lines and declaration text
+from your code, is readable only by you on Unix, and stays under 1 GiB. Set
+`ATLAS_CACHE=off` or pass `--no-cache` to turn it off, `ATLAS_CACHE_DIR` to move
+it, `ATLAS_CACHE=stats` to see what it served, and `ATLAS_CACHE=verify` to check
+every entry against a fresh parse. Atlas never puts the cache inside the
+project it reads.
+
 To get the same Atlas every time, for example in CI, add `--version <version>`
 to the install command. To try unreleased changes, install from the
 repository instead: `cargo install --locked --git

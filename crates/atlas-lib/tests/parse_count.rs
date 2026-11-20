@@ -51,3 +51,31 @@ fn a_lazy_analysis_parses_each_file_again() {
     // once more. atlas-6ln lowers this to zero for prepared analyses.
     assert_eq!(parse_count() - before, FILES);
 }
+
+#[test]
+fn capture_on_worker_threads_counts_each_parse_for_the_caller() {
+    const MANY: usize = 40;
+    let mut files = vec![
+        (
+            "Cargo.toml".to_owned(),
+            "[package]\nname=\"parse-many\"\nversion=\"0.0.0\"\nedition=\"2024\"\n".to_owned(),
+        ),
+        (
+            "src/lib.rs".to_owned(),
+            (1..MANY)
+                .map(|i| ["pub mod m", &i.to_string(), ";\n"].concat())
+                .collect(),
+        ),
+    ];
+    files.extend((1..MANY).map(|i| (format!("src/m{i}.rs"), format!("pub fn f{i}() {{}}\n"))));
+    let files: Vec<_> = files
+        .iter()
+        .map(|(p, t)| (p.as_str(), t.as_str()))
+        .collect();
+    let f = Fixture::new(&files);
+    let metadata = metadata(&f);
+    let before = parse_count();
+    let snapshot = discovery::snapshot_metadata(&metadata).expect("snapshot");
+    assert_eq!(snapshot.graph().files.len(), MANY);
+    assert_eq!(parse_count() - before, MANY);
+}

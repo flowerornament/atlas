@@ -109,6 +109,15 @@ values to scanner enums; unknown tags return `None`. Stable `tag()`/`from_tag()`
 conversions define wire spellings explicitly. Diagnostic Debug formatting is not
 an encoding or a decision rule.
 
+Capture reads a file's syntax facts as a pure function of its relative path
+and bytes. `source::FactsCache`, when a caller installs one, stores those facts
+keyed by a hash of the path, the bytes and the running executable, through
+private wire types: the public fact types gain no `Deserialize`. A hit is
+therefore the facts of the bytes just read; nothing after per-file facts is
+cached. Capture reads and looks up a package's files in order, then parses
+the misses on worker threads into a map keyed by path, so the order of work
+never reaches an answer.
+
 The root library modules remain public compatibility paths. For example,
 `atlas_lib::discovery::Snapshot` and `cargo_atlas::representations::Views` reexport the
 same definitions from their physical owners; the compatibility surface is not a

@@ -267,6 +267,15 @@ impl TestRegions {
         }
     }
 
+    /// The merged line ranges and file line total, for the facts cache's wire form.
+    pub(super) fn parts(&self) -> (&[(usize, usize)], usize) {
+        (&self.spans, self.total)
+    }
+    /// Rebuild regions from `parts`, which are already merged and ordered.
+    pub(super) const fn from_parts(spans: Vec<(usize, usize)>, total: usize) -> Self {
+        Self { spans, total }
+    }
+
     /// Whether a 1-based line lies in a test region.
     pub fn covers(&self, line: usize) -> bool {
         self.spans

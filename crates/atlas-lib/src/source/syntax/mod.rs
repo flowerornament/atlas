@@ -25,15 +25,21 @@ pub(super) fn read(path: &Path, projection: &RustSourceProjection) -> Result<Fac
 }
 
 std::thread_local! {
-    /// Files parsed on this thread. Capture and analysis parse on the calling
-    /// thread, so a test reading this before and after sees only its own work.
+    /// Files parsed for this thread. Capture's workers add their parses to
+    /// the thread that started them, so a test reading this before and after
+    /// sees only its own work.
     static PARSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
-/// How many files this thread has parsed into syntax trees so far. For tests
-/// and measurement only; the value has no meaning across threads.
+/// How many files this thread has parsed into syntax trees so far, including
+/// parses done for it on capture workers. A facts-cache hit parses nothing.
+/// For tests and measurement only; the value has no meaning across threads.
 #[doc(hidden)]
 pub fn parse_count() -> usize {
     PARSES.with(std::cell::Cell::get)
+}
+/// Attribute parses done on worker threads to this thread.
+pub(super) fn count_parses(parses: usize) {
+    PARSES.with(|count| count.set(count.get() + parses));
 }
 
 /// syn recognizes the preamble; reparsing its blanked prefix preserves original

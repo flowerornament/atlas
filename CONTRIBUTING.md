@@ -22,6 +22,11 @@ just verify-vendor  # check the vendored Pele bundle against its lockfile
 
 CI runs the same steps.
 
+`.cargo/config.toml` points the syntax-facts cache of every process Cargo
+starts here (tests, `cargo run`) at `target/facts-cache` and sets
+`ATLAS_CACHE=verify`, so the whole suite checks each cache hit against a
+fresh parse and never touches your user cache directory.
+
 ## Where to start reading
 
 [ARCHITECTURE.md](ARCHITECTURE.md) maps the code and traces the main command

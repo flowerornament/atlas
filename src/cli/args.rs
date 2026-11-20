@@ -17,6 +17,9 @@ pub(super) struct Cli {
     /// Cargo project directory; defaults to the current directory. Positional ROOT remains supported.
     #[arg(long = "root", global = true, value_name = "PATH")]
     project_root: Option<PathBuf>,
+    /// Read every file afresh, without the syntax-facts cache (same as ATLAS_CACHE=off).
+    #[arg(long, global = true)]
+    pub(super) no_cache: bool,
     #[command(subcommand)]
     pub(super) command: Command,
 }
