@@ -216,3 +216,52 @@ fn depth_follows_resolved_calls_and_counts_what_it_cannot() {
     let (ok, _, stderr) = atlas(&f, &["callers", "chain_d", "--depth", "17"]);
     assert!(!ok && stderr.contains("17 is not in 1..=16"), "{stderr}");
 }
+
+#[test]
+fn evidence_is_reserved_and_names_what_to_run() {
+    let f = fixture();
+    // §3.9: auto and qualified are the command's reading.
+    let auto = text(&f, &["callers", "two"]);
+    assert_eq!(
+        auto,
+        text(&f, &["callers", "two", "--evidence", "qualified"])
+    );
+    assert_eq!(auto, text(&f, &["callers", "two", "--evidence", "auto"]));
+    for (args, message) in [
+        (
+            &["callers", "two", "--evidence", "lexical"][..],
+            "atlas: callers needs resolved calls; for lexical co-mentions use cargo atlas name two --relations\n",
+        ),
+        (
+            &["callees", "two", "--evidence", "semantic"],
+            "atlas: semantic readings in callees arrive in 0.20; dump --json and flow accept --scip FILE\n",
+        ),
+        (
+            &["dependencies", "--evidence", "lexical"],
+            "atlas: dependencies needs qualified relations; for lexical file mentions use cargo atlas map --level files\n",
+        ),
+        (
+            &[
+                "flow",
+                "--path",
+                "src/lib.rs",
+                "--function",
+                "two",
+                "--evidence",
+                "semantic",
+            ],
+            "atlas: semantic readings in flow arrive in 0.20; flow --scip FILE writes one beside the drawing as separate evidence\n",
+        ),
+    ] {
+        let (ok, stdout, stderr) = atlas(&f, args);
+        assert!(!ok && stdout.is_empty(), "{args:?}");
+        assert_eq!(stderr, message, "{args:?}");
+    }
+    // AT14: the question map names callers and callees, and the output flag.
+    let (_, help, _) = atlas(&f, &["--help"]);
+    assert!(
+        help.contains("who calls X, what X calls: callers, callees"),
+        "{help}"
+    );
+    assert!(help.contains("Add --as json"), "{help}");
+}

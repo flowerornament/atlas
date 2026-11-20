@@ -26,6 +26,8 @@ pub(crate) struct Options {
     #[arg(long)]
     all_facts: bool,
     #[command(flatten)]
+    evidence: crate::cli::evidence::Evidence,
+    #[command(flatten)]
     output: artifact_output::Options,
 }
 pub(crate) fn run(
@@ -33,6 +35,12 @@ pub(crate) fn run(
     metadata: &cargo_metadata::Metadata,
     options: &Options,
 ) -> Result<()> {
+    options.evidence.check(
+        "dependencies",
+        "qualified relations",
+        "for lexical file mentions use cargo atlas map --level files",
+        "dump --json and flow accept --scip FILE",
+    )?;
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let graph = snapshot.graph();
     let chosen = options.scope.choose(graph, metadata)?;

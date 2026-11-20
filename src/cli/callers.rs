@@ -20,6 +20,8 @@ pub(crate) struct Options {
     #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=i64::from(callers::MAX_DEPTH)))]
     depth: u32,
     #[command(flatten)]
+    evidence: super::evidence::Evidence,
+    #[command(flatten)]
     rows: Rows,
     #[command(flatten)]
     output: super::output::form::Report,
@@ -34,11 +36,21 @@ pub(crate) fn run(
     options: &Options,
     direction: Direction,
 ) -> Result<()> {
+    let (selector, file) = options.function.selector();
+    let command = match direction {
+        Direction::Callers => "callers",
+        Direction::Callees => "callees",
+    };
+    options.evidence.check(
+        command,
+        "resolved calls",
+        &format!("for lexical co-mentions use cargo atlas name {selector} --relations"),
+        "dump --json and flow accept --scip FILE",
+    )?;
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let graph = snapshot.graph();
     let facts = atlas_lib::analysis::Analysis::new(&snapshot)?.representations()?;
     let within = options.within.filter(graph, metadata)?;
-    let (selector, file) = options.function.selector();
     let more = |_: Option<&str>| rerun_all(None);
     match direction {
         Direction::Callers => {

@@ -36,7 +36,7 @@ it uses.
 | Evidence | How Atlas knows | Used by |
 | --- | --- | --- |
 | **Lexical** | The same name is written in two places. Quick, but two things with the same name can be confused. | `census`, `name`, `module`, `dump`, `map --view types` |
-| **Qualified** | Atlas followed `use` statements, modules and Cargo targets to work out exactly which item a call or type refers to. If it cannot work it out, the item is marked *unresolved*. | `dependencies`, `types`, `compare`, `overview`, `flow --depth` |
+| **Qualified** | Atlas followed `use` statements, modules and Cargo targets to work out exactly which item a call or type refers to. If it cannot work it out, the item is marked *unresolved*. | `dependencies`, `callers`, `callees`, `types`, `compare`, `overview`, `flow --depth` |
 | **Declared** | You wrote it down: an architecture policy, or a table in your code that an adapter reads. | `stages`, `seams`, `policy`, `delta`, `program`, `map --architecture` |
 
 A fourth kind, **semantic**, comes from outside Atlas: a SCIP index that a
@@ -69,6 +69,11 @@ read; an index of different text reads as *not indexed* there. An index that
 names nothing from the standard library (what rust-analyzer writes when it
 cannot find `rust-src`) is reported *unavailable*.
 
+`callers`, `callees`, `dependencies` and `flow` take `--evidence` to name the
+reading they answer from. `auto` (the default) and `qualified` are their
+current reading; `lexical` and `semantic` are refused with what to run
+instead (semantic readings in their output arrive in 0.20).
+
 Atlas never mixes these up. A rule you declared is never drawn as if it had
 been observed in the code. A relationship observed in the code is never hidden
 just because your rules do not allow it.
@@ -80,6 +85,15 @@ parse all leave gaps. When there is a gap, Atlas says *unresolved*,
 *unknown* or *unavailable*. It never reports a gap as "no relationship" or
 "zero". In the same way, a check that is missing evidence reports
 `UNAVAILABLE`, not `PASS`.
+
+`callers` shows this in one answer. Its resolved rows are the calls Atlas
+followed to the function. A call it could not resolve, but that is written
+with the function's name, is listed apart as a *possible* caller, counted by
+why it stayed unresolved, and never counted as a caller. A function with
+neither is reported as having no resolved callers, never as unused: calls
+inside macros, or through function pointers and closures passed elsewhere,
+are not recorded. `--depth N` follows resolved calls up to N levels, and
+counts the unresolved ones beyond the first level instead of listing them.
 
 ## Choosing what to read
 
@@ -178,7 +192,7 @@ no half-finished image is left behind.
 
 | Task | Commands |
 | --- | --- |
-| Find your way around | `orient`, `census`, `name`, `module`, `dump`, `facts`, `query` |
+| Find your way around | `orient`, `census`, `name`, `module`, `callers`, `callees`, `dump`, `facts`, `query` |
 | Review a change | `diff`, `moved`, `visibility`, `compare` |
 | Measure | `spans`, `concentration`, `nontest-loc`, `comments` |
 | Draw diagrams | `dependencies`, `types`, `flow`, `overview`, `program`, `map` |

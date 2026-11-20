@@ -60,6 +60,7 @@ new changes.
 | Ask qualified questions | `analysis::Analysis::new(&snapshot)` |
 | Look up names and modules | `queries::navigation::Navigation` |
 | Get a one-page arrival report | `queries::orient::orient(&snapshot, scope, rows)` |
+| Ask who calls a function, or what it calls | `queries::callers::{callers, callees}(graph, &facts, selector, file, depth, within)` |
 | Measure files | `review::outline` |
 | Compare two versions | `review::diff`, `review::moves::moved`, `review::moves::visibility` |
 | Read an earlier commit | `revision::Revision::read` |
@@ -116,6 +117,10 @@ at most once and shares the work between questions.
   reported, never resolved. An index that names no standard-library item, uses
   another position encoding or is malformed is `unavailable`, with the reason.
   `SemanticIndex::read_calls` reads calls without the comparison.
+- `queries::callers::callers` and `callees` take the snapshot's graph and
+  the `Facts` from `representations()`, not the `Analysis`: build the facts
+  once and ask several call questions of them. `within` keeps the calling
+  (or called) functions by file; `depth` is 1 to `MAX_DEPTH` (16).
 - `with_tests(selection)` chooses whether test code is included:
   `Production`, `OutsideTestModules` or `All`.
 

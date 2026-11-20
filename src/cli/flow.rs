@@ -52,6 +52,8 @@ pub(super) struct Options {
     #[command(flatten)]
     indexer: super::semantic::IndexerArgs,
     #[command(flatten)]
+    evidence: super::evidence::Evidence,
+    #[command(flatten)]
     render: RenderOptions,
 }
 
@@ -61,6 +63,12 @@ pub(super) fn run(
     options: &Options,
     cache: &super::semantic::IndexCache,
 ) -> Result<()> {
+    options.evidence.check(
+        "flow",
+        "source bodies and resolved calls",
+        "it has no lexical reading",
+        "flow --scip FILE writes one beside the drawing as separate evidence",
+    )?;
     let (profile_text, profile) = architecture(root, options.architecture.as_deref())?;
     let selected_anchor = options
         .named_anchor

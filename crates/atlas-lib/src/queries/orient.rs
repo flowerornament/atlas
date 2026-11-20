@@ -720,7 +720,7 @@ impl Orientation {
                 let _ = writeln!(out, "  {:>7}  {detail}", row.count);
             }
             if section.more > 0 {
-                let _ = writeln!(out, "  ... {} more; {}", section.more, render(&section.all));
+                let _ = writeln!(out, "  … {} more; {}", section.more, render(&section.all));
             }
         }
         self.write_resolution(&mut out);
@@ -777,7 +777,7 @@ impl Orientation {
         if self.packages.len() > SHOWN {
             let _ = writeln!(
                 out,
-                "  ... {} more packages; cargo metadata --no-deps --format-version 1",
+                "  … {} more packages; cargo metadata --no-deps --format-version 1",
                 self.packages.len() - SHOWN
             );
         }

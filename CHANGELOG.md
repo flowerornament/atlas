@@ -6,6 +6,20 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+0.19 gives every command one grammar. The bare argument is the command's
+subject (a scope, a name, a function, the types or a revision), `--in` and
+`-p` choose part of the project, `--vs` and `--at` the revisions, `--as` the
+output, and `--rows`/`--all` how much text. New `callers` and `callees`
+answer "who calls X" from resolved calls and say what they could not
+resolve. Every 0.18 spelling still works; the superseded ones print one note
+on stderr. JSON outputs are unchanged or gain fields, apart from the
+suggested commands in `orient` and `compare`'s notes.
+
+- `callers`, `callees`, `dependencies` and `flow` take `--evidence
+ auto|lexical|qualified|semantic`, reserved for 0.20: `auto` and `qualified`
+ are their reading; `lexical` and `semantic` are refused with what to run.
+ Rows of `callers` and `callees` carry `reading: "qualified"`.
+- `orient`'s tails read `… N more`, as every bounded list does.
 - New commands `callers FN` and `callees FN`: the functions that call FN, or
  that FN calls, from the calls Atlas resolved, one row per call site. An
  unresolved call written with FN's name is listed apart as a *possible*
