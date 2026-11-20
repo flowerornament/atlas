@@ -395,12 +395,7 @@ pub fn expanded(
     depth: u8,
 ) -> Result<(Workflow, Diagram)> {
     check_depth(depth)?;
-    let architecture = crate::architecture::Architecture {
-        schema: 1,
-        provenance: vec![],
-        modules: vec![],
-        workflows: vec![],
-    };
+    let architecture = crate::architecture::Architecture::empty();
     let index = crate::analysis::index::Index::new(root, metadata, graph, &architecture)?;
     expand(&index, path, function, depth)
 }

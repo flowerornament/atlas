@@ -156,6 +156,59 @@ fn capture_metadata(metadata: Metadata) -> Result<Snapshot> {
     })
 }
 
+/// A package's source files: everything under `src`, plus target roots
+/// outside it, minus paths outside the workspace or through a symlink.
+struct PackageSources {
+    src: PathBuf,
+    /// (relative, absolute) paths.
+    selected: Vec<(String, PathBuf)>,
+    /// What was left out or only partly read, in discovery order.
+    diagnostics: Vec<Diagnostic>,
+}
+fn package_sources(package: &cargo_metadata::Package, root: &Path) -> Result<PackageSources> {
+    let Some(dir) = package.manifest_path.as_std_path().parent() else {
+        return Err("manifest has no parent".into());
+    };
+    let mut diagnostics = Vec::new();
+    let mut paths = BTreeSet::new();
+    let src = dir.join("src");
+    if src.is_dir() {
+        collect_rs_files(&src, &mut paths, root, &mut diagnostics)?;
+    }
+    for target in &package.targets {
+        let normalized = normalize_path(target.src_path.as_std_path());
+        let path = normalized.as_path();
+        if !path.starts_with(&src) && path.extension().is_some_and(|e| e == "rs") {
+            diagnostics.push(Diagnostic {
+                package: Some(package.name.to_string()),
+                file: rel_display(root, path),
+                line: None,
+                message: "target root outside src included; sibling modules outside src are not recursively discovered".into(),
+            });
+            paths.insert(path.to_path_buf());
+        }
+    }
+    let mut selected = Vec::new();
+    for path in paths {
+        let rel = rel_display(root, &path);
+        if !path.starts_with(root) || has_symlink(root, &path)? {
+            diagnostics.push(Diagnostic {
+                package: None,
+                file: rel,
+                line: None,
+                message: "source mount outside workspace or through a symlink excluded".into(),
+            });
+            continue;
+        }
+        selected.push((rel, path));
+    }
+    Ok(PackageSources {
+        src,
+        selected,
+        diagnostics,
+    })
+}
+
 fn read_metadata(
     metadata: &Metadata,
     captured: &mut BTreeMap<String, Arc<crate::source::Captured>>,
@@ -198,15 +251,27 @@ fn read_metadata(
     let mut files = Vec::new();
     let mut source_mounts = BTreeMap::new();
     let mut diagnostics = Vec::new();
-    for package in packages {
-        let Some(dir) = package.manifest_path.as_std_path().parent() else {
-            return Err("manifest has no parent".into());
-        };
-        let mut paths = BTreeSet::new();
-        let src = dir.join("src");
-        if src.is_dir() {
-            collect_rs_files(&src, &mut paths, &root, &mut diagnostics)?;
-        }
+    // Read every package's files first, so one capture parses all the misses
+    // in parallel; a package's own diagnostics keep their place below.
+    let inputs = packages
+        .iter()
+        .map(|package| package_sources(package, &root))
+        .collect::<Result<Vec<_>>>()?;
+    // A file two packages share is read and parsed once.
+    let everything: Vec<_> = inputs
+        .iter()
+        .flat_map(|input| input.selected.iter().cloned())
+        .collect::<BTreeMap<_, _>>()
+        .into_iter()
+        .collect();
+    crate::source::capture_files(&root, &everything, captured)?;
+    for (package, input) in packages.into_iter().zip(inputs) {
+        let PackageSources {
+            src,
+            selected,
+            diagnostics: package_diagnostics,
+        } = input;
+        diagnostics.extend(package_diagnostics);
         let targets: Vec<_> = package
             .targets
             .iter()
@@ -229,34 +294,6 @@ fn read_metadata(
                 )
             })
             .collect();
-        for target in &package.targets {
-            let normalized = normalize_path(target.src_path.as_std_path());
-            let path = normalized.as_path();
-            if !path.starts_with(&src) && path.extension().is_some_and(|e| e == "rs") {
-                diagnostics.push(Diagnostic {
-                    package: Some(package.name.to_string()),
-                    file: rel_display(&root, path),
-                    line: None,
-                    message: "target root outside src included; sibling modules outside src are not recursively discovered".into(),
-                });
-                paths.insert(path.to_path_buf());
-            }
-        }
-        let mut selected = Vec::new();
-        for path in paths {
-            let rel = rel_display(&root, &path);
-            if !path.starts_with(&root) || has_symlink(&root, &path)? {
-                diagnostics.push(Diagnostic {
-                    package: None,
-                    file: rel,
-                    line: None,
-                    message: "source mount outside workspace or through a symlink excluded".into(),
-                });
-                continue;
-            }
-            selected.push((rel, path));
-        }
-        crate::source::capture_files(&root, &selected, captured)?;
         let mut loaded: Vec<_> = selected
             .into_iter()
             .map(|(rel, _)| Loaded {
@@ -667,7 +704,7 @@ fn mark_test_files(
                     line: None,
                     message: format!(
                         "module {} has no discovered file mount (missing, outside the inventory, or excluded): {}",
-                        module.module_path().collect::<Vec<_>>().join("::"),
+                        module.qualified_name(),
                         candidates.join(", ")
                     ),
                 });

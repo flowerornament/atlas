@@ -88,12 +88,7 @@ impl<'a> Analysis<'a> {
     /// supplied semantic index and compared with its qualified target. The
     /// reading is a separate evidence family; the index is unchanged.
     pub fn semantic(&self, semantic: &semantic::SemanticIndex) -> Result<semantic::Reading> {
-        let architecture = Architecture {
-            schema: 1,
-            provenance: vec![],
-            modules: vec![],
-            workflows: vec![],
-        };
+        let architecture = Architecture::empty();
         let index = self.index(&architecture)?;
         let text = |path: &str| self.sources.get(path).map(sources::CachedSource::text);
         Ok(semantic.join(&index, &text))
@@ -116,12 +111,7 @@ impl<'a> Analysis<'a> {
         detail: workflow::Detail,
     ) -> Result<(workflow::Workflow, crate::diagram::Diagram)> {
         workflow::check_depth(depth)?;
-        let architecture = Architecture {
-            schema: 1,
-            provenance: vec![],
-            modules: vec![],
-            workflows: vec![],
-        };
+        let architecture = Architecture::empty();
         workflow::expand_with_detail(&self.index(&architecture)?, path, function, depth, detail)
     }
 }

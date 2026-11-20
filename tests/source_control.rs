@@ -257,12 +257,7 @@ fn compact_control_preserves_retained_paths_and_every_folded_observation() {
             .exec()
             .unwrap();
         let graph = discovery::scan_metadata(&metadata).unwrap();
-        let architecture = cargo_atlas::architecture::Architecture {
-            schema: 1,
-            provenance: vec![],
-            modules: vec![],
-            workflows: vec![],
-        };
+        let architecture = cargo_atlas::architecture::Architecture::empty();
         let index =
             atlas_lib::source_index::Index::new(fixture.path(), &metadata, &graph, &architecture)
                 .unwrap();

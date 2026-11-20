@@ -189,20 +189,27 @@ struct Tables {
     coverage: Coverage,
 }
 
-impl SemanticIndex {
-    /// Check and prepare an index. A malformed or unusable index is kept as
-    /// unavailable with its reason; it never fails the caller's command.
-    pub fn read(bytes: &[u8]) -> Self {
-        let mut provenance = Provenance {
+impl Provenance {
+    /// A supplied index's provenance before its header is read.
+    fn supplied(index_digest: String) -> Self {
+        Self {
             origin: "supplied",
-            index_digest: crate::source::hex(&Sha256::digest(bytes)),
+            index_digest,
             producer: String::new(),
             producer_version: String::new(),
             project_root: String::new(),
             position_encoding: "UTF-8 code units from line start",
             configuration: "the indexer's host target, default features and cfg(test); the index does not record them",
             currency: "per-site text match against the captured source",
-        };
+        }
+    }
+}
+
+impl SemanticIndex {
+    /// Check and prepare an index. A malformed or unusable index is kept as
+    /// unavailable with its reason; it never fails the caller's command.
+    pub fn read(bytes: &[u8]) -> Self {
+        let mut provenance = Provenance::supplied(crate::source::hex(&Sha256::digest(bytes)));
         let tables = wire::parse(bytes)
             .map_err(|error| format!("the index is not valid SCIP: {error}"))
             .and_then(|index| {
@@ -216,10 +223,10 @@ impl SemanticIndex {
     /// An index that could not be obtained, such as an unreadable file: every
     /// reading from it is unavailable with `reason`.
     pub fn unavailable_because(reason: String) -> Self {
-        let mut index = Self::read(&[]);
-        index.provenance.index_digest.clear();
-        index.tables = Err(reason);
-        index
+        Self {
+            provenance: Provenance::supplied(String::new()),
+            tables: Err(reason),
+        }
     }
     pub fn provenance(&self) -> &Provenance {
         &self.provenance
@@ -245,25 +252,30 @@ impl SemanticIndex {
     /// Read every call of a qualified index and compare it with its target.
     pub fn join<'a>(&self, index: &'a Index, text: &dyn Fn(&str) -> Option<&'a str>) -> Reading {
         let functions = index.functions();
+        let outside = |t: usize| Qualified::Summarized {
+            reason: format!("function position {t} outside the index"),
+        };
         let calls = functions.iter().enumerate().flat_map(|(i, f)| {
             f.flow.calls.iter().map(move |call| {
-                let qualified = match index.resolve(i, call) {
+                let (qualified, target) = match index.resolve(i, call) {
                     Target::Function(t) => functions.get(t).map_or_else(
-                        || Qualified::Summarized {
-                            reason: format!("function position {t} outside the index"),
-                        },
-                        |target| Qualified::Function {
-                            function: target.id.clone(),
-                            site: format!("{}:{}", target.flow.site.path, target.flow.site.line),
+                        || (outside(t), None),
+                        |target| {
+                            let qualified = Qualified::Function {
+                                function: target.id.clone(),
+                                site: format!(
+                                    "{}:{}",
+                                    target.flow.site.path, target.flow.site.line
+                                ),
+                            };
+                            (qualified, Some(target))
                         },
                     ),
-                    Target::Boundary(..) => Qualified::Boundary,
-                    Target::Summarized(reason) => Qualified::Summarized { reason },
-                    Target::InvalidFunction(t) => Qualified::Summarized {
-                        reason: format!("function position {t} outside the index"),
-                    },
+                    Target::Boundary(..) => (Qualified::Boundary, None),
+                    Target::Summarized(reason) => (Qualified::Summarized { reason }, None),
+                    Target::InvalidFunction(t) => (outside(t), None),
                 };
-                (f.id.as_str(), call, Some((qualified, functions)))
+                (f.id.as_str(), call, Some((qualified, target)))
             })
         });
         self.reading(calls, text)
@@ -275,7 +287,7 @@ impl SemanticIndex {
             Item = (
                 &'a str,
                 &'a Call,
-                Option<(Qualified, &'a [crate::analysis::index::Function])>,
+                Option<(Qualified, Option<&'a crate::analysis::index::Function>)>,
             ),
         >,
         text: &dyn Fn(&str) -> Option<&'a str>,
@@ -301,15 +313,16 @@ impl SemanticIndex {
         reading.status = "available";
         let mut coverage = tables.coverage.clone();
         let mut missing = BTreeSet::new();
+        let mut lines = HashMap::new();
         for (caller, call, qualified) in calls {
-            let semantic = tables.call(call, text, &mut missing);
+            let semantic = tables.call(call, text, &mut missing, &mut lines);
             *reading
                 .readings
                 .entry(kind(&semantic).to_owned())
                 .or_default() += 1;
             let (qualified, agreement) = match qualified {
-                Some((qualified, functions)) => {
-                    let agreement = compare(&qualified, &semantic, functions);
+                Some((qualified, target)) => {
+                    let agreement = compare(target, &semantic);
                     *reading.agreement.entry(agreement).or_default() += 1;
                     (Some(qualified), Some(agreement))
                 }
@@ -343,26 +356,22 @@ fn kind(semantic: &Semantic) -> &'static str {
     }
 }
 
-/// Compare by site, never by symbol.
-fn compare(
-    qualified: &Qualified,
-    semantic: &Semantic,
-    functions: &[crate::analysis::index::Function],
-) -> Agreement {
+/// Compare by site, never by symbol. `target` is the qualified function the
+/// call resolved to, if it resolved to one.
+fn compare(target: Option<&crate::analysis::index::Function>, semantic: &Semantic) -> Agreement {
     match semantic {
         Semantic::Ambiguous { .. } => return Agreement::Ambiguous,
         Semantic::NotIndexed { .. } | Semantic::NoDefinition { .. } => return Agreement::Silent,
         _ => {}
     }
-    let Qualified::Function { function, .. } = qualified else {
+    let Some(target) = target else {
         return Agreement::Extends;
     };
     let same = match semantic {
-        Semantic::Definition { site, .. } => functions.iter().any(|f| {
-            &f.id == function
-                && f.flow.site.path == site.path
-                && (f.flow.site.line..=f.flow.site.end_line).contains(&site.line)
-        }),
+        Semantic::Definition { site, .. } => {
+            target.flow.site.path == site.path
+                && (target.flow.site.line..=target.flow.site.end_line).contains(&site.line)
+        }
         _ => false,
     };
     if same {
@@ -447,6 +456,7 @@ impl Tables {
         call: &Call,
         text: &dyn Fn(&str) -> Option<&'a str>,
         missing: &mut BTreeSet<String>,
+        lines: &mut HashMap<String, locate::Lines>,
     ) -> Semantic {
         let not_indexed = |reason: &str| Semantic::NotIndexed {
             reason: reason.to_owned(),
@@ -458,7 +468,10 @@ impl Tables {
         let Some(source) = text(&call.site.path) else {
             return not_indexed("no captured source for the file");
         };
-        let Some(callee) = locate::callee(source, call) else {
+        let lines = lines
+            .entry(call.site.path.clone())
+            .or_insert_with(|| locate::Lines::of(source));
+        let Some(callee) = locate::callee(source, lines, call) else {
             return not_indexed("the callee name is not written at the call site");
         };
         let key = (call.site.path.clone(), callee.line, callee.column);

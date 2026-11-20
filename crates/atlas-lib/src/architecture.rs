@@ -67,6 +67,16 @@ pub struct Architecture {
     pub workflows: Vec<WorkflowAnchor>,
 }
 impl Architecture {
+    /// No declared boundaries or workflows: the qualified index alone.
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
+            schema: 1,
+            provenance: vec![],
+            modules: vec![],
+            workflows: vec![],
+        }
+    }
     /// Parse JSON and bind disjoint boundaries and anchors to the requested workspace.
     pub fn parse(text: &str, root: &Path) -> Result<Self> {
         let profile: Self =

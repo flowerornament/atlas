@@ -407,7 +407,8 @@ pub(super) fn run_dump(metadata: &cargo_metadata::Metadata, args: &DumpArgs) -> 
             )?
         } else {
             super::json(&super::semantic::WithSemantic {
-                report: &cargo_atlas::discovery::scan_metadata(metadata)?,
+                // The graph the semantic reading was made from.
+                report: snapshot.graph(),
                 semantic: &semantic,
             })?
         };

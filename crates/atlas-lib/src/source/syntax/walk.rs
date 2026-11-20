@@ -19,7 +19,6 @@ pub(super) struct Walk<'a> {
     projection: &'a RustSourceProjection,
     lines: Vec<&'a str>,
     line_offsets: Vec<usize>,
-    depth: usize,
     item_ends: BTreeMap<usize, usize>,
     outline: Vec<Item>,
     regions: Vec<RangeInclusive<usize>>,
@@ -27,9 +26,10 @@ pub(super) struct Walk<'a> {
     gated_bytes: Vec<std::ops::Range<usize>>,
     module_bytes: Vec<std::ops::Range<usize>>,
     modules: Vec<super::ModuleDeclaration>,
-    /// One entry per item being visited, outermost first: the inline module
-    /// it opens, or `None` for any other item. A file module is only
-    /// declared where every enclosing item is an inline module.
+    /// One entry per enclosing item, outermost first: the inline module it
+    /// opens, or `None` for any other item. Empty at the top of the file. A
+    /// file module is only declared where every enclosing item is an inline
+    /// module.
     scopes: Vec<Option<super::InlineModule>>,
     imports: Vec<Import>,
     error: Option<SyntaxError>,
@@ -44,7 +44,6 @@ impl<'a> Walk<'a> {
             projection,
             lines: projection.text().lines().collect(),
             line_offsets,
-            depth: 0,
             item_ends: BTreeMap::new(),
             outline: Vec::new(),
             regions: Vec::new(),
@@ -181,7 +180,7 @@ impl<'a> Walk<'a> {
             span: first..=end_line,
             declaration_block: text[syntax_start..block_end].into(),
             doc: summary,
-            top_level: self.depth == 0,
+            top_level: self.scopes.is_empty(),
             syntax_span: syntax_start..end,
             byte_span: attached_start..end,
             attribute_names: attrs
@@ -467,9 +466,7 @@ impl<'ast> Visit<'ast> for Walk<'_> {
             }),
             _ => None,
         });
-        self.depth += 1;
         visit::visit_item(self, item);
-        self.depth -= 1;
         self.scopes.pop();
     }
     fn visit_impl_item(&mut self, item: &'ast syn::ImplItem) {
@@ -501,9 +498,7 @@ impl<'ast> Visit<'ast> for Walk<'_> {
             _ => self.unsupported(item.span(), "unsupported impl member"),
         }
         self.scopes.push(None);
-        self.depth += 1;
         visit::visit_impl_item(self, item);
-        self.depth -= 1;
         self.scopes.pop();
     }
     fn visit_trait_item(&mut self, item: &'ast syn::TraitItem) {
@@ -536,9 +531,7 @@ impl<'ast> Visit<'ast> for Walk<'_> {
             _ => self.unsupported(item.span(), "unsupported trait member"),
         }
         self.scopes.push(None);
-        self.depth += 1;
         visit::visit_trait_item(self, item);
-        self.depth -= 1;
         self.scopes.pop();
     }
     fn visit_foreign_item(&mut self, item: &'ast syn::ForeignItem) {

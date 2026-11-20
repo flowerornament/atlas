@@ -134,8 +134,21 @@ impl Relations {
     /// line and cannot detect two different captures.
     #[must_use]
     pub fn capture(graph: &SourceGraph, facts: Option<&Facts>) -> Self {
-        let mut relations = lexical(graph);
-        let mut families = vec![Family::Lexical];
+        Self::of(graph, true, facts)
+    }
+    /// Only the qualified family of [`Self::capture`]; the graph still
+    /// supplies the bridge to lexical declarations.
+    #[must_use]
+    pub fn capture_qualified(graph: &SourceGraph, facts: &Facts) -> Self {
+        Self::of(graph, false, Some(facts))
+    }
+    fn of(graph: &SourceGraph, lexical_family: bool, facts: Option<&Facts>) -> Self {
+        let mut relations = Vec::new();
+        let mut families = Vec::new();
+        if lexical_family {
+            relations.extend(lexical(graph));
+            families.push(Family::Lexical);
+        }
         let mut limitations = Vec::new();
         if let Some(facts) = facts {
             relations.extend(qualified(graph, facts));

@@ -69,29 +69,33 @@ pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Res
     } else {
         None
     };
-    let mut relations = Relations::capture(graph, facts.as_ref());
-    if !options.families.contains(&FamilyArg::Lexical) {
-        relations
-            .relations
-            .retain(|relation| relation.schema.family != Family::Lexical);
-        relations
-            .families
-            .retain(|family| *family != Family::Lexical);
-    }
-    let mut bytes = Vec::new();
-    match options.format {
-        Format::Json => {
-            relations.write_json(&mut bytes)?;
-            bytes.push(b'\n');
+    let relations = match (options.families.contains(&FamilyArg::Lexical), &facts) {
+        (true, facts) => Relations::capture(graph, facts.as_ref()),
+        (false, Some(facts)) => Relations::capture_qualified(graph, facts),
+        (false, None) => return Err("--families names no family".into()),
+    };
+    let write = |out: &mut dyn Write| -> Result<()> {
+        match options.format {
+            Format::Json => {
+                relations.write_json(&mut *out)?;
+                out.write_all(b"\n")?;
+            }
+            Format::Jsonl => relations.write_jsonl(&mut *out)?,
         }
-        Format::Jsonl => relations.write_jsonl(&mut bytes)?,
-    }
-    match &options.out {
-        Some(path) => super::output::write_protected(
+        Ok(())
+    };
+    if let Some(path) = &options.out {
+        let mut bytes = Vec::new();
+        write(&mut bytes)?;
+        super::output::write_protected(
             path,
             bytes,
             &super::output::protected_inputs(metadata, graph, []),
-        ),
-        None => Ok(std::io::stdout().lock().write_all(&bytes)?),
+        )
+    } else {
+        // Stream: the document is never held as bytes as well as cells.
+        let mut stdout = std::io::BufWriter::new(std::io::stdout().lock());
+        write(&mut stdout)?;
+        Ok(stdout.flush()?)
     }
 }

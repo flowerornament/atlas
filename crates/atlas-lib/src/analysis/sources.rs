@@ -94,11 +94,7 @@ pub(super) fn read_sources(root: &Path, graph: &SourceGraph) -> Result<Sources> 
         }
         Ok((
             f.path.clone(),
-            Arc::new(crate::source::Source::of_workspace_file(
-                root,
-                Path::new(&f.path),
-                source,
-            )?),
+            crate::source::Source::of_workspace_file(root, &f.path, source)?,
         ))
     }))
 }

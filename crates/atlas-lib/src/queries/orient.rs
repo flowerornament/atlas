@@ -14,6 +14,7 @@ use crate::{
     discovery::Snapshot,
     model::{Declaration, Resolution},
     representations::Function,
+    source::discovery::target_key,
 };
 use serde::Serialize;
 use std::{
@@ -117,6 +118,19 @@ pub struct Row {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generated_lines: Option<usize>,
 }
+impl Row {
+    /// A row for one declaration site.
+    fn site(count: usize, name: String, path: String, line: usize) -> Self {
+        Self {
+            count,
+            name: Some(name),
+            path,
+            line: Some(line),
+            files: None,
+            generated_lines: None,
+        }
+    }
+}
 
 /// How much of the scope Atlas could resolve. Unresolved is not absent.
 #[derive(Debug, Default, Serialize)]
@@ -212,14 +226,12 @@ pub fn orient(snapshot: &Snapshot, scope: Option<&str>, rows: usize) -> Result<O
         if generated.contains(&file.file) {
             entry.2 += file.non_test_lines;
         } else if let Some(block) = &file.largest_block {
-            blocks.push(Row {
-                count: block.lines,
-                name: Some(block.name.clone()),
-                path: file.file.clone(),
-                line: Some(block.line),
-                files: None,
-                generated_lines: None,
-            });
+            blocks.push(Row::site(
+                block.lines,
+                block.name.clone(),
+                file.file.clone(),
+                block.line,
+            ));
         }
     }
     let lines: usize = dirs.values().map(|v| v.0).sum();
@@ -263,18 +275,12 @@ pub fn orient(snapshot: &Snapshot, scope: Option<&str>, rows: usize) -> Result<O
         .iter()
         .filter_map(|(to, from)| {
             let f = functions.get(to)?;
-            Some(Row {
-                count: from.len(),
-                name: Some(if f.qualified.is_empty() {
-                    f.name.clone()
-                } else {
-                    f.qualified.clone()
-                }),
-                path: f.file.clone(),
-                line: Some(f.line),
-                files: None,
-                generated_lines: None,
-            })
+            let name = if f.qualified.is_empty() {
+                &f.name
+            } else {
+                &f.qualified
+            };
+            Some(Row::site(from.len(), name.clone(), f.file.clone(), f.line))
         })
         .collect();
 
@@ -316,14 +322,12 @@ pub fn orient(snapshot: &Snapshot, scope: Option<&str>, rows: usize) -> Result<O
         .iter()
         .filter_map(|(target, sources)| {
             let (path, declaration) = declarations.get(target)?;
-            Some(Row {
-                count: sources.len(),
-                name: Some(declaration.name.clone()),
-                path: (*path).to_owned(),
-                line: Some(declaration.line),
-                files: None,
-                generated_lines: None,
-            })
+            Some(Row::site(
+                sources.len(),
+                declaration.name.clone(),
+                (*path).to_owned(),
+                declaration.line,
+            ))
         })
         .collect();
     let mut kinds = BTreeMap::new();
@@ -431,11 +435,10 @@ fn package_directory(snapshot: &Snapshot, name: &str) -> Option<String> {
         .into_iter()
         .find(|p| p.name.as_str() == name)?;
     let directory = package.manifest_path.parent()?.as_std_path();
-    let relative = directory
-        .strip_prefix(metadata.workspace_root.as_std_path())
-        .ok()?
-        .to_string_lossy()
-        .replace('\\', "/");
+    if !directory.starts_with(metadata.workspace_root.as_std_path()) {
+        return None;
+    }
+    let relative = target_key(metadata.workspace_root.as_std_path(), directory);
     Some(if relative.is_empty() {
         ".".to_owned()
     } else {
@@ -457,13 +460,7 @@ fn packages(snapshot: &Snapshot, names: &BTreeSet<&str>) -> Vec<Package> {
                 .map(|target| Target {
                     kinds: target.kind.iter().map(ToString::to_string).collect(),
                     name: target.name.clone(),
-                    root: target
-                        .src_path
-                        .as_std_path()
-                        .strip_prefix(root)
-                        .unwrap_or(target.src_path.as_std_path())
-                        .to_string_lossy()
-                        .replace('\\', "/"),
+                    root: target_key(root, target.src_path.as_std_path()),
                 })
                 .collect(),
         })
@@ -523,11 +520,8 @@ fn counts(map: BTreeMap<String, usize>) -> Vec<Count> {
 
 /// The first row of a section, unless it ties: a command built from one of
 /// several equal rows would read as a pick.
-fn leader(section: &Section) -> std::result::Result<&Row, usize> {
-    match section.rows.first() {
-        Some(row) if section.tied <= 1 => Ok(row),
-        _ => Err(section.tied),
-    }
+fn leader(section: &Section) -> Option<&Row> {
+    section.rows.first().filter(|_| section.tied <= 1)
 }
 fn next_commands(
     sections: &[Section],
@@ -541,7 +535,7 @@ fn next_commands(
         runnable,
     };
     let mut next = Vec::new();
-    let directory = by_id("mass").and_then(|s| leader(s).ok()).map(|row| {
+    let directory = by_id("mass").and_then(leader).map(|row| {
         let dir = row.path.trim_end_matches('/');
         if dir.is_empty() {
             ".".to_owned()
@@ -597,7 +591,7 @@ fn next_commands(
     }
     if let Some(section) = by_id("mentioned") {
         match leader(section) {
-            Ok(row) => next.push(command(
+            Some(row) => next.push(command(
                 &[
                     "name",
                     row.name.as_deref().unwrap_or_default(),
@@ -606,16 +600,16 @@ fn next_commands(
                 "where the most-mentioned type is declared and what names it",
                 true,
             )),
-            Err(tied) if tied > 1 => next.push(command(
+            None if section.tied > 1 => next.push(command(
                 &[
                     "name",
-                    &format!("<one of the {tied} tied types above>"),
+                    &format!("<one of the {} tied types above>", section.tied),
                     "--relations",
                 ],
                 "where a most-mentioned type is declared; the first rows tie, so none is picked",
                 false,
             )),
-            Err(_) => {}
+            None => {}
         }
     }
     if let Some(dir) = &directory {
@@ -625,7 +619,7 @@ fn next_commands(
             true,
         ));
     }
-    if let Some(row) = by_id("blocks").and_then(|s| leader(s).ok()) {
+    if let Some(row) = by_id("blocks").and_then(leader) {
         next.push(command(
             &["spans", "--scope", &row.path],
             "item boundaries in the file holding the largest block",

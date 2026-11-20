@@ -10,27 +10,38 @@ pub(super) struct Callee {
     pub(super) column: u32,
 }
 
-/// Locate `call`'s callee in `text`, the captured source of its file.
-pub(super) fn callee(text: &str, call: &Call) -> Option<Callee> {
-    let start = offset(text, call.site.line, call.site.column)?;
+/// The byte offset of each line's start in one file, read once per file.
+pub(super) struct Lines(Vec<usize>);
+impl Lines {
+    pub(super) fn of(text: &str) -> Self {
+        Self(
+            std::iter::once(0)
+                .chain(text.match_indices('\n').map(|(i, _)| i + 1))
+                .collect(),
+        )
+    }
+}
+
+/// Locate `call`'s callee in `text`, the captured source of its file, whose
+/// line starts are `lines`.
+pub(super) fn callee(text: &str, lines: &Lines, call: &Call) -> Option<Callee> {
+    let start = offset(text, lines, call.site.line, call.site.column)?;
     let (at, name) = match call.receiver.as_deref() {
         None => path_name(text, start, &call.spelling)?,
         Some(receiver) => method_name(text, start, receiver, &call.spelling)?,
     };
-    let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
+    // The line holding `at`: the last line start at or before it.
+    let line = lines.0.partition_point(|&line_start| line_start <= at) - 1;
     Some(Callee {
         name,
-        line: u32::try_from(text[..at].matches('\n').count()).ok()?,
-        column: u32::try_from(at - line_start).ok()?,
+        line: u32::try_from(line).ok()?,
+        column: u32::try_from(at - lines.0[line]).ok()?,
     })
 }
 
 /// Byte offset of a one-based line and zero-based character column.
-fn offset(text: &str, line: usize, column: usize) -> Option<usize> {
-    let mut start = 0;
-    for _ in 1..line {
-        start += text[start..].find('\n')? + 1;
-    }
+fn offset(text: &str, lines: &Lines, line: usize, column: usize) -> Option<usize> {
+    let start = *lines.0.get(line.checked_sub(1)?)?;
     let rest = &text[start..];
     let line_end = rest.find('\n').unwrap_or(rest.len());
     rest[..line_end]
@@ -131,10 +142,11 @@ mod tests {
     fn path_calls_name_their_last_segment_and_skip_turbofish() {
         let text =
             "fn f() {\n    Vec::<u8>::new();\n    ParameterValues::<Real>::block_samples();\n}\n";
-        let c = callee(text, &call(2, 4, "Vec::<u8>::new", None)).unwrap();
+        let c = callee(text, &Lines::of(text), &call(2, 4, "Vec::<u8>::new", None)).unwrap();
         assert_eq!((c.name.as_str(), c.line, c.column), ("new", 1, 15));
         let c = callee(
             text,
+            &Lines::of(text),
             &call(3, 4, "ParameterValues::<Real>::block_samples", None),
         )
         .unwrap();
@@ -144,8 +156,8 @@ mod tests {
     #[test]
     fn method_calls_name_the_method_after_the_receiver_in_bytes() {
         let text = "fn f() { é.len().len(); }\n";
-        let c = callee(text, &call(1, 9, "len", Some("é.len()"))).unwrap();
+        let c = callee(text, &Lines::of(text), &call(1, 9, "len", Some("é.len()"))).unwrap();
         assert_eq!(c.column, 18, "byte column of the second len");
-        assert!(callee(text, &call(1, 9, "missing", Some("é"))).is_none());
+        assert!(callee(text, &Lines::of(text), &call(1, 9, "missing", Some("é"))).is_none());
     }
 }

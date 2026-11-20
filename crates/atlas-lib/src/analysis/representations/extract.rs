@@ -247,18 +247,8 @@ pub(in crate::analysis) fn from_selected_sources(
         records.extend(c.1);
         literals.extend(c.2);
     }
-    let index = Index::from_selected_sources(
-        sources,
-        metadata,
-        graph,
-        &Architecture {
-            schema: 1,
-            provenance: vec![],
-            modules: vec![],
-            workflows: vec![],
-        },
-        tests,
-    )?;
+    let index =
+        Index::from_selected_sources(sources, metadata, graph, &Architecture::empty(), tests)?;
     let mut addresses = Addresses::new();
     for r in records.iter().filter(|r| r.signature.is_none()) {
         for mut scope in index.scopes(&r.file, &r.module) {

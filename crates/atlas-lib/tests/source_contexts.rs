@@ -96,12 +96,7 @@ fn targets_sharing_one_root_do_not_overwrite_each_other() {
         ("src/shared.rs", "pub fn make() {}\nfn main() { make(); }\n"),
     ]);
     let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
-    let architecture = atlas_lib::architecture::Architecture {
-        schema: 1,
-        provenance: vec![],
-        modules: vec![],
-        workflows: vec![],
-    };
+    let architecture = atlas_lib::architecture::Architecture::empty();
     let analysis = Analysis::new(&snapshot).unwrap();
     let index = analysis.index(&architecture).unwrap();
     assert_eq!(
@@ -591,12 +586,7 @@ fn indexed_call_positions_are_local_and_out_of_range_is_explicit() {
     ]);
     let snapshot = discovery::snapshot_workspace(fixture.path()).unwrap();
     let analysis = Analysis::new(&snapshot).unwrap();
-    let architecture = Architecture {
-        schema: 1,
-        provenance: vec![],
-        modules: vec![],
-        workflows: vec![],
-    };
+    let architecture = Architecture::empty();
     let index = analysis.index(&architecture).unwrap();
     let caller = index.select("src/lib.rs", "caller").unwrap();
     let call = &index.functions()[caller].flow.calls[0];
@@ -635,12 +625,7 @@ fn trait_impls_for_foreign_types_do_not_claim_foreign_calls() {
     ]);
     let snapshot = discovery::snapshot_workspace(fixture.path()).unwrap();
     let analysis = Analysis::new(&snapshot).unwrap();
-    let architecture = Architecture {
-        schema: 1,
-        provenance: vec![],
-        modules: vec![],
-        workflows: vec![],
-    };
+    let architecture = Architecture::empty();
     let index = analysis.index(&architecture).unwrap();
     let resolved = |function: &str, spelling: &str| {
         let caller = index.select("src/lib.rs", function).unwrap();
@@ -699,12 +684,7 @@ fn impls_of_workspace_types_behind_restricted_reexports_still_resolve() {
     ]);
     let snapshot = discovery::snapshot_workspace(fixture.path()).unwrap();
     let analysis = Analysis::new(&snapshot).unwrap();
-    let architecture = Architecture {
-        schema: 1,
-        provenance: vec![],
-        modules: vec![],
-        workflows: vec![],
-    };
+    let architecture = Architecture::empty();
     let index = analysis.index(&architecture).unwrap();
     let caller = index.select("src/outer/arith.rs", "run").unwrap();
     for (spelling, expected) in [("Ctx::add", "Ctx::add"), ("Ctx::sqrt", "Ctx::sqrt")] {

@@ -41,6 +41,10 @@ impl ModuleDeclaration {
             .map(|inline| inline.name.as_str())
             .chain(std::iter::once(self.name.as_str()))
     }
+    /// [`Self::module_path`] spelled with `::`.
+    pub fn qualified_name(&self) -> String {
+        self.module_path().collect::<Vec<_>>().join("::")
+    }
 }
 /// An inline `mod name { ... }` around a file module declaration.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

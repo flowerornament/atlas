@@ -62,7 +62,7 @@ pub(super) fn outside_mounts(
             if declaration.path.is_none() {
                 continue;
             }
-            let name = declaration.module_path().collect::<Vec<_>>().join("::");
+            let name = declaration.qualified_name();
             for rel in module_files(&file.rel, false, declaration) {
                 if !rel.starts_with(&inside) {
                     let module = parent
@@ -102,7 +102,7 @@ pub(super) fn outside_mounts(
             continue;
         };
         for declaration in source.file_module_declarations() {
-            let name = declaration.module_path().collect::<Vec<_>>().join("::");
+            let name = declaration.qualified_name();
             let children = module_files(&rel, false, declaration);
             let mut found = false;
             for child in &children {

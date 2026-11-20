@@ -168,6 +168,7 @@ impl FactsCache {
 
     /// The facts of `text`, from the entry for these exact bytes or from a
     /// parse that then fills it. A file that does not parse is not cached.
+    #[cfg(test)]
     pub(super) fn read(
         &self,
         path: &Path,
@@ -189,7 +190,10 @@ impl FactsCache {
         path: &Path,
         projection: &RustSourceProjection,
     ) -> Result<Option<syntax::Facts>, SyntaxError> {
-        let Some((payload, facts)) = fs::read(entry).ok().and_then(|bytes| decode(&bytes)) else {
+        let Some(bytes) = fs::read(entry).ok() else {
+            return Ok(None);
+        };
+        let Some((payload, facts)) = decode(&bytes) else {
             return Ok(None);
         };
         HITS.fetch_add(1, Relaxed);
@@ -197,7 +201,7 @@ impl FactsCache {
             return Ok(Some(facts));
         }
         let parsed = syntax::read(path, projection)?;
-        if encode_payload(&parsed).as_deref() == Some(payload.as_slice()) {
+        if encode_payload(&parsed).as_deref() == Some(payload) {
             return Ok(Some(facts));
         }
         if let Ok(mut found) = MISMATCHES.lock() {
@@ -305,17 +309,12 @@ pub(super) fn lookup(root: &Path, path: &Path, text: String) -> Lookup {
     };
     let entry = cache.entry(path, projection.text());
     match cache.lookup(&entry, path, &projection) {
-        Ok(Some(facts)) => Lookup::Found(Captured::Parsed(Arc::new(Source::from_facts(
-            projection, facts,
-        )))),
         Ok(None) => Lookup::Parse {
             projection,
             entry: Some(entry),
         },
-        Err(error) => Lookup::Found(Captured::Invalid {
-            text: projection.text().to_owned(),
-            error,
-        }),
+        Ok(Some(facts)) => Lookup::Found(captured(projection, Ok(facts))),
+        Err(error) => Lookup::Found(captured(projection, Err(error))),
     }
 }
 
@@ -329,6 +328,13 @@ pub(super) fn parse(
         Some(entry) => fill(entry, path, &projection),
         None => syntax::read(path, &projection),
     };
+    captured(projection, facts)
+}
+
+fn captured(
+    projection: RustSourceProjection,
+    facts: Result<syntax::Facts, SyntaxError>,
+) -> Captured {
     match facts {
         Ok(facts) => Captured::Parsed(Arc::new(Source::from_facts(projection, facts))),
         Err(error) => Captured::Invalid {
@@ -336,16 +342,6 @@ pub(super) fn parse(
             error,
         },
     }
-}
-
-/// [`Source::of`] through the installed cache when it may serve `root`.
-pub(super) fn source(root: &Path, path: &Path, text: String) -> Result<Source, SyntaxError> {
-    let Some(cache) = FactsCache::installed().filter(|cache| cache.serves(root)) else {
-        return Source::of(path, text);
-    };
-    let projection = RustSourceProjection::of(text);
-    let facts = cache.read(path, &projection)?;
-    Ok(Source::from_facts(projection, facts))
 }
 
 /// Parse after a miss and store the facts; a failed store leaves the run
@@ -370,7 +366,7 @@ fn encode_payload(facts: &syntax::Facts) -> Option<Vec<u8>> {
 /// An entry is the magic, a SHA-256 of the payload, then the JSON payload.
 /// Returns the payload with the facts it decodes to, or `None` for anything
 /// else: a short, truncated, altered or unknown entry is a miss.
-fn decode(bytes: &[u8]) -> Option<(Vec<u8>, syntax::Facts)> {
+fn decode(bytes: &[u8]) -> Option<(&[u8], syntax::Facts)> {
     let (magic, rest) = bytes.split_at_checked(MAGIC.len())?;
     let (digest, payload) = rest.split_at_checked(HEADER - MAGIC.len())?;
     if magic != MAGIC || Sha256::digest(payload).as_slice() != digest {
@@ -379,7 +375,7 @@ fn decode(bytes: &[u8]) -> Option<(Vec<u8>, syntax::Facts)> {
     let facts = serde_json::from_slice::<wire::WireFacts>(payload)
         .ok()?
         .into_facts()?;
-    Some((payload.to_vec(), facts))
+    Some((payload, facts))
 }
 
 /// Write an entry through a temporary file and a rename, so a reader sees a

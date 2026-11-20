@@ -112,10 +112,13 @@ impl Source {
     /// installed facts cache when it may serve that workspace.
     pub(crate) fn of_workspace_file(
         root: &Path,
-        path: &Path,
+        path: &str,
         text: String,
-    ) -> Result<Self, SyntaxError> {
-        facts_cache::source(root, path, text)
+    ) -> Result<Arc<Self>, SyntaxError> {
+        match capture::capture(root, path, text) {
+            Captured::Parsed(source) => Ok(source),
+            Captured::Invalid { error, .. } => Err(error),
+        }
     }
     fn from_facts(projection: RustSourceProjection, facts: syntax::Facts) -> Self {
         Self {
