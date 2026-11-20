@@ -461,3 +461,39 @@ fn census_reads_file_modules_inside_inline_modules() {
     let census = String::from_utf8_lossy(&output.stdout);
     assert!(census.contains("src/tree/fold.rs"), "{census}");
 }
+
+#[test]
+fn dependencies_draws_every_package_by_default() {
+    // A virtual workspace has no root `src`, and a root package's `src` is not
+    // the whole project: by default every package's files are drawn.
+    let f = Fixture::new(&[]);
+    f.write(
+        "Cargo.toml",
+        "[workspace]\nmembers=['crates/one','crates/two']\nresolver='3'\n",
+    );
+    for name in ["one", "two"] {
+        f.write(
+            &format!("crates/{name}/Cargo.toml"),
+            &format!("[package]\nname='{name}'\nversion='0.0.0'\nedition='2024'\n"),
+        );
+        f.write(&format!("crates/{name}/src/lib.rs"), "pub fn run() {}\n");
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .args(["atlas", "dependencies", "--json", "--root"])
+        .arg(f.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let nodes: Vec<_> = json["view"]["diagram"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| n["id"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(nodes, ["crates/one/src/lib.rs", "crates/two/src/lib.rs"]);
+}

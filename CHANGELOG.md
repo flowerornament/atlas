@@ -6,6 +6,12 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `dependencies` without a scope draws every package's production files.
+ Before, it drew `src` only, which left out a workspace's member packages
+ (atlas-lib on Atlas), and refused on a workspace with no root `src` (`scope
+ "src" is ambiguous`). With several packages it ends with a stderr line
+ naming one to draw: `cargo atlas dependencies --scope crates/<largest>/src`.
+ The JSON shape is unchanged.
 - An unresolved call whose path starts with a name nothing in scope binds
  (no import, item, module or crate root), such as `Box::new`, `Ok(..)` or
  `std::fmt::Formatter::write_str`, is reported as written. Before, the reason
