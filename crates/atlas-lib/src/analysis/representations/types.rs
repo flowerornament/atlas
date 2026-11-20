@@ -101,6 +101,15 @@ pub struct UnknownType {
     pub spelling: String,
     pub role: Role,
     pub reason: String,
+    /// The parameter, return or field the spelling occupies, as for a
+    /// [`Reference`].
+    #[serde(default)]
+    pub slot: String,
+    /// Where the spelling is written (1-based), so each mention is its own row.
+    #[serde(default)]
+    pub line: usize,
+    #[serde(default)]
+    pub column: usize,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[non_exhaustive]

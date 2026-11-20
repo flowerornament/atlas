@@ -446,12 +446,15 @@ pub const RELATIONS: &[Relation] = &[
             text("spelling", "The type as written."),
             text("role", "input, output, field or alias-target."),
             text("reason", "Why it is unresolved, as Atlas reports it."),
+            text("slot", "The parameter, return or field it occupies."),
+            integer("line", "Line of the spelling."),
+            integer("column", "Column of the spelling, 1-based."),
         ],
         basis: None,
         unknowns: None,
         notes: &[
             "Includes external and primitive types.",
-            "Rows carry no site, so two identical rows can be two mentions or one mention observed twice; count them by id only with that caveat.",
+            "Each mention is its own row: a generic argument such as the `u32` in `Vec<u32>` is a row of its own beside `Vec<u32>`.",
         ],
     },
     Relation {

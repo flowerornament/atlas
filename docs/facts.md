@@ -337,9 +337,12 @@ Qualified. A type spelling in a signature or field that Atlas did not resolve to
 | `spelling` | text | The type as written. |
 | `role` | text | input, output, field or alias-target. |
 | `reason` | text | Why it is unresolved, as Atlas reports it. |
+| `slot` | text | The parameter, return or field it occupies. |
+| `line` | integer | Line of the spelling. |
+| `column` | integer | Column of the spelling, 1-based. |
 
 - Includes external and primitive types.
-- Rows carry no site, so two identical rows can be two mentions or one mention observed twice; count them by id only with that caveat.
+- Each mention is its own row: a generic argument such as the `u32` in `Vec<u32>` is a row of its own beside `Vec<u32>`.
 
 ### `construction`
 

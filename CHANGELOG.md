@@ -6,6 +6,13 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Each unresolved type mention in the type facts (`unknown_types` in
+ `dependencies --json` and `types --json`, `unknown_type` in `facts`) names
+ the parameter, return or field it occupies and the line and column of its
+ spelling, so every mention is its own row. Before, two `u32` fields of one
+ struct were two identical rows; on one large workspace 6,843 of 39,926 rows
+ were exact duplicates. **Library:** `representations::UnknownType` has
+ `slot`, `line` and `column`.
 - New command `facts` exports what Atlas found as flat relations, in JSON or
  JSON Lines: files, module paths, declarations, `use` statements, mentions
  and diagnostics (lexical), and functions, types, fields, calls, references,

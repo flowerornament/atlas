@@ -94,12 +94,12 @@ impl References<'_> {
                         wrappers: wrappers.to_vec(),
                     });
                 } else {
-                    self.unknown.push(UnknownType {
-                        from: self.r.id.clone(),
-                        spelling: text(self.source, p.span()),
-                        role: *role,
-                        reason: "not a uniquely resolved workspace struct/enum/alias (may be external, trait, primitive or ambiguous)".into(),
-                    });
+                    self.unknown(
+                        p.span(),
+                        role,
+                        slot,
+                        "not a uniquely resolved workspace struct/enum/alias (may be external, trait, primitive or ambiguous)",
+                    );
                 }
                 for segment in &p.path.segments {
                     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
@@ -141,13 +141,20 @@ impl References<'_> {
             }
             syn::Type::Paren(t) => self.ty(&t.elem, role, slot, expression, borrow, wrappers),
             syn::Type::Group(t) => self.ty(&t.elem, role, slot, expression, borrow, wrappers),
-            _ => self.unknown.push(UnknownType {
-                from: self.r.id.clone(),
-                spelling: text(self.source, t.span()),
-                role: *role,
-                reason: "unsupported type syntax".into(),
-            }),
+            _ => self.unknown(t.span(), role, slot, "unsupported type syntax"),
         }
+    }
+    fn unknown(&mut self, span: proc_macro2::Span, role: &Role, slot: &str, reason: &str) {
+        let start = span.start();
+        self.unknown.push(UnknownType {
+            from: self.r.id.clone(),
+            spelling: text(self.source, span),
+            role: *role,
+            reason: reason.into(),
+            slot: slot.into(),
+            line: start.line,
+            column: start.column + 1,
+        });
     }
     fn signature(&mut self, sig: &syn::Signature) {
         for input in &sig.inputs {

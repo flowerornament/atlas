@@ -349,3 +349,42 @@ fn changed_source_cannot_be_reported_under_the_old_fingerprint() {
             .contains("source changed after discovery")
     );
 }
+
+#[test]
+fn each_unknown_type_mention_is_its_own_row() {
+    // Three `u32` mentions in one struct, and two in one signature, are five
+    // witnesses: each row names its slot and where the spelling is written.
+    let f = Fixture::new(&[(
+        "src/lib.rs",
+        "pub struct Pair { pub a: u32, pub b: u32, pub c: Vec<u32> }\n\
+         pub fn add(a: u32, b: u32) {}\n",
+    )]);
+    let m = MetadataCommand::new()
+        .current_dir(f.path())
+        .no_deps()
+        .exec()
+        .expect("fixture metadata");
+    let g = discovery::scan_metadata(&m).expect("fixture graph");
+    let facts = types::extract(f.path(), &m, &g).expect("fixture facts");
+    let rows: Vec<_> = facts
+        .unknown_types
+        .iter()
+        .filter(|row| row.spelling == "u32")
+        .map(|row| (row.slot.as_str(), row.line, row.column))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("a", 1, 26),
+            ("b", 1, 38),
+            ("c", 1, 54),
+            ("a", 2, 15),
+            ("b", 2, 23)
+        ]
+    );
+    let mut seen = std::collections::BTreeSet::new();
+    for row in &facts.unknown_types {
+        let key = serde_json::to_string(row).expect("row JSON");
+        assert!(seen.insert(key.clone()), "duplicate row {key}");
+    }
+}

@@ -445,6 +445,9 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
             (&u.spelling).into(),
             label(&u.role),
             (&u.reason).into(),
+            (&u.slot).into(),
+            u.line.into(),
+            u.column.into(),
         ]);
     }
     let built = |name: &str, list: &[crate::representations::Constructor]| {

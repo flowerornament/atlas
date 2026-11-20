@@ -610,13 +610,28 @@
           "name": "reason",
           "kind": "text",
           "description": "Why it is unresolved, as Atlas reports it."
+        },
+        {
+          "name": "slot",
+          "kind": "text",
+          "description": "The parameter, return or field it occupies."
+        },
+        {
+          "name": "line",
+          "kind": "integer",
+          "description": "Line of the spelling."
+        },
+        {
+          "name": "column",
+          "kind": "integer",
+          "description": "Column of the spelling, 1-based."
         }
       ],
       "basis": null,
       "unknowns": null,
       "notes": [
         "Includes external and primitive types.",
-        "Rows carry no site, so two identical rows can be two mentions or one mention observed twice; count them by id only with that caveat."
+        "Each mention is its own row: a generic argument such as the `u32` in `Vec<u32>` is a row of its own beside `Vec<u32>`."
       ]
     },
     {
