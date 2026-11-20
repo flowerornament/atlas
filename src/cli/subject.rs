@@ -70,6 +70,38 @@ pub(crate) struct Root {
     subject: Option<String>,
 }
 
+/// The revision a review command compares against: the bare REVISION, or
+/// `--vs REV`, an equal spelling (spec §3.4). Neither is superseded.
+#[derive(Args)]
+pub(crate) struct Revision {
+    /// The revision to compare against: anything Git or jj resolves, such as
+    /// HEAD~1 or @-. --vs REV is the same.
+    #[arg(value_name = "REVISION", required_unless_present = "vs")]
+    bare: Option<String>,
+    /// The revision to compare against, as a flag.
+    #[arg(long, value_name = "REV")]
+    vs: Option<String>,
+}
+impl Revision {
+    /// Refuse two different revisions. They are compared as written: two
+    /// spellings of one commit are refused too, and say so.
+    pub(crate) fn read(&self) -> Result<()> {
+        match (&self.bare, &self.vs) {
+            (Some(bare), Some(vs)) if bare != vs => Err(format!(
+                "give the revision once: REV or --vs REV (got {bare} and --vs {vs})"
+            )
+            .into()),
+            _ => Ok(()),
+        }
+    }
+    pub(crate) fn reference(&self) -> &str {
+        self.bare
+            .as_deref()
+            .or(self.vs.as_deref())
+            .unwrap_or_default()
+    }
+}
+
 /// What the bare words may hold besides a project root.
 #[derive(Clone, Copy)]
 enum Kind {

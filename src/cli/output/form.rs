@@ -54,6 +54,8 @@ pub(crate) fn note_superseded(matches: &ArgMatches, notices: &mut Notices) {
         ("format", "--format", "--as"),
         ("scope", "--scope", "--in"),
         ("types", "--type", "the bare TYPES argument"),
+        ("before", "--before", "--vs"),
+        ("after", "--after", "--at"),
     ] {
         if given(matches, id).is_some() {
             notices.superseded(old, new);

@@ -103,7 +103,7 @@ fn as_json_prints_the_bytes_json_prints_and_json_needs_no_notice() {
         &["comments"],
         &["dependencies"],
         &["types", "Home"],
-        &["compare", "--before", "HEAD", "--query", "question.json"],
+        &["compare", "--vs", "HEAD", "--query", "question.json"],
         &[
             "program",
             "--architecture",

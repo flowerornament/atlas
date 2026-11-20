@@ -10,10 +10,18 @@ use std::{
 pub(crate) struct Options {
     #[command(flatten)]
     pub(super) words: crate::cli::subject::Root,
-    #[arg(long)]
-    before: String,
-    /// Defaults to current working source, without snapshotting or changing it.
-    #[arg(long)]
+    /// The revision to compare from.
+    #[arg(long, value_name = "REV", required_unless_present = "before")]
+    vs: Option<String>,
+    /// The revision to compare to; defaults to the current working source,
+    /// without snapshotting or changing it.
+    #[arg(long, value_name = "REV", conflicts_with = "after")]
+    at: Option<String>,
+    /// Superseded by --vs.
+    #[arg(long, value_name = "REV", conflicts_with = "vs")]
+    before: Option<String>,
+    /// Superseded by --at.
+    #[arg(long, value_name = "REV")]
     after: Option<String>,
     #[arg(long)]
     query: Option<PathBuf>,
@@ -29,11 +37,17 @@ pub(crate) fn run(
     metadata: &cargo_metadata::Metadata,
     options: &Options,
 ) -> Result<()> {
-    let before = Revision::read(root, &options.before)?;
+    let before = options
+        .vs
+        .as_deref()
+        .or(options.before.as_deref())
+        .ok_or("give the revision to compare from with --vs REV")?;
+    let before = Revision::read(root, before)?;
     let before_facts = read(&before.root)?;
     let after = options
-        .after
+        .at
         .as_deref()
+        .or(options.after.as_deref())
         .map(|r| Revision::read(root, r))
         .transpose()?;
     let snapshot = discovery::snapshot_metadata(metadata)?;

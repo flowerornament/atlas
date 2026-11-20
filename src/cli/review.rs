@@ -6,8 +6,8 @@ use std::path::Path;
 
 #[derive(Args)]
 pub(crate) struct Options {
-    /// Published revision to compare against current source.
-    reference: String,
+    #[command(flatten)]
+    pub(super) revision: crate::cli::subject::Revision,
     /// Physical source scope, including removed files or folders.
     #[arg(
         long = "in",
@@ -30,7 +30,7 @@ impl Options {
 #[derive(Args)]
 pub(crate) struct DiffOptions {
     #[command(flatten)]
-    comparison: Options,
+    pub(super) comparison: Options,
     /// Review changed captured declarations, including private subjects by default.
     #[arg(long)]
     items: bool,
@@ -61,7 +61,8 @@ pub(crate) fn run(
     options: &Options,
     question: Question,
 ) -> Result<()> {
-    let (commit, before_snapshot, after_snapshot) = captures(root, metadata, &options.reference)?;
+    let (commit, before_snapshot, after_snapshot) =
+        captures(root, metadata, options.revision.reference())?;
     match question {
         Question::Shape => {
             let report =
@@ -261,7 +262,7 @@ pub(crate) fn diff(
         return run(root, metadata, &options.comparison, Question::Shape);
     }
     let args = &options.comparison;
-    let (commit, before, after) = captures(root, metadata, &args.reference)?;
+    let (commit, before, after) = captures(root, metadata, args.revision.reference())?;
     let population = options
         .population
         .selected()

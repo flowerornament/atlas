@@ -243,15 +243,15 @@ operator overload does. The test file
 ## How a change affected a type
 
 ```sh
-cargo atlas compare --before HEAD~1 --query pipeline.json
-cargo atlas compare --before v1.0.0 --after v1.1.0 --query pipeline.json --as svg
+cargo atlas compare --vs HEAD~1 --query pipeline.json
+cargo atlas compare --vs v1.0.0 --at v1.1.0 --query pipeline.json --as svg
 ```
 
 `compare` applies the same saved question to two versions of the code and
 lists what changed: types, function signatures, fields, the number of places a
 type is built, and the order of calls in preparation functions. By default it
-compares a commit (`--before`) with your current files; add `--after` to
-compare two commits.
+compares a commit (`--vs`) with your current files; add `--at` to compare
+two commits. The 0.18 spellings `--before` and `--after` still work until 1.0.
 
 For example, after adding a `length` field to `Checked`:
 

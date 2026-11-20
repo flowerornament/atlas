@@ -270,3 +270,108 @@ fn scope_and_its_old_spelling_read_the_same() {
         "{tail}"
     );
 }
+
+/// `workspace()` with two commits, the second adding a function.
+fn history() -> Fixture {
+    let f = workspace();
+    f.write(
+        "question.json",
+        r#"{"title":"Alpha","types":[{"name":"Alpha","file":"a/src/lib.rs"}]}"#,
+    );
+    let git = |args: &[&str]| {
+        let status = Command::new("git")
+            .current_dir(f.path())
+            .args([
+                "-c",
+                "user.name=Atlas Test",
+                "-c",
+                "user.email=atlas@example.invalid",
+            ])
+            .args(args)
+            .status()
+            .expect("git");
+        assert!(status.success(), "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    git(&["add", "."]);
+    git(&["commit", "-qm", "one"]);
+    f.write(
+        "a/src/lib.rs",
+        "pub struct Alpha;\npub fn alpha() -> Alpha { Alpha }\npub fn again() -> Alpha { Alpha }\n",
+    );
+    git(&["commit", "-qam", "two"]);
+    f
+}
+
+#[test]
+fn vs_is_the_bare_revision_and_compare_takes_vs_and_at() {
+    let f = history();
+    let dir = f.path();
+    // AT12: --vs is the bare revision, given either way or both ways.
+    for command in ["diff", "moved", "visibility"] {
+        let bare = atlas(dir, &[command, "HEAD~1", "--json"]);
+        let flag = atlas(dir, &[command, "--vs", "HEAD~1", "--json"]);
+        let both = atlas(dir, &[command, "HEAD~1", "--vs", "HEAD~1", "--json"]);
+        assert_eq!(stdout(&bare), stdout(&flag), "{command}");
+        assert_eq!(stdout(&bare), stdout(&both), "{command}");
+        assert!(
+            flag.stderr.is_empty() && bare.stderr.is_empty(),
+            "{command}"
+        );
+        assert_eq!(
+            refusal(dir, &[command, "HEAD~1", "--vs", "HEAD"]),
+            "atlas: give the revision once: REV or --vs REV (got HEAD~1 and --vs HEAD)\n",
+            "{command}"
+        );
+    }
+    // compare: --vs and --at for --before and --after, with one notice.
+    let new = atlas(
+        dir,
+        &[
+            "compare",
+            "--vs",
+            "HEAD~1",
+            "--at",
+            "HEAD",
+            "--query",
+            "question.json",
+            "--json",
+        ],
+    );
+    let old = atlas(
+        dir,
+        &[
+            "compare",
+            "--before",
+            "HEAD~1",
+            "--after",
+            "HEAD",
+            "--query",
+            "question.json",
+            "--json",
+        ],
+    );
+    assert_eq!(stdout(&new), stdout(&old));
+    assert!(new.stderr.is_empty(), "{}", stderr(&new));
+    assert_eq!(
+        stderr(&old),
+        format!("atlas: note: --before is now --vs, --after is now --at {NOTE}\n")
+    );
+    assert!(stdout(&new).contains("again"), "{}", stdout(&new));
+    let current = atlas(
+        dir,
+        &[
+            "compare",
+            "--vs",
+            "HEAD~1",
+            "--query",
+            "question.json",
+            "--json",
+        ],
+    );
+    // Without --at, the current files are the other side: the same changes.
+    let changes = |output: &Output| {
+        serde_json::from_str::<serde_json::Value>(&stdout(output)).expect("JSON")["changes"].clone()
+    };
+    assert_eq!(changes(&current), changes(&new));
+}

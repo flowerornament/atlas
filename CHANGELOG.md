@@ -36,7 +36,12 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  now reads DIR, where 0.18 failed to start `cargo metadata`.
 - `flow --format svg|html` without `--backend pele` still draws text, as in
  0.18; the notice points at `--as`, which draws the image.
+- `--vs REV` on `diff`, `moved`, `visibility` and `delta` is the same as the
+ bare revision, which stays first-class; two different revisions are
+ refused (`atlas: give the revision once: REV or --vs REV`). `compare` takes
+ `--vs REV` and `--at REV` for `--before` and `--after`.
 - Superseded spellings (`--backend`, output `--format`, `--scope`, `--type`,
+ `compare --before/--after`,
  a positional ROOT, `flow`'s positional ANCHOR, the `representations`
  alias) still work until 1.0 and print one line on stderr before any other
  output: `atlas: note: --backend is now --as (the old spellings work until

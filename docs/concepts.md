@@ -138,7 +138,7 @@ Review commands compare your current code with an earlier commit:
 ```sh
 cargo atlas diff HEAD~1                 # Git: the previous commit
 cargo atlas diff @-                     # jj: the previous change
-cargo atlas compare --before v1.2.0 --after v1.3.0
+cargo atlas compare --vs v1.2.0 --at v1.3.0
 ```
 
 Atlas turns the name you give into an exact commit, then copies that commit's

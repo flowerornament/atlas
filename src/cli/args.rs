@@ -181,7 +181,7 @@ pub(super) enum Command {
     Flow(flow::Options),
     /// Compare selected types and their functions between two commits.
     #[command(
-        after_help = "Answers: how did the selected types' signatures, fields and construction sites change between two versions?\nCompares --before with your current files, or with --after. Select types with a saved question (--query).\nItems are matched by file and name; a rename shows as a removal and an addition.\nExample: cargo atlas compare --before HEAD~1 --query pipeline.json"
+        after_help = "Answers: how did the selected types' signatures, fields and construction sites change between two versions?\nCompares --vs REV with your current files, or with --at REV. Select types with a saved question (--query).\nItems are matched by file and name; a rename shows as a removal and an addition.\nExample: cargo atlas compare --vs HEAD~1 --query pipeline.json"
     )]
     Compare(comparison::Options),
     /// Draw the stages a project declares in its code, using an adapter.
@@ -208,6 +208,10 @@ pub(super) enum Command {
         after_help = "Answers: does the candidate commit break a rule in the policy, or make a measured number worse than the baseline REFERENCE?\nVerdicts: PASS, REFUSE (a rule is broken) or UNAVAILABLE (evidence is missing). REFUSE and UNAVAILABLE exit with an error; with --json, REFUSE is data and exits successfully.\nThe policy must be committed. See docs/checks.md.\nExample: cargo atlas delta HEAD~1 --policy .config/architecture.toml --citation-markers docs/"
     )]
     #[command(mut_arg("json", |arg| arg.help("Print the report as JSON. A REFUSE verdict is then data and exits successfully; UNAVAILABLE still fails.")))]
+    #[command(mut_arg("bare", |arg| {
+        arg.value_name("REFERENCE")
+            .help("The published revision whose policy and source form the baseline. --vs REV is the same.")
+    }))]
     Delta(delta::Options),
     /// Report code that uses stages out of the declared order.
     #[command(
@@ -290,12 +294,11 @@ impl Command {
                 }
                 Ok(root)
             }
+            Self::Diff(a) => a.comparison.revision.read().map(|()| None),
+            Self::Moved(a) | Self::Visibility(a) => a.revision.read().map(|()| None),
+            Self::Delta(a) => a.revision.read().map(|()| None),
             Self::Facts(_)
             | Self::Query(_)
-            | Self::Diff(_)
-            | Self::Moved(_)
-            | Self::Visibility(_)
-            | Self::Delta(_)
             | Self::Stages(_)
             | Self::Policy(_)
             | Self::Seams(_) => Ok(None),

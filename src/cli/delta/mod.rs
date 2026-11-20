@@ -19,8 +19,8 @@ mod presentation;
 
 #[derive(Args)]
 pub(crate) struct Options {
-    /// Published revision whose policy and source form the baseline.
-    reference: String,
+    #[command(flatten)]
+    pub(crate) revision: crate::cli::subject::Revision,
     /// Exact candidate revision; defaults to the current Git/JJ commit.
     #[arg(long)]
     candidate: Option<String>,
@@ -44,7 +44,7 @@ pub(crate) fn run(
     let started = Instant::now();
     let store = GitStore::discover(root)?;
     let (before, published_bytes, baseline_id) = {
-        let baseline = store.revision(&options.reference)?;
+        let baseline = store.revision(options.revision.reference())?;
         (
             discovery::snapshot_workspace(baseline.path())?,
             baseline.file(&options.policy)?,
