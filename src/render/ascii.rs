@@ -50,41 +50,50 @@ impl Renderer for Ascii {
             writeln!(out, "+")?;
         }
         writeln!(out, "\nRELATIONSHIPS")?;
-        let labels: BTreeMap<_, _> = diagram.nodes.iter().map(|n| (&n.id, &n.label)).collect();
+        let labels = unique_labels(diagram);
         for edge in &diagram.edges {
             writeln!(
                 out,
                 "  [{}] --{} ({} {})--> [{}]",
-                visible(labels[&edge.from]),
+                visible(&labels[edge.from.as_str()]),
                 edge.label
                     .as_deref()
                     .unwrap_or_else(|| edge.evidence.label()),
                 edge.count(),
                 if edge.count() == 1 { "site" } else { "sites" },
-                visible(labels[&edge.to])
+                visible(&labels[edge.to.as_str()])
             )?;
         }
-        writeln!(out, "\nCOVERAGE")?;
+        let mut coverage = String::new();
         for (reason, ids) in &diagram.coverage.hidden_relationships {
             writeln!(
-                out,
+                coverage,
                 "  {}: {} source relationships",
                 visible(reason),
                 ids.len()
             )?;
         }
         for (kind, files) in &diagram.coverage.collapsed_files {
-            writeln!(out, "  collapsed {}: {} files", visible(kind), files.len())?;
+            writeln!(
+                coverage,
+                "  collapsed {}: {} files",
+                visible(kind),
+                files.len()
+            )?;
         }
         if !diagram.coverage.unassigned_files.is_empty() {
             writeln!(
-                out,
+                coverage,
                 "  unassigned: {}",
                 diagram.coverage.unassigned_files.join(", ")
             )?;
         }
         for (name, link) in &diagram.evidence_links {
-            writeln!(out, "  {}: {}", visible(name), visible(link))?;
+            writeln!(coverage, "  {}: {}", visible(name), visible(link))?;
+        }
+        // An empty section says nothing; leave it out.
+        if !coverage.is_empty() {
+            write!(out, "\nCOVERAGE\n{coverage}")?;
         }
         writeln!(out, "\nEVIDENCE / LIMITS")?;
         for note in &diagram.notes {
@@ -98,6 +107,35 @@ impl Renderer for Ascii {
             companions: Vec::new(),
         })
     }
+}
+
+/// Each node's label, or, where labels repeat (several `mod.rs`), the
+/// shortest suffix of its path that no other node's path ends in.
+fn unique_labels(diagram: &Diagram) -> BTreeMap<&str, String> {
+    let mut counts = BTreeMap::<&str, usize>::new();
+    for node in &diagram.nodes {
+        *counts.entry(node.label.as_str()).or_default() += 1;
+    }
+    diagram
+        .nodes
+        .iter()
+        .map(|node| {
+            if counts[node.label.as_str()] == 1 {
+                return (node.id.as_str(), node.label.clone());
+            }
+            let parts: Vec<&str> = node.id.split('/').collect();
+            let suffix = (1..=parts.len())
+                .map(|n| parts[parts.len() - n..].join("/"))
+                .find(|suffix| {
+                    diagram.nodes.iter().all(|other| {
+                        other.id == node.id
+                            || !(other.id == *suffix || other.id.ends_with(&format!("/{suffix}")))
+                    })
+                })
+                .unwrap_or_else(|| node.id.clone());
+            (node.id.as_str(), suffix)
+        })
+        .collect()
 }
 
 fn coarse(diagram: &Diagram) -> Result<Artifact> {

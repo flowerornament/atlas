@@ -6,6 +6,11 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `dependencies` text (and the file-level `map` and `program` views): an
+ edge names each file by the shortest path suffix no other file shares
+ (`index/mod.rs`, not `mod.rs`). The header says what follows, such as
+ `137 files; 281 links between files`, leaving out zero counts of things
+ not shown, and an empty `COVERAGE` section is left out. JSON is unchanged.
 - Help: `--json` is described on every command that has it, as are
  `flow --architecture` and `--path`, `--backend`, `--format` and
  `--evidence-dir`. `--pub-only` is marked as the deprecated spelling of

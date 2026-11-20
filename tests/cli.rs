@@ -589,3 +589,28 @@ fn every_json_flag_is_documented_and_comments_needs_no_audit_flag() {
         );
     }
 }
+
+#[test]
+fn dependencies_text_names_files_unambiguously_and_says_what_follows() {
+    // Two `mod.rs` files: an edge between `[mod.rs]` and `[mod.rs]` cannot be
+    // read. Each label is the shortest path suffix no other node shares.
+    let f = Fixture::new(&[
+        ("src/lib.rs", "pub mod a;\npub mod b;\n"),
+        ("src/a/mod.rs", "pub fn go() { crate::b::run(); }\n"),
+        ("src/b/mod.rs", "pub fn run() {}\n"),
+    ]);
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .args(["atlas", "dependencies", "--root"])
+        .arg(f.path())
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("[a/mod.rs] --calls"), "{text}");
+    assert!(text.contains("--> [b/mod.rs]"), "{text}");
+    let header = text.lines().nth(1).unwrap_or_default();
+    assert_eq!(header, "3 files; 1 link between files", "{text}");
+    assert!(
+        !text.contains("COVERAGE"),
+        "an empty section is left out: {text}"
+    );
+}

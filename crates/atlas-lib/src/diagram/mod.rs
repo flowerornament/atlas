@@ -206,13 +206,42 @@ impl Diagram {
             .map(Vec::len)
             .sum();
         let collapsed: usize = self.coverage.collapsed_files.values().map(Vec::len).sum();
-        format!(
-            "{} selected files; {} nodes; {} crossing groups; {internal} internal / {hidden} summarized source relations; {collapsed} collapsed files; {} unassigned / {} outside profile files",
-            self.inventory.len(),
-            self.nodes.len(),
+        // State what follows; a zero count of something not shown is noise.
+        let plural =
+            |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+        let files = self.inventory.len();
+        let mut parts = vec![plural(files, "file", "files")];
+        if self.nodes.len() != files {
+            parts.push(plural(self.nodes.len(), "node", "nodes"));
+        }
+        parts.push(plural(
             self.edges.len(),
-            self.coverage.unassigned_files.len(),
-            self.coverage.outside_profile_files.len()
-        )
+            "link between files",
+            "links between files",
+        ));
+        for (count, one, many) in [
+            (
+                internal,
+                "relation inside one node",
+                "relations inside one node",
+            ),
+            (hidden, "summarized relation", "summarized relations"),
+            (collapsed, "collapsed file", "collapsed files"),
+            (
+                self.coverage.unassigned_files.len(),
+                "unassigned file",
+                "unassigned files",
+            ),
+            (
+                self.coverage.outside_profile_files.len(),
+                "file outside the profile",
+                "files outside the profile",
+            ),
+        ] {
+            if count > 0 {
+                parts.push(plural(count, one, many));
+            }
+        }
+        parts.join("; ")
     }
 }

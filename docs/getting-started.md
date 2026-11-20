@@ -145,7 +145,7 @@ wherever you point `--out`. It never changes your source files.
 ```console
 $ cargo atlas dependencies --relation calls
 Source Calls: workspace
-5 selected files; 5 nodes; 2 crossing groups; ...
+5 files; 2 links between files
 
 +-- src
 |  [n1] check.rs
