@@ -96,7 +96,9 @@ pub struct Node {
     pub internal_relationships: Vec<String>,
     pub surface: Option<Surface>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Serialized with its `count`, the number of observations behind it, so a
+/// reader can rank edges without counting the witness lists.
+#[derive(Debug, Clone, Deserialize)]
 pub struct Edge {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
@@ -109,6 +111,27 @@ pub struct Edge {
 impl Edge {
     pub fn count(&self) -> usize {
         self.relationships.len() + self.declarations.len()
+    }
+}
+impl Serialize for Edge {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut edge = serializer.serialize_struct("Edge", 7)?;
+        if let Some(label) = &self.label {
+            edge.serialize_field("label", label)?;
+        } else {
+            edge.skip_field("label")?;
+        }
+        edge.serialize_field("from", &self.from)?;
+        edge.serialize_field("to", &self.to)?;
+        edge.serialize_field("evidence", &self.evidence)?;
+        edge.serialize_field("relationships", &self.relationships)?;
+        edge.serialize_field("declarations", &self.declarations)?;
+        edge.serialize_field("count", &self.count())?;
+        edge.end()
     }
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

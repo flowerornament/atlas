@@ -13,11 +13,8 @@ use std::{
 /// Examples that cannot run on the tutorial, and why.
 const PARSE_ONLY: &[(&str, &str)] = &[
     ("--adapter", "needs a declaration adapter executable"),
-    ("examples/queries/atlas.json", "names Atlas's own types"),
     ("architecture.json", "needs an architecture profile"),
     ("@-", "a jj revision; the copy is a git repository"),
-    ("my-package", "a placeholder package name"),
-    ("Snapshot", "names an Atlas type"),
 ];
 
 fn copy(from: &Path, to: &Path) {

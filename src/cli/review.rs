@@ -381,20 +381,49 @@ pub(crate) fn diff(
         ("prior", &report.items.before),
         ("current", &report.items.after),
     ] {
-        print_bounded(
-            &basis.diagnostics,
-            rows.limit(5),
-            "",
-            || rerun_all(None),
-            |diagnostic| {
-                println!(
-                    "{side} source limit: {}: {}",
-                    diagnostic.file, diagnostic.message
-                );
-            },
-        );
+        source_limits(side, &basis.diagnostics, rows);
     }
     Ok(())
+}
+/// A side's source limits, one line per kind with a count and one example,
+/// most first: the same limit repeats once per file it applies to, and the
+/// JSON report lists every one.
+fn source_limits(side: &str, diagnostics: &[atlas_lib::model::Diagnostic], rows: Rows) {
+    if diagnostics.is_empty() {
+        return;
+    }
+    let mut kinds: std::collections::BTreeMap<String, Vec<&atlas_lib::model::Diagnostic>> =
+        std::collections::BTreeMap::new();
+    for diagnostic in diagnostics {
+        let code = serde_json::to_value(diagnostic.code)
+            .ok()
+            .and_then(|code| code.as_str().map(str::to_owned))
+            .unwrap_or_else(|| "unclassified".to_owned());
+        kinds.entry(code).or_default().push(diagnostic);
+    }
+    let mut kinds: Vec<_> = kinds.into_iter().collect();
+    kinds.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(&b.0)));
+    println!(
+        "{side} source limits: {} in {} kind{} (--json lists each)",
+        diagnostics.len(),
+        kinds.len(),
+        if kinds.len() == 1 { "" } else { "s" }
+    );
+    print_bounded(
+        &kinds,
+        rows.limit(5),
+        "  ",
+        || rerun_all(None),
+        |(kind, cases)| {
+            let example = cases[0];
+            println!(
+                "  {:>4}  {kind}  e.g. {}: {}",
+                cases.len(),
+                example.file,
+                example.message
+            );
+        },
+    );
 }
 
 #[derive(Args)]

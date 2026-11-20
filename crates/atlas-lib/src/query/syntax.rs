@@ -26,6 +26,11 @@ struct Token {
     end: usize,
 }
 
+/// A count written in a body, where the language has none.
+const COUNT_HINT: &str = "a count goes in a rule head, not a body: write `n{key: K, n: count(C)} :- r{key: K, id: C}.` and then query it, `?- n{key: K, n: N}.` (cargo atlas help --topic query)";
+/// `order by` written as a literal, after a comma.
+const ORDER_HINT: &str = "`order by` ends a query after its last literal, with no comma before it: `?- r{a: A, n: N} order by N desc limit 10.` (cargo atlas help --topic query)";
+
 /// Longer punctuation first, so `:-` is never read as `:` then `-`.
 const PUNCTS: [&str; 16] = [
     ":-", "?-", "!=", "<=", ">=", "(", ")", "{", "}", ",", ".", ":", "!", "=", "<", ">",
@@ -482,6 +487,14 @@ impl Parser<'_> {
                     at,
                 });
             }
+            if name == "order" && matches!(self.peek_at(1), Some(Tok::Name(by)) if by == "by") {
+                return Err(self.error(at, ORDER_HINT.to_owned()));
+            }
+            if matches!(self.peek_at(1), Some(Tok::Punct("=")))
+                && matches!(self.peek_at(2), Some(Tok::Name(count)) if count == "count")
+            {
+                return Err(self.error(at, COUNT_HINT.to_owned()));
+            }
             let (relation, rel_at) = self.name("a relation")?;
             let fields = self.fields(&relation, Self::term)?;
             return Ok(Literal::Atom {
@@ -501,6 +514,11 @@ impl Parser<'_> {
                     Self::describe(self.peek())
                 ),
             ));
+        }
+        if matches!(self.peek_at(1), Some(Tok::Punct("=")))
+            && matches!(self.peek_at(2), Some(Tok::Name(count)) if count == "count")
+        {
+            return Err(self.error(at, COUNT_HINT.to_owned()));
         }
         let left = self.term()?;
         let op_at = self.here();

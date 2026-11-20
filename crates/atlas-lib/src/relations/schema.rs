@@ -317,7 +317,7 @@ pub const RELATIONS: &[Relation] = &[
             ),
             text(
                 "qualified",
-                "Module-qualified name, when Atlas could form one; otherwise empty.",
+                "The name with the inline `mod` blocks that enclose it, and the owner type for a method (`Snapshot::graph`); the file's own module path is `mount.module_path`, one per Cargo target that reaches the file.",
             ),
             text("signature", "The signature as written."),
             boolean("public", "Written `pub`."),
@@ -342,7 +342,7 @@ pub const RELATIONS: &[Relation] = &[
             text("name", "The name as written."),
             text(
                 "qualified",
-                "Module-qualified name, when Atlas could form one; otherwise empty.",
+                "The name with the inline `mod` blocks that enclose it; the file's own module path is `mount.module_path`, one per Cargo target that reaches the file.",
             ),
             text(
                 "alias",

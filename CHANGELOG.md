@@ -15,6 +15,22 @@ resolve. Every 0.18 spelling still works; the superseded ones print one note
 on stderr. JSON outputs are unchanged or gain fields, apart from the
 suggested commands in `orient` and `compare`'s notes.
 
+- From an agent's first session with only the binary:
+  - The prelude gains `possible_call{to: F, call: C}`, the unresolved calls
+  written with F's name, as `callers` reads "possibly" (a test holds them
+  equal). The absence check names it when a program negates calls.
+  - A query that writes `n = count(C)` in a body, or a comma before `order
+  by`, is refused with where a count goes and how a query ends.
+  - `function.qualified` and `type.qualified` are described as they are:
+  the name with its inline `mod` blocks and, for a method, its owner type;
+  the file's module path is `mount.module_path`. Values are unchanged.
+  - `dependencies` text ranks the busiest file pairs (10, most first), and
+  each JSON edge carries `count`, the observations behind it (additive).
+  - `callers` and `callees` with more than 3 matches say how to name one,
+  built from the first match.
+  - `diff --items` counts source limits by kind, one line each with an
+  example, instead of one line per file; JSON lists each.
+  - Help examples use names from the tutorial project, so they run there.
 - Help that cannot drift: `query --help` lists every prelude relation, read
  from the prelude by section; a test runs every `Example:` line in `--help`
  and every `cargo atlas …` example in the agent briefing and the query guide

@@ -91,6 +91,7 @@ commands, each kept equal to its command by a test:
 | `file_calls` | `from`, `to`, `calls` | `dependencies --relation calls`: file edges and their call counts; restrict both ends with `under` for a scope |
 | `name_match` | `name`, `declaration` | the production declarations `name NAME` matches |
 | `calls_function` | `from`, `to` | `callers` and `callees`: one step, a function with at least one resolved call to another |
+| `possible_call` | `to`, `call` | `callers`' "possibly": an unresolved call whose last written segment is the function's name |
 | `reaches` | `from`, `to` | `callers --depth` and `callees --depth`: the functions reached through resolved calls at any depth |
 | `name_card` | `name`, `declaration`, `relation`, `mention` | `name NAME --relations`: `outgoing`, `incoming` and `possible` mentions |
 | `production_path` | `path` | a path some package reads outside a test build |

@@ -234,6 +234,35 @@ fn calls_agree(root: &Path, selector: &str) {
         !all.is_empty() || !reached.is_empty(),
         "{selector} has no calls"
     );
+    // Possibly: the unresolved calls `possible_call` names, site for site.
+    let report = json(root, &["callers", selector, "--json"]);
+    let possibly: BTreeSet<(String, u64, u64)> = report["answers"][0]["possibly"]
+        .as_array()
+        .expect("possibly")
+        .iter()
+        .map(|row| {
+            let site = &row["site"];
+            (
+                s(&site["path"]),
+                site["line"].as_u64().expect("line"),
+                site["column"].as_u64().expect("column"),
+            )
+        })
+        .collect();
+    let program = format!(
+        "?- possible_call{{to: {id:?}, call: C}}, unknown_call{{id: C, path: P, line: L, column: K}}."
+    );
+    let prelude: BTreeSet<(String, u64, u64)> = rows(root, &program)
+        .iter()
+        .map(|row| {
+            (
+                s(&row[1]),
+                row[2].as_u64().expect("line"),
+                row[3].as_u64().expect("column"),
+            )
+        })
+        .collect();
+    assert_eq!(possibly, prelude, "{selector}");
 }
 
 #[test]

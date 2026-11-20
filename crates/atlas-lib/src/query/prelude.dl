@@ -29,6 +29,16 @@ file_calls{from: A, to: B, calls: count(C)} :-
 calls_function{from: F, to: G} :-
     call{from: F, to: G}.
 
+% An unresolved call C written with function F's name: the last segment of
+% what was written (`graph` in `snapshot.graph()`) equals the last segment of
+% F's name. `callers F` lists these as "possibly", never as callers: read
+% them before concluding that a function has no caller.
+possible_call{to: F, call: C} :-
+    function{id: F, name: N},
+    last_segment(N, S),
+    unknown_call{id: C, spelling: W},
+    last_segment(W, S).
+
 % The functions F reaches through resolved calls, at any depth. `callees F
 % --depth N` lists those within N steps, and `callers G --depth N` those that
 % reach G within N; with enough depth both list exactly these rows:

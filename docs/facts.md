@@ -300,7 +300,7 @@ Qualified. A function body the qualified analysis selected.
 | `path` | text | The file. |
 | `line` | integer | First line of the item. |
 | `name` | text | The name as written, with the impl type for a method (`Type::name`). |
-| `qualified` | text | Module-qualified name, when Atlas could form one; otherwise empty. |
+| `qualified` | text | The name with the inline `mod` blocks that enclose it, and the owner type for a method (`Snapshot::graph`); the file's own module path is `mount.module_path`, one per Cargo target that reaches the file. |
 | `signature` | text | The signature as written. |
 | `public` | boolean | Written `pub`. |
 | `trait_impl` | boolean | Declared in a trait impl. |
@@ -316,7 +316,7 @@ Qualified. A workspace struct, enum or type alias.
 | `path` | text | The file. |
 | `line` | integer | First line of the item. |
 | `name` | text | The name as written. |
-| `qualified` | text | Module-qualified name, when Atlas could form one; otherwise empty. |
+| `qualified` | text | The name with the inline `mod` blocks that enclose it; the file's own module path is `mount.module_path`, one per Cargo target that reaches the file. |
 | `alias` | text | For a type alias, its right-hand side as written; empty for a struct or enum. |
 | `declaration` | text | The lexical `declaration.id` at the same file, line and name; empty if none matched. |
 

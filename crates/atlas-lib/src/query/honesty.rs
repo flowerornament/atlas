@@ -205,10 +205,15 @@ pub(crate) fn review(
                         ErrorKind::Honesty,
                         rule.at,
                         format!(
-                            "absence: {} negates `{}`, whose unresolved observations are in {}; no row there is not evidence of none. Read the unknowns in the same rule (for example, a separate outcome for names they could match)\n    in: {}",
+                            "absence: {} negates `{}`, whose unresolved observations are in {}; no row there is not evidence of none. Read the unknowns in the same rule (for example, a separate outcome for names they could match){}\n    in: {}",
                             subject(rels, rule),
                             rels[*rel].name,
                             names(rels, unknowns),
+                            if names(rels, unknowns).contains("unknown_call") {
+                                "; for calls, the prelude's possible_call{to: F, call: C} holds the unresolved calls written with F's name (cargo atlas help --topic query)"
+                            } else {
+                                ""
+                            },
                             rule.text
                         ),
                     ),

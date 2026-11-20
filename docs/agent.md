@@ -95,24 +95,30 @@ Everything `main` reaches through resolved calls (recursion is in `reaches`):
 ?- function{id: M, name: "main"}, reaches{from: M, to: G}, function{id: G, name: Name}.
 ```
 
+Each function with its module path. `function.qualified` holds only the
+inline `mod` blocks and the owner type (`Snapshot::graph`); the file's module
+path is in `mount`, one row per Cargo target that reaches the file:
+
+```datalog
+?- function{id: F, path: P, name: Name}, mount{path: P, module_path: M, target: T}.
+```
+
 Functions of one package:
 
 ```datalog
 ?- function{id: F, path: P, name: Name}, file{path: P, package: "tutorial"}.
 ```
 
-Is a public function used? Three outcomes, never two. An unresolved call
-records what was written (`tree.words`, `parse`), so compare its last
-segment, not the qualified name:
+Is a public function used? Three outcomes, never two. `possible_call` holds
+the unresolved calls written with a function's name (`callers` lists them as
+"possibly"):
 
 ```datalog
 called{f: F} :- call{to: F}.
-written{name: S} :- unknown_call{spelling: W}, last_segment(W, S).
+possibly{f: F} :- possible_call{to: F}.
 use{name: N, status: "called"} :- function{id: F, name: N, public: true}, called{f: F}.
-use{name: N, status: "possibly"} :-
-    function{id: F, name: N, public: true}, !called{f: F}, last_segment(N, S), written{name: S}.
-use{name: N, status: "unobserved"} :-
-    function{id: F, name: N, public: true}, !called{f: F}, last_segment(N, S), !written{name: S}.
+use{name: N, status: "possibly"} :- function{id: F, name: N, public: true}, !called{f: F}, possibly{f: F}.
+use{name: N, status: "unobserved"} :- function{id: F, name: N, public: true}, !called{f: F}, !possibly{f: F}.
 ?- use{name: N, status: S}.
 ```
 
@@ -127,6 +133,9 @@ a mention's `basis`; `cargo atlas help --topic query` explains both.
 - No comma before `order by`.
 - `unknown_call.spelling` is what was written: a method name or a path
   segment, not `Type::method`. Read it with `last_segment`.
+- `function.qualified` is not a module path; join `mount` for that.
+- Before concluding that nothing calls a function, read `possible_call`: the
+  unresolved calls written with its name.
 - `name X --relations` lists co-mentions, not calls. For calls, use
   `callers X`.
 - `dependencies` with no scope draws every package; give a directory to keep

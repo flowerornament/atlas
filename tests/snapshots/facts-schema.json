@@ -335,7 +335,7 @@
         {
           "name": "qualified",
           "kind": "text",
-          "description": "Module-qualified name, when Atlas could form one; otherwise empty."
+          "description": "The name with the inline `mod` blocks that enclose it, and the owner type for a method (`Snapshot::graph`); the file's own module path is `mount.module_path`, one per Cargo target that reaches the file."
         },
         {
           "name": "signature",
@@ -390,7 +390,7 @@
         {
           "name": "qualified",
           "kind": "text",
-          "description": "Module-qualified name, when Atlas could form one; otherwise empty."
+          "description": "The name with the inline `mod` blocks that enclose it; the file's own module path is `mount.module_path`, one per Cargo target that reaches the file."
         },
         {
           "name": "alias",

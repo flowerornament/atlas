@@ -432,7 +432,11 @@ impl Report<CallerAnswer> {
     /// their lists; a cut list ends with `… N more; ` and the command `more`
     /// names.
     pub fn text_bounded(&self, answers: usize, rows: usize, more: More<'_>) -> String {
-        let mut out = heading(&self.selector, self.answers.len());
+        let mut out = heading(
+            self.question,
+            &self.selector,
+            self.answers.iter().map(|a| &a.function),
+        );
         for answer in self.answers.iter().take(answers) {
             let function = &answer.function;
             if self.answers.len() > 1 && !out.ends_with("\n\n") {
@@ -525,7 +529,11 @@ impl Report<CallerAnswer> {
 impl Report<CalleeAnswer> {
     /// As [`Report::<CallerAnswer>::text_bounded`], for the calls out.
     pub fn text_bounded(&self, answers: usize, rows: usize, more: More<'_>) -> String {
-        let mut out = heading(&self.selector, self.answers.len());
+        let mut out = heading(
+            self.question,
+            &self.selector,
+            self.answers.iter().map(|a| &a.function),
+        );
         for answer in self.answers.iter().take(answers) {
             let function = &answer.function;
             if self.answers.len() > 1 && !out.ends_with("\n\n") {
@@ -620,12 +628,34 @@ fn per_depth(counts: &BTreeMap<u32, usize>) -> String {
         .join(", ")
 }
 /// The heading of an answer for several functions (R16).
-fn heading(selector: &str, answers: usize) -> String {
-    if answers > 1 {
-        format!("{selector} matches {answers} functions; each is answered on its own\n\n")
-    } else {
-        String::new()
+/// More than 3 matches also say how to name one, from the first match:
+/// its owner and name, its site, or a directory to look in.
+fn heading<'a>(
+    question: &str,
+    selector: &str,
+    answers: impl ExactSizeIterator<Item = &'a Subject>,
+) -> String {
+    let count = answers.len();
+    if count < 2 {
+        return String::new();
     }
+    let mut out = format!("{selector} matches {count} functions; each is answered on its own\n");
+    let mut answers = answers;
+    if count > 3
+        && let Some(first) = answers.next()
+    {
+        let dir = first
+            .path
+            .rsplit_once('/')
+            .map_or(first.path.as_str(), |(dir, _)| dir);
+        let _ = writeln!(
+            out,
+            "  to name one: Type::method or module::name (cargo atlas {question} {}), FILE:LINE ({}:{}), or --in PATH (--in {dir})",
+            first.name, first.path, first.line
+        );
+    }
+    out.push('\n');
+    out
 }
 /// One line per reason kind, most calls first, each with one example.
 fn kinds(
