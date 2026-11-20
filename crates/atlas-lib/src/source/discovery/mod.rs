@@ -394,6 +394,7 @@ fn read_metadata(
                 *sites.entry((item.line, &item.name)).or_insert(0usize) += 1;
             }
             let inline = crate::source::InlineModules::of(source.outline());
+            let impls = crate::source::Blocks::impls(source.outline());
             let declarations = source
                 .outline()
                 .iter()
@@ -422,6 +423,7 @@ fn read_metadata(
                         .into_iter()
                         .map(str::to_owned)
                         .collect(),
+                    self_type: impls.self_type(item).map(str::to_owned),
                 })
                 .collect();
             files.push(SourceFile {

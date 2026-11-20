@@ -39,6 +39,7 @@ struct WireItem {
     attribute_names: BTreeSet<String>,
     restricted: Option<String>,
     trait_name: Option<String>,
+    self_type: Option<String>,
     fields: Vec<WireField>,
 }
 
@@ -143,6 +144,7 @@ impl WireItem {
             attribute_names,
             restricted,
             trait_name,
+            self_type,
             fields,
         } = item;
         Self {
@@ -160,6 +162,7 @@ impl WireItem {
             attribute_names: attribute_names.clone(),
             restricted: restricted.clone(),
             trait_name: trait_name.clone(),
+            self_type: self_type.clone(),
             fields: fields.iter().map(WireField::of).collect(),
         }
     }
@@ -179,6 +182,7 @@ impl WireItem {
             attribute_names,
             restricted,
             trait_name,
+            self_type,
             fields,
         } = self;
         Some(Item {
@@ -196,6 +200,7 @@ impl WireItem {
             attribute_names,
             restricted,
             trait_name,
+            self_type,
             fields: fields
                 .into_iter()
                 .map(WireField::into_field)

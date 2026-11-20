@@ -194,6 +194,9 @@ pub struct Item {
     pub(crate) attribute_names: std::collections::BTreeSet<String>,
     pub(crate) restricted: Option<String>,
     pub(crate) trait_name: Option<String>,
+    /// For an impl: the last segment of its self type, when it is a path or
+    /// a reference to one (`Foo` for `impl<T> Trait for &Foo<T>`).
+    pub(crate) self_type: Option<String>,
     pub(crate) fields: Vec<Field>,
 }
 
@@ -213,27 +216,38 @@ impl Item {
     }
 }
 
-/// A file's inline `mod` blocks, in source order, read once per file.
-pub(crate) struct InlineModules<'a>(Vec<&'a Item>);
-impl<'a> InlineModules<'a> {
+/// A file's blocks of one kind (inline `mod` blocks, or impls), in source
+/// order, read once per file.
+pub(crate) struct Blocks<'a>(Vec<&'a Item>);
+/// A file's inline `mod` blocks.
+pub(crate) type InlineModules<'a> = Blocks<'a>;
+impl<'a> Blocks<'a> {
     pub(crate) fn of(outline: &'a [Item]) -> Self {
-        let mut modules: Vec<_> = outline
-            .iter()
-            .filter(|item| item.kind == ItemKind::Mod)
-            .collect();
-        modules.sort_by_key(|module| module.syntax_span.start);
-        Self(modules)
+        Self::of_kind(outline, ItemKind::Mod)
     }
-    /// The inline `mod` blocks that enclose `item`, outermost first.
-    pub(crate) fn enclosing(&self, item: &Item) -> Vec<&'a str> {
+    pub(crate) fn impls(outline: &'a [Item]) -> Self {
+        Self::of_kind(outline, ItemKind::Impl)
+    }
+    fn of_kind(outline: &'a [Item], kind: ItemKind) -> Self {
+        let mut blocks: Vec<_> = outline.iter().filter(|item| item.kind == kind).collect();
+        blocks.sort_by_key(|block| block.syntax_span.start);
+        Self(blocks)
+    }
+    fn around(&self, item: &Item) -> impl Iterator<Item = &'a Item> {
+        let start = item.syntax_span.start;
+        let end = item.syntax_span.end;
         self.0
             .iter()
-            .filter(|module| {
-                module.syntax_span.start < item.syntax_span.start
-                    && item.syntax_span.end <= module.syntax_span.end
-            })
-            .map(|module| module.name.as_str())
-            .collect()
+            .copied()
+            .filter(move |block| block.syntax_span.start < start && end <= block.syntax_span.end)
+    }
+    /// The blocks that enclose `item`, by name, outermost first.
+    pub(crate) fn enclosing(&self, item: &Item) -> Vec<&'a str> {
+        self.around(item).map(|block| block.name.as_str()).collect()
+    }
+    /// The innermost enclosing impl's self type name, if it has one.
+    pub(crate) fn self_type(&self, item: &Item) -> Option<&'a str> {
+        self.around(item).last()?.self_type.as_deref()
     }
 }
 

@@ -545,7 +545,8 @@ fn repeated_relationship_readings_deduplicate_witnesses_without_merging_packages
         ),
         (
             "shared.rs",
-            "pub struct Shared;\nimpl Shared {\n    pub fn make() -> Self { Self }\n}\n",
+            // A `Self` outside any impl: one diagnostic per package context.
+            "pub struct Shared;\npub fn make() -> Self { loop {} }\n",
         ),
     ]);
     let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
@@ -792,4 +793,67 @@ fn a_file_module_inside_a_function_body_stays_a_native_limitation() {
             && d.message
                 .contains("nested file module has no supported native mount")
     }));
+}
+
+#[test]
+fn self_names_the_enclosing_impl_type_or_the_declared_type() {
+    // `Self` in an impl item is the impl's type; in a struct or enum body it
+    // is that type. Only a `Self` with no such type is a diagnostic.
+    let fixture = Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[package]\nname='fixture'\nversion='0.0.0'\nedition='2024'\n[workspace]\n",
+        ),
+        (
+            "src/lib.rs",
+            "pub struct Foo;\n\
+             impl Foo {\n    pub fn new() -> Self { Foo }\n}\n\
+             impl Clone for Foo {\n    fn clone(&self) -> Self { Foo }\n}\n\
+             pub enum List {\n    Node(Box<Self>),\n    End,\n}\n\
+             pub fn free() -> Self { loop {} }\n",
+        ),
+    ]);
+    let snapshot = discovery::snapshot_workspace(fixture.path()).unwrap();
+    let mut graph = snapshot.graph().clone();
+    for reading in ["captured", "derived again"] {
+        let unresolved: Vec<_> = graph
+            .diagnostics
+            .iter()
+            .filter(|d| d.message.contains("Self is not resolved"))
+            .map(|d| d.line)
+            .collect();
+        assert_eq!(unresolved, [Some(12)], "{reading}");
+        let foo = graph.files[0]
+            .declarations
+            .iter()
+            .find(|d| d.name == "Foo")
+            .map(|d| d.id.clone())
+            .unwrap();
+        let to_foo: Vec<_> = graph
+            .relationships
+            .iter()
+            .filter(|r| r.spelling == "Self")
+            .map(|r| {
+                (
+                    r.source.rsplit(':').next().unwrap().to_owned(),
+                    r.target.clone(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            to_foo,
+            [
+                (
+                    "new".to_owned(),
+                    atlas_lib::model::Resolution::Unique(foo.clone())
+                ),
+                (
+                    "clone".to_owned(),
+                    atlas_lib::model::Resolution::Unique(foo.clone())
+                ),
+            ],
+            "{reading}"
+        );
+        atlas_lib::relationships::derive(&mut graph);
+    }
 }

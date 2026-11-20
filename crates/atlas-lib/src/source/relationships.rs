@@ -1,4 +1,6 @@
 //! Atlas-derived declaration co-mentions, deliberately approximate by name.
+//! `Self` counts as the name of the impl's self type, or of the struct or enum
+//! it is written in; a `Self` with neither is a diagnostic.
 use crate::{
     model::{Diagnostic, Evidence, Relationship, Resolution, SourceGraph},
     scan::{self, ItemKind},
@@ -144,9 +146,20 @@ fn derive_with_bindings(
             } else {
                 vec![(code.as_str(), Evidence::TypeBodyMention)]
             };
+            // `Self` in a struct or enum is that type; in an impl item, the
+            // impl's self type, read as if its name were written.
+            let self_means = if matches!(item.item_kind(), Some(ItemKind::Struct | ItemKind::Enum))
+            {
+                Some(item.name.as_str())
+            } else {
+                item.self_type.as_deref()
+            };
             let mut seen = BTreeSet::new();
             for (text, evidence) in regions {
-                if classified && scan::identifiers(text).any(|x| x == "Self") {
+                if classified
+                    && self_means.is_none()
+                    && scan::identifiers(text).any(|x| x == "Self")
+                {
                     diagnostics.push(Diagnostic {
                         package: Some(file.crate_name.clone()),
                         file: file.path.clone(),
@@ -155,22 +168,27 @@ fn derive_with_bindings(
                     });
                 }
                 for token in scan::identifiers(text) {
-                    if token == item.name || !seen.insert((token, evidence.label())) {
+                    let name = match (token, self_means) {
+                        ("Self", Some(means)) => means,
+                        ("Self", None) => continue,
+                        _ => token,
+                    };
+                    if name == item.name || !seen.insert((name, evidence.label())) {
                         continue;
                     }
-                    let Some(candidates) = registry.get(token) else {
+                    let Some(candidates) = registry.get(name) else {
                         continue;
                     };
                     if matches!(mentions, MentionScope::Declarations)
                         && !glob
-                        && !external.contains(token)
+                        && !external.contains(name)
                     {
-                        mentioned.insert(token.to_owned());
+                        mentioned.insert(name.to_owned());
                     }
                     if !classified {
                         continue;
                     }
-                    let target = if glob || external.contains(token) {
+                    let target = if glob || external.contains(name) {
                         Resolution::Unresolved(
                             "external import shadows or may shadow this spelling".into(),
                         )

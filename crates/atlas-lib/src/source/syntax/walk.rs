@@ -196,6 +196,7 @@ impl<'a> Walk<'a> {
                 .collect(),
             restricted: fragments::restriction(text, vis),
             trait_name: None,
+            self_type: None,
             fields: Vec::new(),
         };
         self.item_ends.insert(end, end_line);
@@ -420,6 +421,7 @@ impl<'ast> Visit<'ast> for Walk<'_> {
                     .as_ref()
                     .and_then(|(p, _)| p.segments.last())
                     .map(|p| p.ident.to_string());
+                self.outline[i].self_type = type_head(&n.self_ty);
             }
             syn::Item::Macro(n) => {
                 let kind = if n.mac.path.is_ident("macro_rules") {

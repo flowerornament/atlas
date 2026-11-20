@@ -48,6 +48,10 @@ pub struct Declaration {
     /// empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modules: Vec<String>,
+    /// For an item written in an impl block, the name the impl's self type
+    /// ends in, which `Self` means there. Omitted when there is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub self_type: Option<String>,
 }
 
 impl Declaration {

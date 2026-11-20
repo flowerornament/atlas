@@ -15,7 +15,7 @@ pub(crate) mod workspace;
 pub(crate) use capture::{capture, capture_files};
 pub(crate) use facts_cache::hex;
 pub use facts_cache::{FactsCache, FactsCacheMode, FactsCacheStats};
-pub(crate) use items::InlineModules;
+pub(crate) use items::{Blocks, InlineModules};
 pub use items::{Field, Item, ItemKind, TestRegions, Visibility};
 pub use lexical::RustSourceProjection;
 pub use scan::non_test_loc;

@@ -6,6 +6,14 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `Self` in a lexical mention now means the type it names: in an impl's
+ items, the impl's self type (by the name it ends in); in a struct or enum,
+ that type. It becomes a mention with spelling `Self`, resolved as if that
+ name were written, and no longer a "Self is not resolved" diagnostic. Only
+ a `Self` with no such type, such as in a trait's own items, stays one. On
+ three large workspaces this removes 94-97% of those diagnostics (Murail
+ 2,098 to 63) and adds the mentions (Murail 2,055). **Library:**
+ `model::Declaration` has `self_type`, in graph JSON when present.
 - Each unresolved type mention in the type facts (`unknown_types` in
  `dependencies --json` and `types --json`, `unknown_type` in `facts`) names
  the parameter, return or field it occupies and the line and column of its
