@@ -278,7 +278,11 @@ pub const RELATIONS: &[Relation] = &[
             ),
             text(
                 "message",
-                "The diagnostic as written in Atlas's other output.",
+                "The diagnostic as written in Atlas's other output; its wording may change.",
+            ),
+            text(
+                "code",
+                "Its kind, a stable code such as `mount-missing` (see the code list).",
             ),
         ],
         basis: None,
@@ -402,6 +406,14 @@ pub const RELATIONS: &[Relation] = &[
             text("path", "File of the call site."),
             integer("line", "Line of the call site."),
             integer("column", "Column of the call site."),
+            text(
+                "kind",
+                "Each reason's stable kind, such as `unresolved-path`, joined with `; ` like `reason`.",
+            ),
+            text(
+                "subject",
+                "Each reason's path, name, receiver, type or module, or empty, joined the same way.",
+            ),
         ],
         basis: None,
         unknowns: None,

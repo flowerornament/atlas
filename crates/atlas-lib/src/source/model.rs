@@ -114,7 +114,70 @@ pub struct Diagnostic {
     /// None for physical-file evidence; Some for a package-specific observation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package: Option<String>,
+    /// What kind of limit this is: stable across releases, unlike `message`.
+    #[serde(default)]
+    pub code: DiagnosticCode,
+    /// A reading for people; its wording may change.
     pub message: String,
+}
+
+/// The kind of a [`Diagnostic`], as a stable kebab-case code. Group and
+/// filter by code; `message` explains the instance.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum DiagnosticCode {
+    /// A symbolic link met while walking source directories was not followed.
+    SymlinkExcluded,
+    /// A source path outside the workspace, or reached through a symlink.
+    SourceExcluded,
+    /// A target root outside `src`; files beside it are not discovered.
+    TargetOutsideSrc,
+    /// A `mod` declaration whose file is not among the discovered files.
+    MountMissing,
+    /// A module file outside `src` that could not be read.
+    MountUnavailable,
+    /// The file does not parse as Rust.
+    SyntaxError,
+    /// Written Rust that line-based native readings cannot account for.
+    NativeLimit,
+    /// A `use` declaration whose bindings could not be read.
+    UseUnreadable,
+    /// An external glob import; name-only resolution is suppressed there.
+    ExternalGlob,
+    /// `Self` outside any impl or type it could name.
+    SelfUnresolved,
+    /// A boundary path a seam check could not judge.
+    BoundaryUnjudged,
+    /// A project boundary declaration that is missing.
+    BoundaryDeclarationUnavailable,
+    /// A project boundary declaration that differs from the captured source.
+    BoundaryDeclarationMismatch,
+    /// A required test path a seam check could not judge.
+    TestPathUnjudged,
+    /// A required test module file that could not be read.
+    TestMountUnavailable,
+    /// A header-citation observation taken from other source bytes.
+    HeaderCitationStale,
+    /// A required header-citation observation that was not supplied.
+    HeaderCitationUnavailable,
+    /// A required measurement that could not be made.
+    MeasureUnavailable,
+    /// A selected package without a captured source-tree population.
+    PopulationUnavailable,
+    /// Stage `use` syntax that could not be read.
+    StageUseUnreadable,
+    /// Stage seams without their required `stage_order`.
+    StageOrderMissing,
+    /// Required seam import syntax that could not be read.
+    SeamImportUnavailable,
+    /// Read from JSON written before codes existed, or with a code this
+    /// build does not know.
+    #[default]
+    #[serde(other)]
+    Unclassified,
 }
 
 /// All source observations for one scan, serialized with a schema version.

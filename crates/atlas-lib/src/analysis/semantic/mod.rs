@@ -272,7 +272,12 @@ impl SemanticIndex {
                         },
                     ),
                     Target::Boundary(..) => (Qualified::Boundary, None),
-                    Target::Summarized(reason) => (Qualified::Summarized { reason }, None),
+                    Target::Summarized(reason) => (
+                        Qualified::Summarized {
+                            reason: reason.message,
+                        },
+                        None,
+                    ),
                     Target::InvalidFunction(t) => (outside(t), None),
                 };
                 (f.id.as_str(), call, Some((qualified, target)))

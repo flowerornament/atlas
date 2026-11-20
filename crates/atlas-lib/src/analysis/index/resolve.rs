@@ -1,6 +1,6 @@
 //! Conservative call lookup through explicit imports, reexports and signature types.
 //! Ambiguous, indirect and unsupported calls stay summarized; no Rust type inference.
-use super::{Function, Index, Target};
+use super::{Function, Index, Summary, SummaryKind, Target};
 use crate::{
     analysis::workflow::{Binding, Call},
     architecture::Kind,
@@ -95,7 +95,10 @@ impl Index {
     }
     fn classify(&self, p: &[String]) -> Target {
         let Some(resolved) = self.exported(p) else {
-            return Target::Summarized("ambiguous or cyclic public reexport".into());
+            return Target::Summarized(Summary::new(
+                SummaryKind::ReexportAmbiguous,
+                "ambiguous or cyclic public reexport",
+            ));
         };
         let p = resolved.as_slice();
         for (i, b) in self.boundaries.iter().enumerate() {
@@ -103,7 +106,10 @@ impl Index {
                 let mut entry = b.path.clone();
                 entry.push(b.module.entry.clone());
                 let Some(entry) = self.exported(&entry) else {
-                    return Target::Summarized("ambiguous stage entry reexport".into());
+                    return Target::Summarized(Summary::new(
+                        SummaryKind::StageEntryAmbiguous,
+                        "ambiguous stage entry reexport",
+                    ));
                 };
                 if matches!(b.module.kind, Kind::Instrument | Kind::Edge)
                     || (if self.names.contains_key(&entry) {
@@ -121,25 +127,37 @@ impl Index {
                     };
                     return Target::Boundary(i, member);
                 }
-                return Target::Summarized(format!(
-                    "{} support API, outside its declared entry",
-                    b.module.name
+                return Target::Summarized(Summary::about(
+                    SummaryKind::SupportApi,
+                    &b.module.name,
+                    format!("{} support API, outside its declared entry", b.module.name),
                 ));
             }
         }
         match self.names.get(p).map(Vec::as_slice) {
             Some([i]) => Target::Function(*i),
-            Some(candidates) => Target::Summarized(format!(
-                "ambiguous static call: {} candidates",
-                candidates.len()
+            Some(candidates) => Target::Summarized(Summary::new(
+                SummaryKind::StaticCallAmbiguous,
+                format!("ambiguous static call: {} candidates", candidates.len()),
             )),
             None if p.len() > 1 && self.foreign.contains(&p[..p.len() - 1]) => {
-                Target::Summarized(format!(
-                    "{} is not a type the workspace source declares (a foreign type, or one a macro declares); its trait impls dispatch on argument types and inherent methods, so the call is not resolved",
-                    p[..p.len() - 1].join("::")
+                let owner = p[..p.len() - 1].join("::");
+                Target::Summarized(Summary::about(
+                    SummaryKind::ForeignImplOwner,
+                    &owner,
+                    format!(
+                        "{owner} is not a type the workspace source declares (a foreign type, or one a macro declares); its trait impls dispatch on argument types and inherent methods, so the call is not resolved"
+                    ),
                 ))
             }
-            None => Target::Summarized(format!("unresolved or external path {}", p.join("::"))),
+            None => {
+                let path = p.join("::");
+                Target::Summarized(Summary::about(
+                    SummaryKind::UnresolvedPath,
+                    &path,
+                    format!("unresolved or external path {path}"),
+                ))
+            }
         }
     }
     /// Resolve a call in a function selected from this index. Positions from
@@ -153,7 +171,10 @@ impl Index {
             return self.resolve_receiver(function, f, receiver, call);
         }
         let Some(p) = path(&call.spelling) else {
-            return Target::Summarized("indirect or unsupported call syntax".into());
+            return Target::Summarized(Summary::new(
+                SummaryKind::IndirectCall,
+                "indirect or unsupported call syntax",
+            ));
         };
         if p.len() == 1
             && f.flow.bindings.iter().any(|b| {
@@ -161,24 +182,39 @@ impl Index {
                     && (b.site.end_line, b.site.end_column) <= (call.site.line, call.site.column)
             })
         {
-            return Target::Summarized(format!("value call {}", p[0]));
+            return Target::Summarized(Summary::about(
+                SummaryKind::ValueCall,
+                &p[0],
+                format!("value call {}", p[0]),
+            ));
         }
         if shadowed(&f.flow.local_names, &p[0]) {
-            return Target::Summarized(format!(
-                "block-local item or import {} shadows the module's names; not resolved",
-                p[0]
+            return Target::Summarized(Summary::about(
+                SummaryKind::LocalShadow,
+                &p[0],
+                format!(
+                    "block-local item or import {} shadows the module's names; not resolved",
+                    p[0]
+                ),
             ));
         }
         if p.len() == 1 && f.flow.imports.contains_key(&p[0]) {
             let local = normalize(&f.scope, &p, &self.crates);
             if self.names.contains_key(&local) {
-                return Target::Summarized(
-                    "local value and import share a name; namespace unresolved".into(),
-                );
+                return Target::Summarized(Summary::about(
+                    SummaryKind::ImportNamespaceClash,
+                    &p[0],
+                    "local value and import share a name; namespace unresolved",
+                ));
             }
         }
         self.canonical(function, &p).map_or_else(
-            || Target::Summarized("ambiguous source import".into()),
+            || {
+                Target::Summarized(Summary::new(
+                    SummaryKind::ImportAmbiguous,
+                    "ambiguous source import",
+                ))
+            },
             |p| self.classify(&p),
         )
     }
@@ -193,7 +229,12 @@ impl Index {
             return self
                 .canonical(function, &["Self".into(), call.spelling.clone()])
                 .map_or_else(
-                    || Target::Summarized("self owner not established".into()),
+                    || {
+                        Target::Summarized(Summary::new(
+                            SummaryKind::SelfOwnerUnknown,
+                            "self owner not established",
+                        ))
+                    },
                     |p| self.classify(&p),
                 );
         }
@@ -207,15 +248,19 @@ impl Index {
             })
             .collect();
         if bindings.len() != 1 {
-            return Target::Summarized(format!(
-                "receiver {receiver}: no unique explicit source type"
+            return Target::Summarized(Summary::about(
+                SummaryKind::ReceiverTypeUnknown,
+                receiver,
+                format!("receiver {receiver}: no unique explicit source type"),
             ));
         }
         let owner = self.binding_owner(function, bindings[0]);
         owner.map_or_else(
             || {
-                Target::Summarized(format!(
-                    "receiver {receiver}: initializer result not established"
+                Target::Summarized(Summary::about(
+                    SummaryKind::ReceiverInitializerUnknown,
+                    receiver,
+                    format!("receiver {receiver}: initializer result not established"),
                 ))
             },
             |mut p| {

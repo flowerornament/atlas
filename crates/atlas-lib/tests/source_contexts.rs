@@ -645,7 +645,8 @@ fn trait_impls_for_foreign_types_do_not_claim_foreign_calls() {
     ] {
         let target = resolved(function, spelling);
         assert!(
-            matches!(&target, Target::Summarized(reason) if reason.contains("foreign type")),
+            matches!(&target, Target::Summarized(reason)
+                if reason.kind == atlas_lib::source_index::SummaryKind::ForeignImplOwner),
             "{function} → {spelling}: {target:?}"
         );
     }
@@ -856,4 +857,58 @@ fn self_names_the_enclosing_impl_type_or_the_declared_type() {
         );
         atlas_lib::relationships::derive(&mut graph);
     }
+}
+
+#[test]
+fn diagnostics_and_unknown_calls_carry_stable_codes() {
+    use atlas_lib::{
+        model::{Diagnostic, DiagnosticCode},
+        source_index::SummaryKind,
+    };
+    let fixture = Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[package]\nname='fixture'\nversion='0.0.0'\nedition='2024'\n[workspace]\n",
+        ),
+        (
+            "src/lib.rs",
+            "pub fn free() -> Self { loop {} }\npub fn caller(out: Vec<u8>) { external::make(); out.len(); }\n",
+        ),
+    ]);
+    let snapshot = discovery::snapshot_workspace(fixture.path()).unwrap();
+    let diagnostic = snapshot
+        .graph()
+        .diagnostics
+        .iter()
+        .find(|d| d.code == DiagnosticCode::SelfUnresolved)
+        .expect("a Self diagnostic");
+    let json = serde_json::to_value(diagnostic).unwrap();
+    assert_eq!(json["code"], "self-unresolved");
+    // JSON written before codes existed still reads.
+    let old: Diagnostic =
+        serde_json::from_str(r#"{"file":"src/lib.rs","line":1,"message":"m"}"#).unwrap();
+    assert_eq!(old.code, DiagnosticCode::Unclassified);
+
+    let facts = Analysis::new(&snapshot).unwrap().representations().unwrap();
+    let mut reasons: Vec<_> = facts
+        .unknown_calls
+        .iter()
+        .flat_map(|u| &u.reasons)
+        .map(|r| (r.kind, r.subject.clone()))
+        .collect();
+    reasons.sort_by_key(|(_, subject)| subject.clone());
+    assert_eq!(
+        reasons,
+        // The subject is the path as Atlas qualified it.
+        [
+            (
+                SummaryKind::UnresolvedPath,
+                Some("fixture::Vec::len".to_owned())
+            ),
+            (
+                SummaryKind::UnresolvedPath,
+                Some("fixture::external::make".to_owned())
+            ),
+        ]
+    );
 }

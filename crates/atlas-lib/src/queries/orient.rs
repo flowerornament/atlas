@@ -6,13 +6,14 @@
 //!
 //! Limits: called functions count resolved calls only, so they are a lower
 //! bound; type mentions count unique lexical targets only. Diagnostics and
-//! unknown-call reasons are grouped by their text with names elided, because
-//! they carry no stable codes yet.
+//! unknown-call reasons are grouped by their stable codes, each with the
+//! first message as an example.
 use crate::{
     Result,
     analysis::Analysis,
     discovery::Snapshot,
     model::{Declaration, Resolution},
+    relations::code,
     representations::Function,
     source::discovery::target_key,
 };
@@ -140,22 +141,26 @@ pub struct ResolutionSummary {
     pub calls_resolved: usize,
     /// Call sites in scope that are external, ambiguous or not established.
     pub calls_unknown: usize,
-    /// Unknown calls grouped by reason, receivers and paths elided; most first.
+    /// Unknown calls grouped by their reason kinds; most first.
     pub unknown_call_reasons: Vec<Count>,
     /// Lexical type mentions from declarations in scope, by resolution.
     pub mentions_unique: usize,
     pub mentions_ambiguous: usize,
     pub mentions_unresolved: usize,
     pub diagnostics: usize,
-    /// Diagnostics grouped by message, names elided; most first.
+    /// Diagnostics grouped by code; most first.
     pub diagnostic_kinds: Vec<Count>,
 }
 
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
 pub struct Count {
+    /// A stable code, or several joined with `; ` for a call with several
+    /// reasons.
     pub kind: String,
     pub count: usize,
+    /// The first message of this kind, as an example.
+    pub example: String,
 }
 
 /// A follow-up command built from names on the page.
@@ -268,7 +273,13 @@ pub fn orient(snapshot: &Snapshot, scope: Option<&str>, rows: usize) -> Result<O
         .filter(|u| file_of(&u.from).is_some_and(in_scope))
     {
         resolution.calls_unknown += 1;
-        *reasons.entry(reason_kind(&unknown.reason)).or_default() += 1;
+        let kind = unknown
+            .reasons
+            .iter()
+            .map(|reason| code(&reason.kind))
+            .collect::<Vec<_>>()
+            .join("; ");
+        tally(&mut reasons, kind, &unknown.reason);
     }
     resolution.unknown_call_reasons = counts(reasons);
     let called: Vec<Row> = callers
@@ -333,9 +344,7 @@ pub fn orient(snapshot: &Snapshot, scope: Option<&str>, rows: usize) -> Result<O
     let mut kinds = BTreeMap::new();
     for diagnostic in graph.diagnostics.iter().filter(|d| in_scope(&d.file)) {
         resolution.diagnostics += 1;
-        *kinds
-            .entry(diagnostic_kind(&diagnostic.message))
-            .or_default() += 1;
+        tally(&mut kinds, code(&diagnostic.code), &diagnostic.message);
     }
     resolution.diagnostic_kinds = counts(kinds);
 
@@ -509,10 +518,18 @@ fn section(measure: Measure, total: usize, mut rows: Vec<Row>, shown: usize) -> 
         all: measure.all,
     }
 }
-fn counts(map: BTreeMap<String, usize>) -> Vec<Count> {
+fn tally(map: &mut BTreeMap<String, (usize, String)>, kind: String, example: &str) {
+    let entry = map.entry(kind).or_insert_with(|| (0, example.to_owned()));
+    entry.0 += 1;
+}
+fn counts(map: BTreeMap<String, (usize, String)>) -> Vec<Count> {
     let mut counts: Vec<Count> = map
         .into_iter()
-        .map(|(kind, count)| Count { kind, count })
+        .map(|(kind, (count, example))| Count {
+            kind,
+            count,
+            example,
+        })
         .collect();
     counts.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.kind.cmp(&b.kind)));
     counts
@@ -627,39 +644,6 @@ fn next_commands(
         ));
     }
     next
-}
-
-/// Unknown-call reasons embed the receiver or path; keep the reason itself.
-fn reason_kind(reason: &str) -> String {
-    for prefix in ["receiver ", "unresolved or external path "] {
-        if let Some(rest) = reason.strip_prefix(prefix) {
-            return rest.split_once(": ").map_or_else(
-                || format!("{prefix}_"),
-                |(_, why)| format!("{prefix}_: {why}"),
-            );
-        }
-    }
-    reason.to_owned()
-}
-/// Diagnostics carry no codes; group by message with identifiers elided: a
-/// word survives only when it is plain lowercase prose.
-fn diagnostic_kind(message: &str) -> String {
-    let head = message.split(" (").next().unwrap_or(message);
-    let head = head.rsplit(": ").next().unwrap_or(head);
-    head.split_whitespace()
-        .enumerate()
-        .map(|(i, word)| {
-            let plain = word
-                .chars()
-                .all(|c| c.is_ascii_lowercase() || c == ',' || c == '-');
-            if plain && !(i == 1 && head.starts_with("module ")) {
-                word
-            } else {
-                "_"
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// Render arguments after `cargo atlas`, quoting any that a shell would split.
@@ -810,20 +794,24 @@ impl Orientation {
             (r.calls_resolved * 100).checked_div(calls).unwrap_or(0)
         );
         for reason in r.unknown_call_reasons.iter().take(REASONS) {
-            let _ = writeln!(out, "    {:>7}  {}", reason.count, reason.kind);
+            let _ = writeln!(
+                out,
+                "    {:>7}  {}  (e.g. {})",
+                reason.count, reason.kind, reason.example
+            );
         }
         let _ = writeln!(
             out,
             "  type mentions: {} unique, {} ambiguous, {} unresolved",
             r.mentions_unique, r.mentions_ambiguous, r.mentions_unresolved
         );
-        let _ = writeln!(
-            out,
-            "  diagnostics: {} (grouped by message, names elided)",
-            r.diagnostics
-        );
+        let _ = writeln!(out, "  diagnostics: {} (grouped by code)", r.diagnostics);
         for kind in r.diagnostic_kinds.iter().take(REASONS) {
-            let _ = writeln!(out, "    {:>7}  {}", kind.count, kind.kind);
+            let _ = writeln!(
+                out,
+                "    {:>7}  {}  (e.g. {})",
+                kind.count, kind.kind, kind.example
+            );
         }
     }
 }
@@ -841,22 +829,6 @@ mod tests {
             "fn f() {}\nlet s = \"@generated\";\n"
         ));
         assert!(!has_generated_marker("\n\n\n\n\n// @generated\n"));
-    }
-
-    #[test]
-    fn reasons_and_diagnostics_elide_names() {
-        assert_eq!(
-            reason_kind("receiver out: initializer result not established"),
-            "receiver _: initializer result not established"
-        );
-        assert_eq!(
-            reason_kind("unresolved or external path Vec::new"),
-            "unresolved or external path _"
-        );
-        assert_eq!(
-            diagnostic_kind("Self is not resolved to an enclosing impl type"),
-            "_ is not resolved to an enclosing impl type"
-        );
     }
 
     #[test]

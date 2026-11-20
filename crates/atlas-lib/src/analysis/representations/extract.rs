@@ -7,7 +7,7 @@ use super::{
 };
 use crate::{
     Result,
-    analysis::index::{Index, Target},
+    analysis::index::{Index, Summary, SummaryKind, Target},
     architecture::Architecture,
     model::SourceGraph,
 };
@@ -369,7 +369,7 @@ pub(in crate::analysis) fn from_selected_sources(
         String,
         crate::workflow::Call,
         BTreeSet<String>,
-        BTreeSet<String>,
+        BTreeMap<String, Summary>,
     )>::new();
     for (i, f) in index.functions().iter().enumerate() {
         let Some(from) = sites.get(&(
@@ -406,7 +406,7 @@ pub(in crate::analysis) fn from_selected_sources(
             }
             let key = (from.clone(), call.site.clone());
             let position = *call_positions.entry(key).or_insert_with(|| {
-                observed.push((from.clone(), call.clone(), BTreeSet::new(), BTreeSet::new()));
+                observed.push((from.clone(), call.clone(), BTreeSet::new(), BTreeMap::new()));
                 observed.len() - 1
             });
             let (_, _, targets, unknowns) = &mut observed[position];
@@ -416,19 +416,23 @@ pub(in crate::analysis) fn from_selected_sources(
                     if let Some(to) = sites.get(&(site.path.as_str(), site.line, site.column)) {
                         targets.insert(to.clone());
                     } else {
-                        unknowns
-                            .insert("resolved body lacks a selected representation site".into());
+                        note(
+                            unknowns,
+                            Summary::new(
+                                SummaryKind::BodyUnselected,
+                                "resolved body lacks a selected representation site",
+                            ),
+                        );
                     }
                 }
                 Target::InvalidFunction(position) => {
                     return Err(format!("invalid indexed function position {position}").into());
                 }
-                Target::Summarized(reason) => {
-                    unknowns.insert(reason);
-                }
-                Target::Boundary(..) => {
-                    unknowns.insert("unresolved boundary".into());
-                }
+                Target::Summarized(reason) => note(unknowns, reason),
+                Target::Boundary(..) => note(
+                    unknowns,
+                    Summary::new(SummaryKind::BoundaryUnresolved, "unresolved boundary"),
+                ),
             }
         }
     }
@@ -442,12 +446,25 @@ pub(in crate::analysis) fn from_selected_sources(
                 });
             }
         } else {
-            let reason = if targets.len() > 1 {
-                "Cargo/module contexts resolve to different physical bodies".into()
+            let reasons: Vec<Summary> = if targets.len() > 1 {
+                vec![Summary::new(
+                    SummaryKind::ContextsDisagree,
+                    "Cargo/module contexts resolve to different physical bodies",
+                )]
             } else {
-                unknowns.into_iter().collect::<Vec<_>>().join("; ")
+                unknowns.into_values().collect()
             };
-            facts.unknown_calls.push(UnknownCall { from, call, reason });
+            let reason = reasons
+                .iter()
+                .map(|reason| reason.message.as_str())
+                .collect::<Vec<_>>()
+                .join("; ");
+            facts.unknown_calls.push(UnknownCall {
+                from,
+                call,
+                reason,
+                reasons,
+            });
         }
     }
     let mut defaults = BTreeSet::new();
@@ -456,4 +473,9 @@ pub(in crate::analysis) fn from_selected_sources(
         .retain(|call| defaults.insert((call.from.clone(), call.to.clone(), call.line)));
 
     Ok(facts)
+}
+
+/// Keep one reason per distinct reading, ordered by its message.
+fn note(unknowns: &mut BTreeMap<String, Summary>, reason: Summary) {
+    unknowns.entry(reason.message.clone()).or_insert(reason);
 }

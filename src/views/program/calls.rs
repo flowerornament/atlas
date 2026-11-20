@@ -116,7 +116,7 @@ pub(super) fn build(
                     observations.push(Observation {
                         function: f.id.clone(),
                         call: Some(call.clone()),
-                        reason,
+                        reason: reason.message,
                     });
                     continue;
                 }

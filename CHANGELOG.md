@@ -6,6 +6,20 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Diagnostics have stable codes. Every diagnostic in graph JSON, report
+ bases and check `unavailable` lists carries `code` (such as `mount-missing`
+ or `self-unresolved`) beside `message`, whose wording may change; JSON
+ without a code reads as `unclassified`. Every unknown call carries
+ `reasons`, each with a stable `kind` (such as `unresolved-path` or
+ `receiver-type-unknown`), the `subject` it concerns and its `message`;
+ `reason` is unchanged. `facts` adds `diagnostic.code` and
+ `unknown_call.kind` and `subject`. docs/facts.md lists every code.
+- `orient` groups diagnostics and unknown-call reasons by these codes, each
+ with its first message as an example, instead of by message text.
+- **Breaking (library):** `source_index::Target::Summarized` holds a
+ `Summary { kind, subject, message }` instead of a `String`; its `Display`
+ is the message. New: `model::DiagnosticCode`, `Diagnostic::code`,
+ `source_index::{Summary, SummaryKind}`, `UnknownCall::reasons`.
 - `Self` in a lexical mention now means the type it names: in an impl's
  items, the impl's self type (by the name it ends in); in a struct or enum,
  that type. It becomes a mention with spelling `Self`, resolved as if that

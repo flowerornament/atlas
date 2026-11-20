@@ -80,17 +80,24 @@ pub(super) fn boundaries(
                 declared
             }
             maybe => {
-                let message = if maybe.is_some() {
-                    format!(
-                        "project boundary declaration for {module} does not match captured source"
+                let (code, message) = if maybe.is_some() {
+                    (
+                        crate::model::DiagnosticCode::BoundaryDeclarationMismatch,
+                        format!(
+                            "project boundary declaration for {module} does not match captured source"
+                        ),
                     )
                 } else {
-                    format!("project boundary declaration unavailable for {module}")
+                    (
+                        crate::model::DiagnosticCode::BoundaryDeclarationUnavailable,
+                        format!("project boundary declaration unavailable for {module}"),
+                    )
                 };
                 unavailable.push(crate::model::Diagnostic {
                     package: Some(crate_map.name.clone()),
                     file: file.rel.clone(),
                     line: None,
+                    code,
                     message,
                 });
                 continue;
@@ -122,6 +129,7 @@ pub(super) fn boundaries(
                                 listed_home(&mut boundary, &module, binding, item.line, root)
                         {
                             unavailable.push(crate::model::Diagnostic {
+                                code: crate::model::DiagnosticCode::BoundaryUnjudged,
                                 package: Some(crate_map.name.clone()),
                                 file: file.rel.clone(),
                                 line: Some(item.line),
@@ -148,6 +156,7 @@ pub(super) fn boundaries(
                                 Ok(targets) => targets,
                                 Err(why) => {
                                     unavailable.push(crate::model::Diagnostic {
+                                        code: crate::model::DiagnosticCode::BoundaryUnjudged,
                                         package: Some(crate_map.name.clone()),
                                         file: file.rel.clone(),
                                         line: Some(item.line),

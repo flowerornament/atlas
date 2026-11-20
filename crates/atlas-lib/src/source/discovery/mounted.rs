@@ -152,6 +152,7 @@ fn capture_optional(
     let path = normalize_path(&root.join(rel));
     if !path.starts_with(root) || has_symlink(root, &path)? {
         diagnostics.push(Diagnostic {
+            code: crate::model::DiagnosticCode::SourceExcluded,
             file: rel.to_owned(),
             line: None,
             package: None,

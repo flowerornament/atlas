@@ -180,6 +180,7 @@ fn package_sources(package: &cargo_metadata::Package, root: &Path) -> Result<Pac
         let path = normalized.as_path();
         if !path.starts_with(&src) && path.extension().is_some_and(|e| e == "rs") {
             diagnostics.push(Diagnostic {
+                code: crate::model::DiagnosticCode::TargetOutsideSrc,
                 package: Some(package.name.to_string()),
                 file: rel_display(root, path),
                 line: None,
@@ -193,6 +194,7 @@ fn package_sources(package: &cargo_metadata::Package, root: &Path) -> Result<Pac
         let rel = rel_display(root, &path);
         if !path.starts_with(root) || has_symlink(root, &path)? {
             diagnostics.push(Diagnostic {
+                code: crate::model::DiagnosticCode::SourceExcluded,
                 package: None,
                 file: rel,
                 line: None,
@@ -312,6 +314,7 @@ fn read_metadata(
         let mut known: BTreeSet<_> = loaded.iter().map(|file| file.rel.clone()).collect();
         for issue in &outside.unavailable {
             diagnostics.push(Diagnostic {
+                code: crate::model::DiagnosticCode::MountUnavailable,
                 file: issue.declaring_file.clone(),
                 line: None,
                 package: Some(package.name.to_string()),
@@ -340,6 +343,7 @@ fn read_metadata(
                     .error()
                     .ok_or("invalid capture lacks syntax cause")?;
                 diagnostics.push(Diagnostic {
+                    code: crate::model::DiagnosticCode::SyntaxError,
                     file: file.rel.clone(),
                     line: Some(error.line()),
                     package: Some(package.name.to_string()),
@@ -358,6 +362,7 @@ fn read_metadata(
             };
             if let Some((line, reason)) = super::population::native_limitation(source) {
                 diagnostics.push(Diagnostic {
+                    code: crate::model::DiagnosticCode::NativeLimit,
                     file: file.rel.clone(),
                     line: Some(line),
                     package: Some(package.name.to_string()),
@@ -370,6 +375,7 @@ fn read_metadata(
             }) {
                 if let Err(error) = &import.bindings {
                     diagnostics.push(Diagnostic {
+                        code: crate::model::DiagnosticCode::UseUnreadable,
                         file: file.rel.clone(),
                         line: Some(import.line),
                         package: Some(package.name.to_string()),
@@ -531,6 +537,7 @@ fn collect_rs_files(
         let ty = entry.file_type()?;
         if ty.is_symlink() {
             diagnostics.push(Diagnostic {
+                code: crate::model::DiagnosticCode::SymlinkExcluded,
                 package: None,
                 file: rel_display(root, &path),
                 line: None,
@@ -701,6 +708,7 @@ fn mark_test_files(
                 .any(|candidate| by_path.contains_key(candidate))
             {
                 diagnostics.push(Diagnostic {
+                    code: crate::model::DiagnosticCode::MountMissing,
                     package: Some(package.to_owned()),
                     file: file.rel.clone(),
                     line: None,

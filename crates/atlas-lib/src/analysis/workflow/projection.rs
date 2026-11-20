@@ -219,7 +219,7 @@ impl<'a> Builder<'a> {
             Target::Function(j) if self.stack.contains(&j) => (None, "recursion boundary".into()),
             Target::Function(_) if self.depth == 0 => (None, "depth boundary".into()),
             Target::Function(j) => (Some(j), String::new()),
-            Target::Summarized(s) => (None, s),
+            Target::Summarized(s) => (None, s.message),
             Target::Boundary(..) => (None, "declared boundary".into()),
             Target::InvalidFunction(position) => {
                 (None, format!("invalid function position {position}"))

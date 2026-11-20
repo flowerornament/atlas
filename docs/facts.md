@@ -109,6 +109,66 @@ only adds relations or appends columns; it never renames, removes or
 reorders them, or changes what a column means. Read columns by name (from
 `columns`, or the JSON Lines keys), never by a position you counted.
 
+## Codes
+
+A diagnostic's `code` and an unknown call's `kind` are stable: group and
+filter by them, not by `message` or `reason`, whose wording may change. Each
+list is closed for a release; a code a reader does not know reads as
+`unclassified`. `dump`, `census --json` and the other JSON reports carry the
+same codes (`code` on each diagnostic, `reasons[].kind` and
+`reasons[].subject` on each unknown call).
+
+### Diagnostic codes
+
+| code | meaning |
+|---|---|
+| `symlink-excluded` | A symbolic link met while walking source directories was not followed. |
+| `source-excluded` | A source path outside the workspace, or reached through a symlink. |
+| `target-outside-src` | A target root outside `src`; files beside it are not discovered. |
+| `mount-missing` | A `mod` declaration whose file is not among the discovered files. |
+| `mount-unavailable` | A module file outside `src` that could not be read. |
+| `syntax-error` | The file does not parse as Rust. |
+| `native-limit` | Written Rust that line-based native readings cannot account for. |
+| `use-unreadable` | A `use` declaration whose bindings could not be read. |
+| `external-glob` | An external glob import; name-only resolution is suppressed there. |
+| `self-unresolved` | `Self` outside any impl or type it could name. |
+| `boundary-unjudged` | A boundary path a seam check could not judge. |
+| `boundary-declaration-unavailable` | A project boundary declaration that is missing. |
+| `boundary-declaration-mismatch` | A project boundary declaration that differs from the captured source. |
+| `test-path-unjudged` | A required test path a seam check could not judge. |
+| `test-mount-unavailable` | A required test module file that could not be read. |
+| `header-citation-stale` | A header-citation observation taken from other source bytes. |
+| `header-citation-unavailable` | A required header-citation observation that was not supplied. |
+| `measure-unavailable` | A required measurement that could not be made. |
+| `population-unavailable` | A selected package without a captured source-tree population. |
+| `stage-use-unreadable` | Stage `use` syntax that could not be read. |
+| `stage-order-missing` | Stage seams without their required `stage_order`. |
+| `seam-import-unavailable` | Required seam import syntax that could not be read. |
+| `unclassified` | Read from JSON written before codes existed, or with a code this build does not know. |
+
+### Unknown-call reason kinds
+
+| kind | meaning |
+|---|---|
+| `reexport-ambiguous` | A public re-export chain that is ambiguous or cyclic. |
+| `stage-entry-ambiguous` | A stage's declared entry re-exported ambiguously. |
+| `support-api` | A stage's support API, outside its declared entry (subject: stage). |
+| `static-call-ambiguous` | More than one workspace function has the path. |
+| `foreign-impl-owner` | A trait impl for a type the workspace does not declare (subject: type). |
+| `unresolved-path` | A path no workspace function has: external, or not followed (subject: path). |
+| `indirect-call` | A call through an expression rather than a path. |
+| `value-call` | A call of a local value (subject: name). |
+| `local-shadow` | A body-local item or import shadows the module's names (subject: name). |
+| `import-namespace-clash` | A local item and an import share the name (subject: name). |
+| `import-ambiguous` | The import the path starts with is ambiguous. |
+| `self-owner-unknown` | `self`'s type is not established. |
+| `receiver-type-unknown` | The receiver has no unique written type (subject: receiver). |
+| `receiver-initializer-unknown` | The receiver's initializer result is not established (subject: receiver). |
+| `boundary-unresolved` | A boundary call with no resolved entry. |
+| `body-unselected` | The call resolved to a body the type facts did not select. |
+| `contexts-disagree` | The file's Cargo or module contexts resolve the call to different bodies. |
+| `unclassified` | Read from JSON with a kind this build does not know. |
+
 ## Relations
 
 ### `file`
@@ -216,7 +276,8 @@ Lexical. An observation Atlas could not complete while reading the source.
 | `path` | text | The file. |
 | `line` | integer | The line, or 0 when the diagnostic is about the whole file. |
 | `package` | text | The package whose observation it is, or empty for the physical file. |
-| `message` | text | The diagnostic as written in Atlas's other output. |
+| `message` | text | The diagnostic as written in Atlas's other output; its wording may change. |
+| `code` | text | Its kind, a stable code such as `mount-missing` (see the code list). |
 
 ### `qualified_file`
 
@@ -304,6 +365,8 @@ Qualified. A call Atlas could not resolve to exactly one workspace function: ext
 | `path` | text | File of the call site. |
 | `line` | integer | Line of the call site. |
 | `column` | integer | Column of the call site. |
+| `kind` | text | Each reason's stable kind, such as `unresolved-path`, joined with `; ` like `reason`. |
+| `subject` | text | Each reason's path, name, receiver, type or module, or empty, joined the same way. |
 
 - Includes calls into other crates and the standard library; an unknown call is not a missing call.
 

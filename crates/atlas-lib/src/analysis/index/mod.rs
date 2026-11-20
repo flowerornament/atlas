@@ -69,10 +69,87 @@ pub struct Index {
 pub enum Target {
     Function(usize),
     Boundary(usize, Option<String>),
-    Summarized(String),
+    Summarized(Summary),
     /// The caller supplied a position outside this index, not an unresolved
     /// source call. Consumers must refuse rather than publish a partial view.
     InvalidFunction(usize),
+}
+/// Why a call was left unresolved: a stable kind, the name it concerns where
+/// there is one, and a reading for people whose wording may change.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[non_exhaustive]
+pub struct Summary {
+    pub kind: SummaryKind,
+    /// The path, name, receiver, type or module the reason concerns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
+    pub message: String,
+}
+impl Summary {
+    pub(crate) fn new(kind: SummaryKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            subject: None,
+            message: message.into(),
+        }
+    }
+    pub(crate) fn about(kind: SummaryKind, subject: &str, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            subject: Some(subject.to_owned()),
+            message: message.into(),
+        }
+    }
+}
+impl std::fmt::Display for Summary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+/// The kind of a [`Summary`], as a stable kebab-case code.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum SummaryKind {
+    /// A public re-export chain that is ambiguous or cyclic.
+    ReexportAmbiguous,
+    /// A stage's declared entry re-exported ambiguously.
+    StageEntryAmbiguous,
+    /// A stage's support API, outside its declared entry (subject: stage).
+    SupportApi,
+    /// More than one workspace function has the path.
+    StaticCallAmbiguous,
+    /// A trait impl for a type the workspace does not declare (subject: type).
+    ForeignImplOwner,
+    /// A path no workspace function has: external, or not followed (subject: path).
+    UnresolvedPath,
+    /// A call through an expression rather than a path.
+    IndirectCall,
+    /// A call of a local value (subject: name).
+    ValueCall,
+    /// A body-local item or import shadows the module's names (subject: name).
+    LocalShadow,
+    /// A local item and an import share the name (subject: name).
+    ImportNamespaceClash,
+    /// The import the path starts with is ambiguous.
+    ImportAmbiguous,
+    /// `self`'s type is not established.
+    SelfOwnerUnknown,
+    /// The receiver has no unique written type (subject: receiver).
+    ReceiverTypeUnknown,
+    /// The receiver's initializer result is not established (subject: receiver).
+    ReceiverInitializerUnknown,
+    /// A boundary call with no resolved entry.
+    BoundaryUnresolved,
+    /// The call resolved to a body the type facts did not select.
+    BodyUnselected,
+    /// The file's Cargo or module contexts resolve the call to different bodies.
+    ContextsDisagree,
+    /// Read from JSON with a kind this build does not know.
+    #[serde(other)]
+    Unclassified,
 }
 impl Index {
     /// Functions in the stable order used by this index's positions.

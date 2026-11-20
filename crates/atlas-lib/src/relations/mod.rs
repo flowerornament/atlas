@@ -332,6 +332,7 @@ fn lexical(graph: &SourceGraph) -> Vec<Relation> {
             d.line.unwrap_or(0).into(),
             d.package.clone().unwrap_or_default().into(),
             (&d.message).into(),
+            code(&d.code).into(),
         ]);
     }
     vec![
@@ -435,6 +436,13 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
             (&u.call.site.path).into(),
             u.call.site.line.into(),
             u.call.site.column.into(),
+            joined(u.reasons.iter().map(|r| code(&r.kind))).into(),
+            joined(
+                u.reasons
+                    .iter()
+                    .map(|r| r.subject.clone().unwrap_or_default()),
+            )
+            .into(),
         ]);
     }
     let mut reference = Relation::new("reference");
@@ -501,4 +509,18 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
         default_call,
         constant,
     ]
+}
+
+/// A unit enum's serialized name: the stable code of a diagnostic or reason
+/// kind, such as `self-unresolved`.
+pub(crate) fn code(value: &impl Serialize) -> String {
+    match serde_json::to_value(value) {
+        Ok(serde_json::Value::String(name)) => name,
+        _ => String::new(),
+    }
+}
+
+/// One cell for several reasons, in their order, as `reason` joins them.
+fn joined(parts: impl Iterator<Item = String>) -> String {
+    parts.collect::<Vec<_>>().join("; ")
 }

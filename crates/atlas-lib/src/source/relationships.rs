@@ -16,6 +16,7 @@ pub fn derive(graph: &mut SourceGraph) {
             match scan::import_bindings(statement) {
                 Ok(found) => bindings.extend(found),
                 Err(error) => graph.diagnostics.push(Diagnostic {
+                    code: crate::model::DiagnosticCode::UseUnreadable,
                     package: Some(file.crate_name.clone()),
                     file: file.path.clone(),
                     line: None,
@@ -117,6 +118,7 @@ fn derive_with_bindings(
         }
         if glob {
             diagnostics.push(Diagnostic {
+                code: crate::model::DiagnosticCode::ExternalGlob,
                 package: Some(file.crate_name.clone()),
                 file: file.path.clone(),
                 line: None,
@@ -161,6 +163,7 @@ fn derive_with_bindings(
                     && scan::identifiers(text).any(|x| x == "Self")
                 {
                     diagnostics.push(Diagnostic {
+                        code: crate::model::DiagnosticCode::SelfUnresolved,
                         package: Some(file.crate_name.clone()),
                         file: file.path.clone(),
                         line: Some(item.line),

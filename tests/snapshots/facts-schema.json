@@ -273,7 +273,12 @@
         {
           "name": "message",
           "kind": "text",
-          "description": "The diagnostic as written in Atlas's other output."
+          "description": "The diagnostic as written in Atlas's other output; its wording may change."
+        },
+        {
+          "name": "code",
+          "kind": "text",
+          "description": "Its kind, a stable code such as `mount-missing` (see the code list)."
         }
       ],
       "basis": null,
@@ -521,6 +526,16 @@
           "name": "column",
           "kind": "integer",
           "description": "Column of the call site."
+        },
+        {
+          "name": "kind",
+          "kind": "text",
+          "description": "Each reason's stable kind, such as `unresolved-path`, joined with `; ` like `reason`."
+        },
+        {
+          "name": "subject",
+          "kind": "text",
+          "description": "Each reason's path, name, receiver, type or module, or empty, joined the same way."
         }
       ],
       "basis": null,

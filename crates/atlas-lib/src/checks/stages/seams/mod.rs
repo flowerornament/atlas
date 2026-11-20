@@ -250,6 +250,7 @@ impl SeamReading {
                 let owner = path[0];
                 let (edges, unjudged) = root.edges(&file.rel, &path, &lines);
                 unavailable.extend(unjudged.into_iter().map(|issue| crate::model::Diagnostic {
+                    code: crate::model::DiagnosticCode::TestPathUnjudged,
                     package: Some(crate_map.name.clone()),
                     file: issue.file,
                     line: Some(issue.line),

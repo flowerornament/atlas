@@ -125,6 +125,11 @@ impl Measure {
                             package: Some(crate_map.name.clone()),
                             file: file.rel.clone(),
                             line: None,
+                            code: if supplied.is_some() {
+                                crate::model::DiagnosticCode::HeaderCitationStale
+                            } else {
+                                crate::model::DiagnosticCode::HeaderCitationUnavailable
+                            },
                             message: if supplied.is_some() {
                                 "header-citation observation has stale source custody".into()
                             } else {
@@ -146,6 +151,7 @@ impl Measure {
                 match aliases(file, &id, module.is_none(), &modules, &top_modules) {
                     Ok(aliases) => measure.aliases.extend(aliases),
                     Err(why) => measure.unavailable.push(Diagnostic {
+                        code: crate::model::DiagnosticCode::MeasureUnavailable,
                         package: Some(crate_map.name.clone()),
                         file: file.rel.clone(),
                         line: None,

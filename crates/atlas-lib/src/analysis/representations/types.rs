@@ -92,7 +92,11 @@ pub struct ResolvedCall {
 pub struct UnknownCall {
     pub from: String,
     pub call: Call,
+    /// The readings of `reasons`, joined with `; `.
     pub reason: String,
+    /// Why it is unresolved, one per distinct reason, with stable kinds.
+    #[serde(default)]
+    pub reasons: Vec<crate::analysis::index::Summary>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[non_exhaustive]

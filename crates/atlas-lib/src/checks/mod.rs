@@ -75,6 +75,7 @@ fn read_stages(
             .filter(|issue| issue.why == stages::Unjudged::UnreadableImport)
         {
             unavailable.push(crate::model::Diagnostic {
+                code: crate::model::DiagnosticCode::StageUseUnreadable,
                 file: issue.file.clone(),
                 line: Some(issue.line),
                 package: Some(package.name.clone()),
@@ -183,6 +184,7 @@ fn seam_readings(
             .find(|order| &order.crate_name == name)
         else {
             unavailable.push(crate::model::Diagnostic {
+                code: crate::model::DiagnosticCode::StageOrderMissing,
                 package: Some(name.clone()),
                 file: String::new(),
                 line: None,
@@ -209,6 +211,7 @@ fn seam_readings(
         if let Some(mounts) = snapshot.mounted_sources(name) {
             for missing in &mounts.unavailable {
                 unavailable.push(crate::model::Diagnostic {
+                    code: crate::model::DiagnosticCode::TestMountUnavailable,
                     package: Some(name.clone()),
                     file: missing.declaring_file.clone(),
                     line: None,
@@ -231,6 +234,7 @@ fn seam_readings(
                 .filter(|import| import.bindings.is_err())
             {
                 unavailable.push(crate::model::Diagnostic {
+                    code: crate::model::DiagnosticCode::SeamImportUnavailable,
                     package: Some(name.clone()),
                     file: file.rel.clone(),
                     line: Some(import.line),

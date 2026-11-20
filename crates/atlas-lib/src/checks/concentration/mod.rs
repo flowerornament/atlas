@@ -174,6 +174,7 @@ fn read_workspace(
     {
         if package.files.is_empty() {
             measured.unavailable.push(crate::model::Diagnostic {
+                code: crate::model::DiagnosticCode::PopulationUnavailable,
                 package: Some(package.name.clone()),
                 file: package.src_rel.clone(),
                 line: None,
