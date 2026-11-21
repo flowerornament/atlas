@@ -148,11 +148,9 @@ const audit = JSON.parse(fs.readFileSync('comments.json', 'utf8'));
 if (audit.question !== 'comments' || audit.report.citation_markers !== null || audit.report.headers !== 'all-files' || Object.keys(audit.report.sources).length !== 3 || !audit.report.findings.some(finding => finding.kind === 'missing-outer-line-doc') || Object.hasOwn(audit, 'verdict'))
     throw new Error('installed documentation audit lost selection, source witnesses or rule applicability');
 JS
-if "$atlas_scratch/install/bin/cargo-atlas" comments --root "$atlas_scratch/project" > unexpected-audit.json 2> required-audit.txt; then
-    echo 'comments accepted an invocation without --audit' >&2
-    exit 1
-fi
-grep -q -- '--audit' required-audit.txt
+# --audit is accepted for compatibility; the audit is all `comments` does.
+"$atlas_scratch/install/bin/cargo-atlas" comments --pub-only --root "$atlas_scratch/project" --json > comments-plain.json
+node --input-type=module -e 'import fs from "node:fs"; if (fs.readFileSync("comments.json", "utf8") !== fs.readFileSync("comments-plain.json", "utf8")) process.exit(1);'
 # Review tests above moved the first fixture. Keep check populations independent.
 atlas_check_project="$atlas_scratch/check-project"
 mkdir -p "$atlas_check_project/src"

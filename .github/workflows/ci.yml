@@ -14,6 +14,8 @@ jobs:
           node-version: '24'
       - name: Install pinned Rust toolchain
         run: rustup show active-toolchain
+      - name: Install pinned ast-grep (forbid_pattern and forbid_new_pattern tests)
+        run: npm install --global --no-audit --no-fund @ast-grep/cli@0.51.3
       - name: Rust and embedded renderer checks
         run: |
           cargo fmt --check

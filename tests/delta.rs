@@ -200,6 +200,11 @@ fn forbidden_path_observations_read_the_real_project_root() {
 }
 #[test]
 fn forbid_new_pattern_counts_both_sides_with_their_own_policies() {
+    // The command line observes forbid_new_pattern with ast-grep, which
+    // contributors need not install; CI installs it so this runs there.
+    if Command::new("ast-grep").arg("--version").output().is_err() {
+        return;
+    }
     let guarded = POLICY.replace(
         "home='src/lib.rs::Home'",
         "home='src/lib.rs::Home',forbid_new_pattern=[{name='narrow',pattern='$X as u8'}]",
