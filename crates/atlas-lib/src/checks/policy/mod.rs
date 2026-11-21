@@ -572,8 +572,16 @@ impl Policy {
         Ok(())
     }
     pub fn parse(text: &str) -> crate::Result<Self> {
-        let policy: Self = toml::from_str(text)?;
+        let mut policy: Self = toml::from_str(text)?;
         policy.validate_header()?;
+        // Rows name functions as flow does; an older spelling is read as it.
+        for row in policy
+            .concentration
+            .iter_mut()
+            .flat_map(|c| &mut c.function)
+        {
+            row.function = crate::source::identity::normalize_selector(&row.function);
+        }
         Ok(policy)
     }
 }

@@ -530,7 +530,11 @@ header_uncited = { tutorial = 2 }
   `nesting = 8`, or both). `function` is written as `cargo atlas flow
   --function` prints it: `Type::method`, `<Type as Trait>::method`,
   `module::name`, with `#2` for the second function of one name in a
-  file. Rows behave as `entry` and `file` rows, `owner` included. Over a
+  file. A type or trait is named by its last segment with its type
+  arguments and without lifetimes (`<Graph<Cell> as From<Seed>>::from`), so
+  renaming a lifetime or respelling an import keeps the row; an older
+  spelling (spacing, lifetimes, a qualified trait) is read as the same
+  name. Rows behave as `entry` and `file` rows, `owner` included. Over a
   change, `delta` refuses a raised or removed function limit and a new
   `generated` path, holds a row to the lesser of its value and its
   function's earlier measure, and reports a new or raised row as a raise

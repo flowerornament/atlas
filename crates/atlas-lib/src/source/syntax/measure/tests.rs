@@ -78,7 +78,7 @@ fn identity_is_flows_spelling_with_generics_and_repeats_numbered() {
             "Q::d",
             "twin",
             "twin#2",
-            "m::Vec < u8 >::method"
+            "m::Vec<u8>::method"
         ]
     );
 }

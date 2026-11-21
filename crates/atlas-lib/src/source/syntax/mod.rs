@@ -2,6 +2,7 @@
 //! Macro payloads are opaque; this performs neither expansion nor type/name resolution.
 pub(crate) mod attributes;
 pub(crate) mod fragments;
+pub(crate) mod identity;
 pub(crate) mod imports;
 pub(crate) mod measure;
 mod walk;

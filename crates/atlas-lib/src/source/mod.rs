@@ -28,7 +28,7 @@ pub use syntax::{
     fragments::{impl_trait, restricted_path, struct_fields},
     imports::{ImportBinding, import_bindings},
 };
-pub(crate) use syntax::{attributes::expression_attrs, parse_file};
+pub(crate) use syntax::{attributes::expression_attrs, identity, parse_file};
 
 /// Syntax failure contains only portable data and a one-based source location.
 #[derive(Debug, Clone, PartialEq, Eq)]

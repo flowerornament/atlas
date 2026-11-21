@@ -6,6 +6,14 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- A function's identity (`flow --function` and `concentration` function
+ rows) names an impl's self type and trait by their last segment with
+ their type arguments, without lifetimes and with normalized spacing
+ (`<Graph<Cell> as From<Seed>>::from`): a lifetime rename or a respelled
+ import no longer orphans a row. One normalizer serves the measure, flow's
+ names and the reading of selectors and rows, so an older spelling still
+ names the function. A qualified self type (`impl a::T`) in an older row
+ keeps its leading segments.
 - An authority home `FILE::ITEM` naming a `mod` declaration is that module,
  as a directory home is: `allowed_readers` treats the module's files as the
  home's own, not readers, and `forbid_new_*` counts no debt in them. Each

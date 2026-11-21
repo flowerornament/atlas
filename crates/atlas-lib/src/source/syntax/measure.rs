@@ -156,11 +156,7 @@ impl<'ast> Visit<'ast> for Reader<'_> {
         }
     }
     fn visit_item_impl(&mut self, item: &'ast syn::ItemImpl) {
-        let owner = written(self.text, item.self_ty.span());
-        let segment = match &item.trait_ {
-            Some((path, _)) => format!("<{owner} as {}>", written(self.text, path.span())),
-            None => owner,
-        };
+        let segment = super::identity::impl_segment(item);
         self.scope(segment, |reader| visit::visit_item_impl(reader, item));
     }
     fn visit_item_trait(&mut self, item: &'ast syn::ItemTrait) {
@@ -229,13 +225,6 @@ fn expr_attrs(expr: &syn::Expr) -> &[syn::Attribute] {
 }
 
 /// The text at `span` with its whitespace collapsed to single spaces.
-fn written(text: &str, span: proc_macro2::Span) -> String {
-    text[span.byte_range()]
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 /// Clippy's `too_many_lines` count of a body's text: the outer braces
 /// dropped (kept for an `async fn`), trimmed, then each line counted that
 /// holds code outside `//` and `/* */` comments.

@@ -92,16 +92,22 @@ fn impl_methods<'a>(
     out: &mut Vec<Function<'a>>,
 ) {
     let prefix = scope.prefix;
+    // `owner` is the written self type, which resolves `Self`; the names
+    // use the identity's spelling.
     let owner = reader.text(i.self_ty.span());
-    let implemented = i.trait_.as_ref().map(|(path, _)| reader.text(path.span()));
+    let named = crate::source::identity::type_name(&i.self_ty);
+    let implemented = i
+        .trait_
+        .as_ref()
+        .map(|(path, _)| crate::source::identity::path_name(path));
     for member in &i.items {
         if let syn::ImplItem::Fn(f) = member
             && reader.selection.admits(f.span())
         {
             out.push(Function {
-                name: format!("{prefix}{owner}::{}", f.sig.ident),
+                name: format!("{prefix}{named}::{}", f.sig.ident),
                 trait_name: implemented.as_ref().map(|implemented| {
-                    format!("{prefix}<{owner} as {implemented}>::{}", f.sig.ident)
+                    format!("{prefix}<{named} as {implemented}>::{}", f.sig.ident)
                 }),
                 default_body: false,
                 module: scope.module.to_vec(),
@@ -174,6 +180,8 @@ impl Reader<'_> {
         functions: &'f [Function<'a>],
         selector: &str,
     ) -> Result<&'f Function<'a>> {
+        let selector = crate::source::identity::normalize_selector(selector);
+        let selector = selector.as_str();
         let site = |f: &Function<'_>| self.site(f.signature.ident.span());
         let found: Vec<_> = functions
             .iter()
