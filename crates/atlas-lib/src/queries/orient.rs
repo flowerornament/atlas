@@ -16,12 +16,12 @@ use crate::{
     Result,
     analysis::{
         Analysis,
-        semantic::{Agreement, SemanticIndex},
+        semantic::{Agreement, Named, Reading, SemanticIndex},
     },
     discovery::Snapshot,
-    model::{Declaration, Resolution},
+    model::{Declaration, Resolution, SourceGraph},
     relations::code,
-    representations::Function,
+    representations::{Facts, Function},
     source::discovery::target_key,
 };
 use serde::Serialize;
@@ -229,10 +229,6 @@ pub fn semantic_orient(
 ) -> Result<Orientation> {
     orient_by(snapshot, scope, rows, Some(index))
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn orient_by(
     snapshot: &Snapshot,
     scope: Option<&str>,
@@ -247,9 +243,70 @@ fn orient_by(
     let in_scope = |path: &str| paths.contains(path);
 
     let packages = packages(snapshot, &package_names);
+    let census = file_census(snapshot, &paths);
+    let mass = code_mass(snapshot, &in_scope, &census)?;
+
+    let analysis = Analysis::new(snapshot)?;
+    let facts = analysis.representations()?;
+    let reading = index.map(|index| analysis.semantic(index)).transpose()?;
+    if let Some(reason) = reading.as_ref().and_then(|r| r.unavailable.as_ref()) {
+        return Err(format!("the semantic index is unavailable: {reason}").into());
+    }
+    let named = reading
+        .as_ref()
+        .map(|r| r.named(&facts))
+        .unwrap_or_default();
+    let mut resolution = ResolutionSummary::default();
+    let called = call_measures(&facts, &named, reading.as_ref(), &in_scope, &mut resolution);
+    let mentioned = type_mentions(graph, &in_scope, &mut resolution);
+    let mut kinds = BTreeMap::new();
+    for diagnostic in super::diagnostics_of(graph, &observations) {
+        resolution.diagnostics += 1;
+        tally(&mut kinds, code(&diagnostic.code), &diagnostic.message);
+    }
+    resolution.diagnostic_kinds = counts(kinds);
+
+    // Follow-up commands take a physical path: a package scope becomes its directory.
+    let physical_scope =
+        scope.map(|scope| package_directory(snapshot, scope).unwrap_or_else(|| scope.to_owned()));
+    let mut sections = Vec::from(size_sections(mass, physical_scope.as_deref(), rows));
+    sections.extend(reference_sections(
+        called,
+        mentioned,
+        physical_scope.as_deref(),
+        rows,
+    ));
+    let next = next_commands(&sections, &packages, &facts.functions);
+    Ok(Orientation {
+        schema: 1,
+        scope: scope.unwrap_or("workspace").to_owned(),
+        packages,
+        files: census.files,
+        test_only_files: census.test_only.len(),
+        generated_files: census.generated.into_iter().collect(),
+        unmounted_files: census.unmounted,
+        sections,
+        resolution,
+        next,
+        basis: BASIS,
+    })
+}
+
+/// The physical files in scope, by what sets them apart from ordinary
+/// production source.
+struct FileCensus<'g> {
+    /// Physical files in scope, a path shared by packages counted once.
+    files: usize,
+    test_only: BTreeSet<&'g str>,
+    generated: BTreeSet<String>,
+    /// Files in scope with no mount in any target's module tree.
+    unmounted: Vec<String>,
+}
+fn file_census<'g>(snapshot: &'g Snapshot, paths: &BTreeSet<&str>) -> FileCensus<'g> {
+    let graph = snapshot.graph();
     let physical: Vec<_> = graph
         .physical_files()
-        .filter(|f| in_scope(&f.path))
+        .filter(|f| paths.contains(f.path.as_str()))
         .collect();
     let test_only: BTreeSet<&str> = physical
         .iter()
@@ -272,20 +329,39 @@ fn orient_by(
         .filter(|p| !mounted.contains(*p))
         .map(|p| (*p).to_owned())
         .collect();
+    FileCensus {
+        files: physical.len(),
+        test_only,
+        generated,
+        unmounted,
+    }
+}
 
+/// Non-test lines of the production files in scope: by directory, and the
+/// largest block of each file that is not `@generated`.
+struct CodeMass {
+    lines: usize,
+    directories: Vec<Row>,
+    blocks: Vec<Row>,
+}
+fn code_mass(
+    snapshot: &Snapshot,
+    in_scope: &dyn Fn(&str) -> bool,
+    census: &FileCensus<'_>,
+) -> Result<CodeMass> {
     let outline = crate::review::outline(snapshot, ".")?;
     let mut dirs: BTreeMap<String, (usize, usize, usize)> = BTreeMap::new();
     let mut blocks = Vec::new();
     for file in outline
         .files
         .iter()
-        .filter(|f| in_scope(&f.file) && !test_only.contains(f.file.as_str()))
+        .filter(|f| in_scope(&f.file) && !census.test_only.contains(f.file.as_str()))
     {
         let dir = file.file.rsplit_once('/').map_or("", |(dir, _)| dir);
         let entry = dirs.entry(format!("{dir}/")).or_default();
         entry.0 += file.non_test_lines;
         entry.1 += 1;
-        if generated.contains(&file.file) {
+        if census.generated.contains(&file.file) {
             entry.2 += file.non_test_lines;
         } else if let Some(block) = &file.largest_block {
             blocks.push(Row::site(
@@ -297,7 +373,7 @@ fn orient_by(
         }
     }
     let lines: usize = dirs.values().map(|v| v.0).sum();
-    let mass: Vec<Row> = dirs
+    let directories: Vec<Row> = dirs
         .into_iter()
         .map(|(path, (count, files, generated_lines))| Row {
             count,
@@ -309,43 +385,87 @@ fn orient_by(
             by_index: None,
         })
         .collect();
+    Ok(CodeMass {
+        lines,
+        directories,
+        blocks,
+    })
+}
 
-    let analysis = Analysis::new(snapshot)?;
-    let facts = analysis.representations()?;
-    let reading = index.map(|index| analysis.semantic(index)).transpose()?;
-    if let Some(reason) = reading.as_ref().and_then(|r| r.unavailable.as_ref()) {
-        return Err(format!("the semantic index is unavailable: {reason}").into());
-    }
-    let named = reading
-        .as_ref()
-        .map(|r| r.named(&facts))
-        .unwrap_or_default();
-    let pins = super::callers::Pins::new(&named);
+/// The most-called rows, and the call counts of `resolution`: resolved
+/// calls, unknown calls by reason, and with a reading what it pins them to
+/// and the callers it adds.
+fn call_measures(
+    facts: &Facts,
+    named: &[Named<'_>],
+    reading: Option<&Reading>,
+    in_scope: &dyn Fn(&str) -> bool,
+    resolution: &mut ResolutionSummary,
+) -> Ranked {
     let functions: BTreeMap<&str, &Function> =
         facts.functions.iter().map(|f| (f.id.as_str(), f)).collect();
-    let file_of = |id: &str| functions.get(id).map(|f| f.file.as_str());
+    let function_in_scope = |id: &str| {
+        functions
+            .get(id)
+            .map(|f| f.file.as_str())
+            .is_some_and(in_scope)
+    };
+    let callers = resolved_callers(facts, &function_in_scope, resolution);
+    unknown_calls(
+        facts,
+        named,
+        reading.is_some(),
+        &function_in_scope,
+        resolution,
+    );
+    if let Some(reading) = reading {
+        resolution.semantic.get_or_insert_default().reading = reading.describe();
+    }
+    let by_index = index_callers(named, &callers, &function_in_scope);
+    Ranked {
+        total: callers.len(),
+        rows: called_rows(&callers, &functions, reading.is_some().then_some(&by_index)),
+    }
+}
+
+/// The calling functions of each in-scope function, by resolved calls; counts
+/// the resolved call sites made from functions in scope.
+fn resolved_callers<'f>(
+    facts: &'f Facts,
+    function_in_scope: &dyn Fn(&str) -> bool,
+    resolution: &mut ResolutionSummary,
+) -> BTreeMap<&'f str, BTreeSet<&'f str>> {
     let mut callers: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
-    let mut resolution = ResolutionSummary::default();
     for call in &facts.calls {
-        if file_of(&call.to).is_some_and(in_scope) {
+        if function_in_scope(&call.to) {
             callers.entry(&call.to).or_default().insert(&call.from);
         }
-        if file_of(&call.from).is_some_and(in_scope) {
+        if function_in_scope(&call.from) {
             resolution.calls_resolved += 1;
         }
     }
+    callers
+}
+
+/// Count the unknown calls made from functions in scope, grouped by reason
+/// kind, and `with_reading` by what the reading pins each to.
+fn unknown_calls(
+    facts: &Facts,
+    named: &[Named<'_>],
+    with_reading: bool,
+    function_in_scope: &dyn Fn(&str) -> bool,
+    resolution: &mut ResolutionSummary,
+) {
+    use super::callers::Pin;
+    let pins = super::callers::Pins::new(named);
     let mut reasons = BTreeMap::new();
     for unknown in facts
         .unknown_calls
         .iter()
-        .filter(|u| file_of(&u.from).is_some_and(in_scope))
+        .filter(|u| function_in_scope(&u.from))
     {
         resolution.calls_unknown += 1;
-        if let Some(semantic) = reading
-            .is_some()
-            .then(|| resolution.semantic.get_or_insert_default())
-        {
-            use super::callers::Pin;
+        if let Some(semantic) = with_reading.then(|| resolution.semantic.get_or_insert_default()) {
             match pins.get(unknown) {
                 Some(Pin::Function(_)) => semantic.workspace += 1,
                 Some(Pin::Elsewhere("external")) => semantic.external += 1,
@@ -363,22 +483,36 @@ fn orient_by(
         tally(&mut reasons, kind, &unknown.reason);
     }
     resolution.unknown_call_reasons = counts(reasons);
-    if let Some(reading) = &reading {
-        resolution.semantic.get_or_insert_default().reading = reading.describe();
-    }
-    // The calling functions the index adds to each called function: its
-    // workspace targets the qualified reading lacks.
+}
+
+/// The calling functions the index adds to each called function: its
+/// workspace targets the qualified reading lacks.
+fn index_callers<'n>(
+    named: &[Named<'n>],
+    callers: &BTreeMap<&str, BTreeSet<&str>>,
+    function_in_scope: &dyn Fn(&str) -> bool,
+) -> BTreeMap<&'n str, BTreeSet<&'n str>> {
     let mut by_index: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
-    for named in &named {
+    for named in named {
         if let (Some(from), Some(to)) = (named.from, named.to)
             && named.call.agreement == Some(Agreement::Extends)
-            && file_of(to).is_some_and(in_scope)
+            && function_in_scope(to)
             && !callers.get(to).is_some_and(|known| known.contains(from))
         {
             by_index.entry(to).or_default().insert(from);
         }
     }
-    let called: Vec<Row> = callers
+    by_index
+}
+
+/// One row per called function, counting its resolved callers; with an
+/// index (`by_index`), also the callers the index adds.
+fn called_rows(
+    callers: &BTreeMap<&str, BTreeSet<&str>>,
+    functions: &BTreeMap<&str, &Function>,
+    by_index: Option<&BTreeMap<&str, BTreeSet<&str>>>,
+) -> Vec<Row> {
+    callers
         .iter()
         .filter_map(|(to, from)| {
             let f = functions.get(to)?;
@@ -388,13 +522,28 @@ fn orient_by(
                 &f.qualified
             };
             let mut row = Row::site(from.len(), name.clone(), f.file.clone(), f.line);
-            if reading.is_some() {
+            if let Some(by_index) = by_index {
                 row.by_index = Some(by_index.get(to).map_or(0, BTreeSet::len));
             }
             Some(row)
         })
-        .collect();
+        .collect()
+}
 
+/// The rows of one measured list and the population they are drawn from.
+struct Ranked {
+    total: usize,
+    rows: Vec<Row>,
+}
+
+/// The in-scope types named by unique lexical mentions, each counted by the
+/// declarations naming it; counts the mentions from declarations in scope
+/// by resolution.
+fn type_mentions(
+    graph: &SourceGraph,
+    in_scope: &dyn Fn(&str) -> bool,
+    resolution: &mut ResolutionSummary,
+) -> Ranked {
     let declarations: BTreeMap<&str, (&str, &Declaration)> = graph
         .files
         .iter()
@@ -429,7 +578,7 @@ fn orient_by(
             _ => {}
         }
     }
-    let types: Vec<Row> = mentioned
+    let rows: Vec<Row> = mentioned
         .iter()
         .filter_map(|(target, sources)| {
             let (path, declaration) = declarations.get(target)?;
@@ -441,24 +590,23 @@ fn orient_by(
             ))
         })
         .collect();
-    let mut kinds = BTreeMap::new();
-    for diagnostic in super::diagnostics_of(graph, &observations) {
-        resolution.diagnostics += 1;
-        tally(&mut kinds, code(&diagnostic.code), &diagnostic.message);
+    Ranked {
+        total: mentioned.len(),
+        rows,
     }
-    resolution.diagnostic_kinds = counts(kinds);
+}
 
-    // Follow-up commands take a physical path: a package scope becomes its directory.
-    let physical_scope =
-        scope.map(|scope| package_directory(snapshot, scope).unwrap_or_else(|| scope.to_owned()));
-    let scoped = |command: &[&str]| -> Vec<String> {
-        let mut args: Vec<String> = command.iter().map(|&a| a.to_owned()).collect();
-        if let Some(scope) = &physical_scope {
-            args.extend(["--in".to_owned(), scope.clone()]);
-        }
-        args
-    };
-    let sections = vec![
+/// `command`, with `--in` the physical scope when there is one.
+fn scoped(command: &[&str], physical_scope: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = command.iter().map(|&a| a.to_owned()).collect();
+    if let Some(scope) = physical_scope {
+        args.extend(["--in".to_owned(), scope.to_owned()]);
+    }
+    args
+}
+/// The `mass` and `blocks` sections: where the lines are.
+fn size_sections(mass: CodeMass, physical_scope: Option<&str>, rows: usize) -> [Section; 2] {
+    [
         section(
             Measure {
                 id: "mass",
@@ -466,10 +614,10 @@ fn orient_by(
                 unit: "non-test lines in production files, by directory",
                 order: "most lines first",
                 total_unit: "lines",
-                all: scoped(&["nontest-loc"]),
+                all: scoped(&["nontest-loc"], physical_scope),
             },
-            lines,
-            mass,
+            mass.lines,
+            mass.directories,
             rows,
         ),
         section(
@@ -479,12 +627,22 @@ fn orient_by(
                 unit: "lines from a top-level declaration to the next, one per file; @generated files left out",
                 order: "most lines first",
                 total_unit: "files",
-                all: scoped(&["concentration"]),
+                all: scoped(&["concentration"], physical_scope),
             },
-            blocks.len(),
-            blocks,
+            mass.blocks.len(),
+            mass.blocks,
             rows,
         ),
+    ]
+}
+/// The `called` and `mentioned` sections: what the code refers to most.
+fn reference_sections(
+    called: Ranked,
+    mentioned: Ranked,
+    physical_scope: Option<&str>,
+    rows: usize,
+) -> [Section; 2] {
+    [
         section(
             Measure {
                 id: "called",
@@ -495,14 +653,14 @@ fn orient_by(
                 all: vec![
                     "dependencies".into(),
                     "--in".into(),
-                    physical_scope.clone().unwrap_or_else(|| ".".to_owned()),
+                    physical_scope.unwrap_or(".").to_owned(),
                     "--relation".into(),
                     "calls".into(),
                     "--json".into(),
                 ],
             },
-            callers.len(),
-            called,
+            called.total,
+            called.rows,
             rows,
         ),
         section(
@@ -514,25 +672,11 @@ fn orient_by(
                 total_unit: "mentioned types",
                 all: vec!["dump".into(), "--json".into()],
             },
-            mentioned.len(),
-            types,
+            mentioned.total,
+            mentioned.rows,
             rows,
         ),
-    ];
-    let next = next_commands(&sections, &packages, &facts.functions);
-    Ok(Orientation {
-        schema: 1,
-        scope: scope.unwrap_or("workspace").to_owned(),
-        packages,
-        files: physical.len(),
-        test_only_files: test_only.len(),
-        generated_files: generated.into_iter().collect(),
-        unmounted_files: unmounted,
-        sections,
-        resolution,
-        next,
-        basis: BASIS,
-    })
+    ]
 }
 
 /// The directory of the workspace package named `name`, relative to the
@@ -640,21 +784,12 @@ fn counts(map: BTreeMap<String, (usize, String)>) -> Vec<Count> {
 fn leader(section: &Section) -> Option<&Row> {
     section.rows.first().filter(|_| section.tied <= 1)
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn next_commands(
     sections: &[Section],
     packages: &[Package],
     functions: &[Function],
 ) -> Vec<NextCommand> {
     let by_id = |id: &str| sections.iter().find(|s| s.id == id);
-    let command = |args: &[&str], why: &str, runnable: bool| NextCommand {
-        args: args.iter().map(|&a| a.to_owned()).collect(),
-        why: why.to_owned(),
-        runnable,
-    };
     let mut next = Vec::new();
     let directory = by_id("mass").and_then(leader).map(|row| {
         let dir = row.path.trim_end_matches('/');
@@ -671,6 +806,34 @@ fn next_commands(
             true,
         ));
     }
+    next.extend(main_command(packages, functions));
+    next.extend(by_id("mentioned").and_then(mentioned_command));
+    if let Some(dir) = &directory {
+        next.push(command(
+            &["dependencies", "--in", dir],
+            "which files in that directory call each other",
+            true,
+        ));
+    }
+    if let Some(row) = by_id("blocks").and_then(leader) {
+        next.push(command(
+            &["spans", "--in", &row.path],
+            "item boundaries in the file holding the largest block",
+            true,
+        ));
+    }
+    next
+}
+fn command(args: &[&str], why: &str, runnable: bool) -> NextCommand {
+    NextCommand {
+        args: args.iter().map(|&a| a.to_owned()).collect(),
+        why: why.to_owned(),
+        runnable,
+    }
+}
+/// The flow of the binaries' `main`: runnable for one binary, a placeholder
+/// for several, none without a binary.
+fn main_command(packages: &[Package], functions: &[Function]) -> Option<NextCommand> {
     let bins: BTreeSet<&str> = packages
         .iter()
         .flat_map(|p| &p.targets)
@@ -687,13 +850,13 @@ fn next_commands(
         .map(|f| f.file.as_str())
         .collect();
     match mains.as_slice() {
-        [] => {}
-        [main] => next.push(command(
+        [] => None,
+        [main] => Some(command(
             &["flow", "--path", main, "--function", "main", "--depth", "1"],
             "steps and branches of the binary's main",
             true,
         )),
-        several => next.push(command(
+        several => Some(command(
             &[
                 "flow",
                 "--path",
@@ -710,44 +873,31 @@ fn next_commands(
             false,
         )),
     }
-    if let Some(section) = by_id("mentioned") {
-        match leader(section) {
-            Some(row) => next.push(command(
-                &[
-                    "name",
-                    row.name.as_deref().unwrap_or_default(),
-                    "--relations",
-                ],
-                "where the most-mentioned type is declared and what names it",
-                true,
-            )),
-            None if section.tied > 1 => next.push(command(
-                &[
-                    "name",
-                    &format!("<one of the {} tied types above>", section.tied),
-                    "--relations",
-                ],
-                "where a most-mentioned type is declared; the first rows tie, so none is picked",
-                false,
-            )),
-            None => {}
-        }
-    }
-    if let Some(dir) = &directory {
-        next.push(command(
-            &["dependencies", "--in", dir],
-            "which files in that directory call each other",
+}
+/// Where the most-mentioned type is declared: runnable for a leader, a
+/// placeholder when the first rows tie, none for an empty section.
+fn mentioned_command(section: &Section) -> Option<NextCommand> {
+    match leader(section) {
+        Some(row) => Some(command(
+            &[
+                "name",
+                row.name.as_deref().unwrap_or_default(),
+                "--relations",
+            ],
+            "where the most-mentioned type is declared and what names it",
             true,
-        ));
+        )),
+        None if section.tied > 1 => Some(command(
+            &[
+                "name",
+                &format!("<one of the {} tied types above>", section.tied),
+                "--relations",
+            ],
+            "where a most-mentioned type is declared; the first rows tie, so none is picked",
+            false,
+        )),
+        None => None,
     }
-    if let Some(row) = by_id("blocks").and_then(leader) {
-        next.push(command(
-            &["spans", "--in", &row.path],
-            "item boundaries in the file holding the largest block",
-            true,
-        ));
-    }
-    next
 }
 
 /// Render arguments after `cargo atlas`, quoting any that a shell would split.
@@ -772,10 +922,6 @@ pub fn command_line(args: &[String]) -> String {
 impl Orientation {
     /// One page of text. `suffix` is appended to every printed command, such
     /// as the `--root` the caller used, so each command runs as printed.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     pub fn text(&self, suffix: &[String]) -> String {
         let render = |args: &[String]| {
             let mut all = args.to_vec();
@@ -796,45 +942,7 @@ impl Orientation {
         );
         self.write_targets(&mut out);
         for section in &self.sections {
-            let _ = writeln!(
-                out,
-                "\n{} ({}; {}; {} {} in all)",
-                section.title, section.unit, section.order, section.total, section.total_unit
-            );
-            if section.tied > 1 {
-                let _ = writeln!(
-                    out,
-                    "  (the first {} rows tie; tied rows are ordered by name)",
-                    section.tied
-                );
-            }
-            for row in &section.rows {
-                let site = row
-                    .line
-                    .map_or_else(|| row.path.clone(), |line| format!("{}:{line}", row.path));
-                let detail = match (&row.name, row.files) {
-                    (Some(name), _) => match row.by_index {
-                        Some(added) if added > 0 => {
-                            format!("{name}  {site}  (+{added} by the index)")
-                        }
-                        _ => format!("{name}  {site}"),
-                    },
-                    (None, Some(files)) => {
-                        let generated = row.generated_lines.map_or_else(String::new, |g| {
-                            format!("; {g} lines in @generated files")
-                        });
-                        format!(
-                            "{site}  {files} file{}{generated}",
-                            if files == 1 { "" } else { "s" }
-                        )
-                    }
-                    (None, None) => site,
-                };
-                let _ = writeln!(out, "  {:>7}  {detail}", row.count);
-            }
-            if section.more > 0 {
-                let _ = writeln!(out, "  … {} more; {}", section.more, render(&section.all));
-            }
+            write_section(&mut out, section, &render);
         }
         self.write_resolution(&mut out, &render);
         if !self.next.is_empty() {
@@ -966,6 +1074,53 @@ impl Orientation {
                 kind.count, kind.kind, kind.example
             );
         }
+    }
+}
+
+/// One section: its measure line, any tie, its rows and the command for the rest.
+fn write_section(out: &mut String, section: &Section, render: &dyn Fn(&[String]) -> String) {
+    let _ = writeln!(
+        out,
+        "\n{} ({}; {}; {} {} in all)",
+        section.title, section.unit, section.order, section.total, section.total_unit
+    );
+    if section.tied > 1 {
+        let _ = writeln!(
+            out,
+            "  (the first {} rows tie; tied rows are ordered by name)",
+            section.tied
+        );
+    }
+    for row in &section.rows {
+        let _ = writeln!(out, "  {:>7}  {}", row.count, row_detail(row));
+    }
+    if section.more > 0 {
+        let _ = writeln!(out, "  … {} more; {}", section.more, render(&section.all));
+    }
+}
+/// A row after its count: a declaration's name and site, or a directory's
+/// file count and `@generated` share.
+fn row_detail(row: &Row) -> String {
+    let site = row
+        .line
+        .map_or_else(|| row.path.clone(), |line| format!("{}:{line}", row.path));
+    match (&row.name, row.files) {
+        (Some(name), _) => match row.by_index {
+            Some(added) if added > 0 => {
+                format!("{name}  {site}  (+{added} by the index)")
+            }
+            _ => format!("{name}  {site}"),
+        },
+        (None, Some(files)) => {
+            let generated = row
+                .generated_lines
+                .map_or_else(String::new, |g| format!("; {g} lines in @generated files"));
+            format!(
+                "{site}  {files} file{}{generated}",
+                if files == 1 { "" } else { "s" }
+            )
+        }
+        (None, None) => site,
     }
 }
 

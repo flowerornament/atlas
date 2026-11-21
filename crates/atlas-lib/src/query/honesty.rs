@@ -124,10 +124,6 @@ fn subject(rels: &[RelInfo], rule: &CRule) -> String {
 }
 
 /// Every finding of both checks over the rules a program runs.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(crate) fn review(
     rels: &[RelInfo],
     rules: &[CRule],
@@ -142,90 +138,97 @@ pub(crate) fn review(
         } else {
             user
         };
-        let kept: BTreeSet<usize> = rule
-            .terms
-            .iter()
-            .filter_map(|t| match t {
-                CHead::Term(CTerm::Var(v)) => Some(*v),
-                _ => None,
-            })
-            .collect();
-        let pinned: BTreeSet<usize> = rule
-            .body
-            .iter()
-            .filter_map(|l| match l {
-                CLit::Cmp(Op::Eq, CTerm::Var(v), CTerm::Const(Const::Text(_)))
-                | CLit::Cmp(Op::Eq, CTerm::Const(Const::Text(_)), CTerm::Var(v)) => Some(*v),
-                _ => None,
-            })
-            .collect();
-        for literal in &rule.body {
-            let CLit::Pos(rel, terms) = literal else {
-                continue;
-            };
-            for &c in &lineage[*rel].basis {
-                let held = match terms.get(c) {
-                    Some(CTerm::Const(_)) => true,
-                    Some(CTerm::Var(v)) => kept.contains(v) || pinned.contains(v),
-                    _ => false,
-                };
-                if !held {
-                    findings.push((
-                        Check::Basis,
-                        program.error(
-                            ErrorKind::Honesty,
-                            rule.at,
-                            format!(
-                                "basis: {} reads `{}` without keeping its `{}` column, so a candidate would read as certain. Keep the column in the head, or pin it (`{}: \"unique\"`)\n    in: {}",
-                                subject(rels, rule),
-                                rels[*rel].name,
-                                rels[*rel].columns[c].0,
-                                rels[*rel].columns[c].0,
-                                rule.text
-                            ),
-                        ),
-                    ));
-                }
-            }
+        let finding = |check, message| (check, program.error(ErrorKind::Honesty, rule.at, message));
+        for message in basis_findings(rels, &lineage, rule) {
+            findings.push(finding(Check::Basis, message));
         }
-        for (i, literal) in rule.body.iter().enumerate() {
-            let CLit::Neg(rel, _) = literal else {
-                continue;
-            };
-            let unknowns = &lineage[*rel].unknowns;
-            if unknowns.is_empty() {
-                continue;
-            }
-            let accounted = rule.body.iter().enumerate().any(|(j, other)| match other {
-                CLit::Pos(r, _) | CLit::Neg(r, _) if j != i => {
-                    lineage[*r].ancestry.iter().any(|a| unknowns.contains(a))
-                }
+        for message in absence_findings(rels, &lineage, rule) {
+            findings.push(finding(Check::Absence, message));
+        }
+    }
+    findings
+}
+
+/// One message per basis column a positive literal of `rule` reads without
+/// keeping it in the head, binding it to a value or pinning it to text.
+fn basis_findings(rels: &[RelInfo], lineage: &[Lineage], rule: &CRule) -> Vec<String> {
+    let kept: BTreeSet<usize> = rule
+        .terms
+        .iter()
+        .filter_map(|t| match t {
+            CHead::Term(CTerm::Var(v)) => Some(*v),
+            _ => None,
+        })
+        .collect();
+    let pinned: BTreeSet<usize> = rule
+        .body
+        .iter()
+        .filter_map(|l| match l {
+            CLit::Cmp(Op::Eq, CTerm::Var(v), CTerm::Const(Const::Text(_)))
+            | CLit::Cmp(Op::Eq, CTerm::Const(Const::Text(_)), CTerm::Var(v)) => Some(*v),
+            _ => None,
+        })
+        .collect();
+    let mut messages = Vec::new();
+    for literal in &rule.body {
+        let CLit::Pos(rel, terms) = literal else {
+            continue;
+        };
+        for &c in &lineage[*rel].basis {
+            let held = match terms.get(c) {
+                Some(CTerm::Const(_)) => true,
+                Some(CTerm::Var(v)) => kept.contains(v) || pinned.contains(v),
                 _ => false,
-            });
-            if !accounted {
-                findings.push((
-                    Check::Absence,
-                    program.error(
-                        ErrorKind::Honesty,
-                        rule.at,
-                        format!(
-                            "absence: {} negates `{}`, whose unresolved observations are in {}; no row there is not evidence of none. Read the unknowns in the same rule (for example, a separate outcome for names they could match){}\n    in: {}",
-                            subject(rels, rule),
-                            rels[*rel].name,
-                            names(rels, unknowns),
-                            if names(rels, unknowns).contains("unknown_call") {
-                                "; for calls, the prelude's possible_call{to: F, call: C} holds the unresolved calls written with F's name (cargo atlas help --topic query)"
-                            } else {
-                                ""
-                            },
-                            rule.text
-                        ),
-                    ),
+            };
+            if !held {
+                messages.push(format!(
+                    "basis: {} reads `{}` without keeping its `{}` column, so a candidate would read as certain. Keep the column in the head, or pin it (`{}: \"unique\"`)\n    in: {}",
+                    subject(rels, rule),
+                    rels[*rel].name,
+                    rels[*rel].columns[c].0,
+                    rels[*rel].columns[c].0,
+                    rule.text
                 ));
             }
         }
     }
-    findings
+    messages
+}
+
+/// One message per negated literal of `rule` whose relation has unknowns
+/// that no other literal of the rule derives from.
+fn absence_findings(rels: &[RelInfo], lineage: &[Lineage], rule: &CRule) -> Vec<String> {
+    let mut messages = Vec::new();
+    for (i, literal) in rule.body.iter().enumerate() {
+        let CLit::Neg(rel, _) = literal else {
+            continue;
+        };
+        let unknowns = &lineage[*rel].unknowns;
+        if unknowns.is_empty() {
+            continue;
+        }
+        let accounted = rule.body.iter().enumerate().any(|(j, other)| match other {
+            CLit::Pos(r, _) | CLit::Neg(r, _) if j != i => {
+                lineage[*r].ancestry.iter().any(|a| unknowns.contains(a))
+            }
+            _ => false,
+        });
+        if !accounted {
+            messages.push(format!(
+                "absence: {} negates `{}`, whose unresolved observations are in {}; no row there is not evidence of none. Read the unknowns in the same rule (for example, a separate outcome for names they could match){}\n    in: {}",
+                subject(rels, rule),
+                rels[*rel].name,
+                names(rels, unknowns),
+                if names(rels, unknowns).contains("unknown_call") {
+                    "; for calls, the prelude's possible_call{to: F, call: C} holds the unresolved calls written with F's name (cargo atlas help --topic query)"
+                } else {
+                    ""
+                },
+                rule.text
+            ));
+        }
+    }
+    messages
 }
 
 /// Stored relations a program reads whose unknowns companion it never

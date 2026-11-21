@@ -251,81 +251,80 @@ fn refusal(source: &str) -> Error {
     ask(source, &relations).unwrap_err()
 }
 
+/// Each refusal: the program, its kind, a part of its message, and the
+/// line and column it points at (line 0: no location is asserted).
+const REFUSALS: &[(&str, ErrorKind, &str, (usize, usize))] = &[
+    (
+        "?- cal{from: A}.",
+        ErrorKind::Schema,
+        "no relation `cal`; closest: `call`",
+        (1, 4),
+    ),
+    (
+        "?- call{form: A}.",
+        ErrorKind::Schema,
+        "has no field `form`; its fields, closest first: `from`",
+        (1, 9),
+    ),
+    (
+        "?- call{line: \"7\"}.",
+        ErrorKind::Schema,
+        "holds a number, given text",
+        (1, 15),
+    ),
+    (
+        "?- call{from: A, line: A}.",
+        ErrorKind::Schema,
+        "variable `A` is text in `call.from` but a number in `call.line`",
+        (1, 18),
+    ),
+    (
+        "x{a: A} :- call{from: A, to: B}.\n?- x{a: A}.",
+        ErrorKind::Safety,
+        "`B` appears only once",
+        (1, 30),
+    ),
+    (
+        "?- call{from: A}, !call{to: B}.",
+        ErrorKind::Safety,
+        "`B` is not bound: a negation reads it",
+        (1, 29),
+    ),
+    (
+        "?- call{from: A}, B > 3.",
+        ErrorKind::Safety,
+        "`B` is not bound",
+        (1, 19),
+    ),
+    (
+        "x{a: A} :- call{from: A}, !y{a: A}.\ny{a: A} :- call{from: A}, !x{a: A}.\n?- x{a: A}.",
+        ErrorKind::Stratification,
+        "depends on itself through a negation",
+        (0, 0),
+    ),
+    (
+        "call{from: \"a\"}.\n?- call{from: A}.",
+        ErrorKind::Schema,
+        "is a stored relation",
+        (1, 1),
+    ),
+    (
+        "x{a: A} :- call{from: A}.\nx{b: A} :- call{from: A}.\n?- x{a: A}.",
+        ErrorKind::Schema,
+        "gives the same fields",
+        (2, 1),
+    ),
+    (
+        "x{a: A} :- call{from: A}.",
+        ErrorKind::Syntax,
+        "has no query",
+        (0, 0),
+    ),
+];
+
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn refusals_say_what_and_where() {
-    let cases: &[(&str, ErrorKind, &str, (usize, usize))] = &[
-        (
-            "?- cal{from: A}.",
-            ErrorKind::Schema,
-            "no relation `cal`; closest: `call`",
-            (1, 4),
-        ),
-        (
-            "?- call{form: A}.",
-            ErrorKind::Schema,
-            "has no field `form`; its fields, closest first: `from`",
-            (1, 9),
-        ),
-        (
-            "?- call{line: \"7\"}.",
-            ErrorKind::Schema,
-            "holds a number, given text",
-            (1, 15),
-        ),
-        (
-            "?- call{from: A, line: A}.",
-            ErrorKind::Schema,
-            "variable `A` is text in `call.from` but a number in `call.line`",
-            (1, 18),
-        ),
-        (
-            "x{a: A} :- call{from: A, to: B}.\n?- x{a: A}.",
-            ErrorKind::Safety,
-            "`B` appears only once",
-            (1, 30),
-        ),
-        (
-            "?- call{from: A}, !call{to: B}.",
-            ErrorKind::Safety,
-            "`B` is not bound: a negation reads it",
-            (1, 29),
-        ),
-        (
-            "?- call{from: A}, B > 3.",
-            ErrorKind::Safety,
-            "`B` is not bound",
-            (1, 19),
-        ),
-        (
-            "x{a: A} :- call{from: A}, !y{a: A}.\ny{a: A} :- call{from: A}, !x{a: A}.\n?- x{a: A}.",
-            ErrorKind::Stratification,
-            "depends on itself through a negation",
-            (0, 0),
-        ),
-        (
-            "call{from: \"a\"}.\n?- call{from: A}.",
-            ErrorKind::Schema,
-            "is a stored relation",
-            (1, 1),
-        ),
-        (
-            "x{a: A} :- call{from: A}.\nx{b: A} :- call{from: A}.\n?- x{a: A}.",
-            ErrorKind::Schema,
-            "gives the same fields",
-            (2, 1),
-        ),
-        (
-            "x{a: A} :- call{from: A}.",
-            ErrorKind::Syntax,
-            "has no query",
-            (0, 0),
-        ),
-    ];
-    for (source, kind, message, (line, column)) in cases {
+    for (source, kind, message, (line, column)) in REFUSALS {
         let error = refusal(source);
         assert_eq!(error.kind, *kind, "{source}: {error}");
         assert!(error.message.contains(message), "{source}: {error}");

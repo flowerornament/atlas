@@ -285,10 +285,6 @@ impl Names<'_> {
         }
         out
     }
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     fn render(
         &self,
         related: bool,
@@ -316,69 +312,82 @@ impl Names<'_> {
             }
         );
         for card in self.matches.iter().take(cards) {
-            let declaration = card.declaration;
-            let kind: &str = match declaration.item_kind() {
-                Some(kind) => kind.keyword(),
-                None => &declaration.kind,
-            };
-            let label = if declaration.item_kind() == Some(ItemKind::Impl) {
-                kind.to_owned()
-            } else {
-                let visibility: &str = match Visibility::from_tag(&declaration.visibility) {
-                    Some(visibility) => visibility.keyword(),
-                    None => &declaration.visibility,
-                };
-                format!("{visibility} {kind}")
-            };
-            let _ = writeln!(out, "\n{} [{label}]", declaration.id);
-            if let Some(summary) = &card.declaration.summary {
-                let _ = writeln!(out, "  {summary}");
-            }
-            let _ = writeln!(
-                out,
-                "  {} outgoing, {} incoming candidate-unique, {} incoming ambiguous",
-                card.outgoing.len(),
-                card.incoming.len(),
-                card.possible_incoming.len()
-            );
-            if related {
-                let all = card
-                    .outgoing
-                    .iter()
-                    .map(|r| ("outgoing", *r))
-                    .chain(card.incoming.iter().map(|r| ("incoming", *r)))
-                    .chain(card.possible_incoming.iter().map(|r| ("possible", *r)))
-                    .collect::<Vec<_>>();
-                for (direction, relation) in all.iter().take(relations) {
-                    let _ = writeln!(
-                        out,
-                        "  {direction}: {} --{}--> {} [{}]",
-                        relation.source,
-                        relation.evidence.label(),
-                        relation.spelling,
-                        relation.target
-                    );
-                }
-                if all.len() > relations {
-                    let _ = writeln!(
-                        out,
-                        "{}",
-                        tail(Some(&declaration.id), all.len() - relations)
-                    );
-                }
-            } else {
-                let _ = writeln!(
-                    out,
-                    "  {}",
-                    card.declaration.block.lines().next().unwrap_or("")
-                );
-            }
+            card.write_text(&mut out, related, relations, tail);
         }
         if self.matches.len() > cards {
             let _ = writeln!(out, "\n{}", tail(None, self.matches.len() - cards));
         }
         let _ = writeln!(out, "\n{}", self.basis);
         out
+    }
+}
+impl NameCard<'_> {
+    /// One card: its id and label, summary and relationship counts, then
+    /// with `related` up to `relations` relationships, else the first line.
+    fn write_text(
+        &self,
+        out: &mut String,
+        related: bool,
+        relations: usize,
+        tail: &dyn Fn(Option<&str>, usize) -> String,
+    ) {
+        let declaration = self.declaration;
+        let _ = writeln!(out, "\n{} [{}]", declaration.id, label(declaration));
+        if let Some(summary) = &declaration.summary {
+            let _ = writeln!(out, "  {summary}");
+        }
+        let _ = writeln!(
+            out,
+            "  {} outgoing, {} incoming candidate-unique, {} incoming ambiguous",
+            self.outgoing.len(),
+            self.incoming.len(),
+            self.possible_incoming.len()
+        );
+        if !related {
+            let _ = writeln!(out, "  {}", declaration.block.lines().next().unwrap_or(""));
+            return;
+        }
+        let all = self
+            .outgoing
+            .iter()
+            .map(|r| ("outgoing", *r))
+            .chain(self.incoming.iter().map(|r| ("incoming", *r)))
+            .chain(self.possible_incoming.iter().map(|r| ("possible", *r)))
+            .collect::<Vec<_>>();
+        for (direction, relation) in all.iter().take(relations) {
+            let _ = writeln!(
+                out,
+                "  {direction}: {} --{}--> {} [{}]",
+                relation.source,
+                relation.evidence.label(),
+                relation.spelling,
+                relation.target
+            );
+        }
+        if all.len() > relations {
+            let _ = writeln!(
+                out,
+                "{}",
+                tail(Some(&declaration.id), all.len() - relations)
+            );
+        }
+    }
+}
+/// A card's bracketed label: an impl's keyword, or visibility and kind
+/// keywords; a tag Atlas does not know is printed as written.
+fn label(declaration: &Declaration) -> String {
+    let kind: &str = match declaration.item_kind() {
+        Some(kind) => kind.keyword(),
+        None => &declaration.kind,
+    };
+    if declaration.item_kind() == Some(ItemKind::Impl) {
+        kind.to_owned()
+    } else {
+        let visibility: &str = match Visibility::from_tag(&declaration.visibility) {
+            Some(visibility) => visibility.keyword(),
+            None => &declaration.visibility,
+        };
+        format!("{visibility} {kind}")
     }
 }
 impl ModuleCard<'_> {

@@ -56,100 +56,18 @@ pub struct Export {
     pub evidence: BindingEvidence,
     pub target: Resolution,
 }
+/// A selected `pub use` site whose bindings are read after the declarations
+/// they may name are known; `root` marks a site at a lib/main root.
+struct PendingExport<'r> {
+    id: &'r str,
+    site: &'r Site,
+    root: bool,
+}
 impl Navigation<'_> {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     pub fn dump(&self) -> Result<Dump> {
         let relations = self.relations()?;
-        let packages: BTreeMap<_, _> = self
-            .workspace
-            .crates
-            .iter()
-            .map(|p| (p.name.as_str(), p))
-            .collect();
-        let files: BTreeSet<_> = self
-            .workspace
-            .crates
-            .iter()
-            .flat_map(|p| {
-                p.files
-                    .iter()
-                    .filter(|f| !f.test_file)
-                    .map(|f| (p.name.as_str(), f.rel.as_str()))
-            })
-            .collect();
-        let mut declarations = Vec::new();
-        let mut pending = Vec::new();
-        for (id, site) in &relations.sites {
-            if !files.contains(&(site.package.as_str(), site.file.as_str()))
-                || !self.visibility.admits(site.visibility)
-            {
-                continue;
-            }
-            let source = self
-                .snapshot
-                .source_facts(&site.file)
-                .ok_or("captured source absent")?;
-            if !TestSelection::OutsideTestModules.admits_line(source, site.line) {
-                continue;
-            }
-            let package = packages
-                .get(site.package.as_str())
-                .ok_or("source package absent")?;
-            if site.kind == ItemKind::PubUse {
-                let root = crate::discovery::module_path_of(&package.src_rel, &site.file).is_none();
-                pending.push((id, site, root));
-            } else if site.kind != ItemKind::Impl {
-                declarations.push(Definition {
-                    id: id.clone(),
-                    site: site.clone(),
-                    home: home(&package.name, &package.src_rel, &site.file),
-                });
-            }
-        }
-        let mut index = BTreeMap::<&str, Vec<&Definition>>::new();
-        for definition in &declarations {
-            index
-                .entry(&definition.site.name)
-                .or_default()
-                .push(definition);
-        }
-        let mut exports = Vec::new();
-        for (id, site, root) in pending {
-            let source = self
-                .snapshot
-                .source_facts(&site.file)
-                .ok_or("captured source absent")?;
-            let bindings = source
-                .imports()
-                .find(|import| import.bytes.start == site.offset)
-                .ok_or("captured export site absent")?
-                .bindings
-                .as_ref()
-                .map_err(|why| {
-                    format!("export unavailable at {}:{}: {why}", site.file, site.line)
-                })?;
-            for (ordinal, binding) in bindings.iter().enumerate() {
-                let (target, evidence) =
-                    resolve(&index, &site.package, &binding.source, &binding.source_path);
-                exports.push(Export {
-                    id: format!("{id}:binding:{ordinal}"),
-                    site: site.clone(),
-                    local_name: binding.local_name.clone(),
-                    source_name: binding.source.clone(),
-                    source_path: binding.source_path.clone(),
-                    kind: if site.visibility == Visibility::Pub && root {
-                        ExportKind::Facade
-                    } else {
-                        ExportKind::Reexport
-                    },
-                    evidence,
-                    target,
-                });
-            }
-        }
+        let (mut declarations, pending) = self.select_sites(relations)?;
+        let mut exports = self.bind_exports(&declarations, pending)?;
         let selected: BTreeSet<_> = declarations
             .iter()
             .map(|d| {
@@ -205,6 +123,112 @@ impl Navigation<'_> {
             edges,
             basis,
         })
+    }
+    /// The sites the population admits outside test files and test modules:
+    /// declarations (impls aside) with their file-derived home, and the
+    /// `pub use` sites whose bindings become exports.
+    fn select_sites<'r>(
+        &self,
+        relations: &'r super::relations::Relations,
+    ) -> Result<(Vec<Definition>, Vec<PendingExport<'r>>)> {
+        let packages: BTreeMap<_, _> = self
+            .workspace
+            .crates
+            .iter()
+            .map(|p| (p.name.as_str(), p))
+            .collect();
+        let files: BTreeSet<_> = self
+            .workspace
+            .crates
+            .iter()
+            .flat_map(|p| {
+                p.files
+                    .iter()
+                    .filter(|f| !f.test_file)
+                    .map(|f| (p.name.as_str(), f.rel.as_str()))
+            })
+            .collect();
+        let mut declarations = Vec::new();
+        let mut pending = Vec::new();
+        for (id, site) in &relations.sites {
+            if !files.contains(&(site.package.as_str(), site.file.as_str()))
+                || !self.visibility.admits(site.visibility)
+            {
+                continue;
+            }
+            let source = self
+                .snapshot
+                .source_facts(&site.file)
+                .ok_or("captured source absent")?;
+            if !TestSelection::OutsideTestModules.admits_line(source, site.line) {
+                continue;
+            }
+            let package = packages
+                .get(site.package.as_str())
+                .ok_or("source package absent")?;
+            if site.kind == ItemKind::PubUse {
+                let root = crate::discovery::module_path_of(&package.src_rel, &site.file).is_none();
+                pending.push(PendingExport { id, site, root });
+            } else if site.kind != ItemKind::Impl {
+                declarations.push(Definition {
+                    id: id.clone(),
+                    site: site.clone(),
+                    home: home(&package.name, &package.src_rel, &site.file),
+                });
+            }
+        }
+        Ok((declarations, pending))
+    }
+    /// One export per binding of each pending `pub use`, its target resolved
+    /// lexically among the selected `declarations`. A site whose bindings
+    /// could not be read refuses.
+    fn bind_exports(
+        &self,
+        declarations: &[Definition],
+        pending: Vec<PendingExport<'_>>,
+    ) -> Result<Vec<Export>> {
+        let mut index = BTreeMap::<&str, Vec<&Definition>>::new();
+        for definition in declarations {
+            index
+                .entry(&definition.site.name)
+                .or_default()
+                .push(definition);
+        }
+        let mut exports = Vec::new();
+        for PendingExport { id, site, root } in pending {
+            let source = self
+                .snapshot
+                .source_facts(&site.file)
+                .ok_or("captured source absent")?;
+            let bindings = source
+                .imports()
+                .find(|import| import.bytes.start == site.offset)
+                .ok_or("captured export site absent")?
+                .bindings
+                .as_ref()
+                .map_err(|why| {
+                    format!("export unavailable at {}:{}: {why}", site.file, site.line)
+                })?;
+            for (ordinal, binding) in bindings.iter().enumerate() {
+                let (target, evidence) =
+                    resolve(&index, &site.package, &binding.source, &binding.source_path);
+                exports.push(Export {
+                    id: format!("{id}:binding:{ordinal}"),
+                    site: site.clone(),
+                    local_name: binding.local_name.clone(),
+                    source_name: binding.source.clone(),
+                    source_path: binding.source_path.clone(),
+                    kind: if site.visibility == Visibility::Pub && root {
+                        ExportKind::Facade
+                    } else {
+                        ExportKind::Reexport
+                    },
+                    evidence,
+                    target,
+                });
+            }
+        }
+        Ok(exports)
     }
 }
 fn home(package: &str, source_directory: &str, file: &str) -> String {

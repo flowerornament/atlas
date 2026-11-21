@@ -125,32 +125,8 @@ enum Stop {
 /// The order a rule's literals run in: a test or negation as soon as its
 /// variables are bound, otherwise the positive relation with the most
 /// bound columns (written order on ties). A delta literal goes first.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn plan(rule: &Rule, first: Option<usize>) -> Vec<Step> {
     let mut bound = vec![false; rule.vars];
-    let is_bound = |t: &T, bound: &[bool]| match t {
-        T::Var(v) => bound[*v],
-        _ => true,
-    };
-    let bound_mask = |terms: &[T], bound: &[bool]| {
-        mask_of(
-            terms
-                .iter()
-                .enumerate()
-                .filter(|(_, t)| !matches!(t, T::Wild) && is_bound(t, bound))
-                .map(|(c, _)| c),
-        )
-    };
-    let bind_all = |terms: &[T], bound: &mut [bool]| {
-        for t in terms {
-            if let T::Var(v) = t {
-                bound[*v] = true;
-            }
-        }
-    };
     let mut left: Vec<usize> = (0..rule.body.len()).collect();
     let mut steps = Vec::new();
     if let Some(first) = first {
@@ -165,39 +141,12 @@ fn plan(rule: &Rule, first: Option<usize>) -> Vec<Step> {
         });
     }
     while !left.is_empty() {
-        let ready = left.iter().position(|&l| match &rule.body[l] {
-            Lit::Neg(_, terms) => terms
-                .iter()
-                .all(|t| matches!(t, T::Wild) || is_bound(t, &bound)),
-            Lit::Cmp(Op::Eq, a, b) => is_bound(a, &bound) || is_bound(b, &bound),
-            Lit::Builtin(Builtin::LastSegment, [a, _]) => is_bound(a, &bound),
-            Lit::Cmp(_, a, b) | Lit::Builtin(_, [a, b]) => {
-                is_bound(a, &bound) && is_bound(b, &bound)
-            }
-            Lit::Pos(..) => false,
-        });
-        let pick = ready.unwrap_or_else(|| {
-            left.iter()
-                .enumerate()
-                .filter_map(|(p, &l)| match &rule.body[l] {
-                    Lit::Pos(_, terms) => Some((p, bound_mask(terms, &bound).count_ones())),
-                    _ => None,
-                })
-                .max_by(|x, y| x.1.cmp(&y.1).then(y.0.cmp(&x.0)))
-                .map_or(0, |(p, _)| p)
-        });
+        let pick = left
+            .iter()
+            .position(|&l| ready(&rule.body[l], &bound))
+            .unwrap_or_else(|| most_bound(rule, &left, &bound));
         let literal = left.remove(pick);
-        let mut mask = 0;
-        match &rule.body[literal] {
-            Lit::Pos(_, terms) => {
-                mask = bound_mask(terms, &bound);
-                bind_all(terms, &mut bound);
-            }
-            Lit::Neg(_, terms) => mask = bound_mask(terms, &bound),
-            Lit::Cmp(Op::Eq, a, b) => bind_all(&[*a, *b], &mut bound),
-            Lit::Builtin(Builtin::LastSegment, [_, b]) => bind_all(&[*b], &mut bound),
-            _ => {}
-        }
+        let mask = bind_step(&rule.body[literal], &mut bound);
         steps.push(Step {
             literal,
             mask,
@@ -205,6 +154,71 @@ fn plan(rule: &Rule, first: Option<usize>) -> Vec<Step> {
         });
     }
     steps
+}
+fn is_bound(t: &T, bound: &[bool]) -> bool {
+    match t {
+        T::Var(v) => bound[*v],
+        _ => true,
+    }
+}
+/// The columns of `terms` that hold a value or a bound variable.
+fn bound_mask(terms: &[T], bound: &[bool]) -> Mask {
+    mask_of(
+        terms
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| !matches!(t, T::Wild) && is_bound(t, bound))
+            .map(|(c, _)| c),
+    )
+}
+fn bind_all(terms: &[T], bound: &mut [bool]) {
+    for t in terms {
+        if let T::Var(v) = t {
+            bound[*v] = true;
+        }
+    }
+}
+/// Whether a test or negation can run now: its variables are bound, or for
+/// an equality or `last_segment`, the side it reads. A positive relation is
+/// never ready; it waits for [`most_bound`].
+fn ready(literal: &Lit, bound: &[bool]) -> bool {
+    match literal {
+        Lit::Neg(_, terms) => terms
+            .iter()
+            .all(|t| matches!(t, T::Wild) || is_bound(t, bound)),
+        Lit::Cmp(Op::Eq, a, b) => is_bound(a, bound) || is_bound(b, bound),
+        Lit::Builtin(Builtin::LastSegment, [a, _]) => is_bound(a, bound),
+        Lit::Cmp(_, a, b) | Lit::Builtin(_, [a, b]) => is_bound(a, bound) && is_bound(b, bound),
+        Lit::Pos(..) => false,
+    }
+}
+/// The position in `left` of the positive literal with the most bound
+/// columns, the earliest written on ties; 0 when there is none.
+fn most_bound(rule: &Rule, left: &[usize], bound: &[bool]) -> usize {
+    left.iter()
+        .enumerate()
+        .filter_map(|(p, &l)| match &rule.body[l] {
+            Lit::Pos(_, terms) => Some((p, bound_mask(terms, bound).count_ones())),
+            _ => None,
+        })
+        .max_by(|x, y| x.1.cmp(&y.1).then(y.0.cmp(&x.0)))
+        .map_or(0, |(p, _)| p)
+}
+/// The columns bound when `literal` runs, after which the variables it binds
+/// are bound.
+fn bind_step(literal: &Lit, bound: &mut [bool]) -> Mask {
+    let mut mask = 0;
+    match literal {
+        Lit::Pos(_, terms) => {
+            mask = bound_mask(terms, bound);
+            bind_all(terms, bound);
+        }
+        Lit::Neg(_, terms) => mask = bound_mask(terms, bound),
+        Lit::Cmp(Op::Eq, a, b) => bind_all(&[*a, *b], bound),
+        Lit::Builtin(Builtin::LastSegment, [_, b]) => bind_all(&[*b], bound),
+        _ => {}
+    }
+    mask
 }
 
 fn under(path: &str, dir: &str) -> bool {
@@ -416,10 +430,6 @@ impl Engine<'_> {
         env[var] = None;
         result
     }
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     fn join(
         &self,
         pass: &Pass<'_>,
@@ -436,61 +446,9 @@ impl Engine<'_> {
             return Ok(());
         };
         match &pass.rule.body[step.literal] {
-            Lit::Pos(rel, terms) => {
-                let store = &self.stores[*rel];
-                let mut visit = |row: &[V], env: &mut Vec<Option<V>>| -> Result<(), Stop> {
-                    let mut set = Vec::new();
-                    let result = if Self::unify(terms, row, env, &mut set) {
-                        self.join(pass, at + 1, env, sink)
-                    } else {
-                        Ok(())
-                    };
-                    for v in set {
-                        env[v] = None;
-                    }
-                    result
-                };
-                if step.delta {
-                    for row in pass.delta {
-                        visit(row, env)?;
-                    }
-                } else if step.mask == 0 {
-                    for row in &store.rows {
-                        visit(row, env)?;
-                    }
-                } else if step.mask == mask_of(0..terms.len()) {
-                    let row: Row = terms.iter().filter_map(|t| Self::get(*t, env)).collect();
-                    if let Some(row) = store.set.get(&row) {
-                        visit(row, env)?;
-                    }
-                } else {
-                    let key = Self::key(terms, step.mask, env);
-                    if let Some(positions) = self
-                        .indexes
-                        .get(&(*rel, step.mask))
-                        .and_then(|index| index.map.get(&key))
-                    {
-                        for &p in positions {
-                            visit(&store.rows[p], env)?;
-                        }
-                    }
-                }
-                Ok(())
-            }
+            Lit::Pos(rel, terms) => self.join_rows(pass, at, *rel, terms, env, sink),
             Lit::Neg(rel, terms) => {
-                let store = &self.stores[*rel];
-                let exists = if step.mask == 0 {
-                    !store.rows.is_empty()
-                } else if step.mask == mask_of(0..terms.len()) {
-                    let row: Row = terms.iter().filter_map(|t| Self::get(*t, env)).collect();
-                    store.set.contains(&row)
-                } else {
-                    let key = Self::key(terms, step.mask, env);
-                    self.indexes
-                        .get(&(*rel, step.mask))
-                        .is_some_and(|index| index.map.contains_key(&key))
-                };
-                if exists {
+                if self.exists(*rel, terms, step.mask, env) {
                     Ok(())
                 } else {
                     self.join(pass, at + 1, env, sink)
@@ -498,16 +456,7 @@ impl Engine<'_> {
             }
             Lit::Cmp(op, left, right) => match (Self::get(*left, env), Self::get(*right, env)) {
                 (Some(lv), Some(rv)) => {
-                    let ordering = self.compare(lv, rv);
-                    let holds = match op {
-                        Op::Eq => lv == rv,
-                        Op::Ne => lv != rv,
-                        Op::Lt => ordering.is_lt(),
-                        Op::Le => ordering.is_le(),
-                        Op::Gt => ordering.is_gt(),
-                        Op::Ge => ordering.is_ge(),
-                    };
-                    if holds {
+                    if self.holds(*op, lv, rv) {
                         self.join(pass, at + 1, env, sink)
                     } else {
                         Ok(())
@@ -523,37 +472,127 @@ impl Engine<'_> {
                 },
                 (None, None) => Ok(()),
             },
-            Lit::Builtin(builtin, [input, other]) => {
-                let Some(value) = Self::get(*input, env) else {
-                    return Ok(());
-                };
-                let text = self.text(value);
-                if *builtin == Builtin::LastSegment {
-                    let segment = text.rsplit("::").next().unwrap_or_default();
-                    let segment = V::S(self.strings.borrow_mut().id(segment));
-                    return match (other, Self::get(*other, env)) {
-                        (_, Some(given)) if given == segment => self.join(pass, at + 1, env, sink),
-                        (T::Var(v), None) => self.bind_then(pass, at, (*v, segment), env, sink),
-                        _ => Ok(()),
-                    };
-                }
-                let Some(second) = Self::get(*other, env) else {
-                    return Ok(());
-                };
-                let second = self.text(second);
-                let holds = match builtin {
-                    Builtin::Under => under(&text, &second),
-                    Builtin::StartsWith => text.starts_with(&second),
-                    Builtin::EndsWith => text.ends_with(&second),
-                    Builtin::Contains => text.contains(&second),
-                    Builtin::LastSegment => false,
-                };
-                if holds {
-                    self.join(pass, at + 1, env, sink)
-                } else {
-                    Ok(())
+            Lit::Builtin(builtin, args) => self.join_builtin(pass, at, *builtin, *args, env, sink),
+        }
+    }
+    /// Continue the join once per row of `rel` that matches `terms`, read by
+    /// the step at `at`: the last round's rows, every row, the one row a full
+    /// key names, or the rows its index holds for the bound columns.
+    fn join_rows(
+        &self,
+        pass: &Pass<'_>,
+        at: usize,
+        rel: RelId,
+        terms: &[T],
+        env: &mut Vec<Option<V>>,
+        sink: &mut Sink<'_>,
+    ) -> Result<(), Stop> {
+        let step = pass.steps[at];
+        let store = &self.stores[rel];
+        let mut visit = |row: &[V], env: &mut Vec<Option<V>>| -> Result<(), Stop> {
+            let mut set = Vec::new();
+            let result = if Self::unify(terms, row, env, &mut set) {
+                self.join(pass, at + 1, env, sink)
+            } else {
+                Ok(())
+            };
+            for v in set {
+                env[v] = None;
+            }
+            result
+        };
+        if step.delta {
+            for row in pass.delta {
+                visit(row, env)?;
+            }
+        } else if step.mask == 0 {
+            for row in &store.rows {
+                visit(row, env)?;
+            }
+        } else if step.mask == mask_of(0..terms.len()) {
+            let row: Row = terms.iter().filter_map(|t| Self::get(*t, env)).collect();
+            if let Some(row) = store.set.get(&row) {
+                visit(row, env)?;
+            }
+        } else {
+            let key = Self::key(terms, step.mask, env);
+            if let Some(positions) = self
+                .indexes
+                .get(&(rel, step.mask))
+                .and_then(|index| index.map.get(&key))
+            {
+                for &p in positions {
+                    visit(&store.rows[p], env)?;
                 }
             }
+        }
+        Ok(())
+    }
+    /// Whether `rel` has a row matching the columns of `terms` that `mask` binds.
+    fn exists(&self, rel: RelId, terms: &[T], mask: Mask, env: &[Option<V>]) -> bool {
+        let store = &self.stores[rel];
+        if mask == 0 {
+            !store.rows.is_empty()
+        } else if mask == mask_of(0..terms.len()) {
+            let row: Row = terms.iter().filter_map(|t| Self::get(*t, env)).collect();
+            store.set.contains(&row)
+        } else {
+            let key = Self::key(terms, mask, env);
+            self.indexes
+                .get(&(rel, mask))
+                .is_some_and(|index| index.map.contains_key(&key))
+        }
+    }
+    fn holds(&self, op: Op, left: V, right: V) -> bool {
+        let ordering = self.compare(left, right);
+        match op {
+            Op::Eq => left == right,
+            Op::Ne => left != right,
+            Op::Lt => ordering.is_lt(),
+            Op::Le => ordering.is_le(),
+            Op::Gt => ordering.is_gt(),
+            Op::Ge => ordering.is_ge(),
+        }
+    }
+    /// Continue the join if a text test holds; `last_segment` instead binds
+    /// or checks its second argument. An unbound input reads nothing.
+    fn join_builtin(
+        &self,
+        pass: &Pass<'_>,
+        at: usize,
+        builtin: Builtin,
+        [input, other]: [T; 2],
+        env: &mut Vec<Option<V>>,
+        sink: &mut Sink<'_>,
+    ) -> Result<(), Stop> {
+        let Some(value) = Self::get(input, env) else {
+            return Ok(());
+        };
+        let text = self.text(value);
+        if builtin == Builtin::LastSegment {
+            let segment = text.rsplit("::").next().unwrap_or_default();
+            let segment = V::S(self.strings.borrow_mut().id(segment));
+            return match (other, Self::get(other, env)) {
+                (_, Some(given)) if given == segment => self.join(pass, at + 1, env, sink),
+                (T::Var(v), None) => self.bind_then(pass, at, (v, segment), env, sink),
+                _ => Ok(()),
+            };
+        }
+        let Some(second) = Self::get(other, env) else {
+            return Ok(());
+        };
+        let second = self.text(second);
+        let holds = match builtin {
+            Builtin::Under => under(&text, &second),
+            Builtin::StartsWith => text.starts_with(&second),
+            Builtin::EndsWith => text.ends_with(&second),
+            Builtin::Contains => text.contains(&second),
+            Builtin::LastSegment => false,
+        };
+        if holds {
+            self.join(pass, at + 1, env, sink)
+        } else {
+            Ok(())
         }
     }
     /// Every row one rule derives, against the whole of each relation or,

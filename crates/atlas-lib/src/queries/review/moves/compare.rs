@@ -153,10 +153,6 @@ impl<'a> BodyReport<'a> {
     /// file before across files, then the rest as changed (same file first). Pairing spans the matched crates; a finding is
     /// reported when its current site (or, for a removal, its old site) lies
     /// in scope.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     pub(super) fn between(before: &'a Inventory, after: &'a Inventory, scope: &Scope) -> Self {
         let mut report = Self {
             exact: 0,
@@ -170,97 +166,136 @@ impl<'a> BodyReport<'a> {
         };
         let keys: BTreeSet<&Key> = before.keys().chain(after.keys()).collect();
         for key in keys {
-            let sides = |inventory: &'a Inventory| -> Vec<&'a Site> {
-                inventory
-                    .get(key)
-                    .map(|sites| {
-                        sites
-                            .iter()
-                            .filter(|site| site.body != Body::Uncompared)
-                            .collect()
-                    })
-                    .unwrap_or_default()
-            };
-            let (mut old, mut new) = (sides(before), sides(after));
-            if old.is_empty() && new.is_empty() {
-                continue;
-            }
-            let ambiguous = old.len() > 1 || new.len() > 1;
-            for sites in [&mut old, &mut new] {
-                sites.retain(|site| {
-                    let readable = site.body != Body::Unreadable;
-                    if !readable && scope.admits(key, site) {
-                        report.unreadable.push((key, site));
-                    }
-                    readable
-                });
-            }
-            // A `use` binding reports only a retarget: moves add, drop and
-            // reroot imports by design.
-            let binding = key.1 == "use";
-            // Same-file pairs cancel before cross-file ones, so identical
-            // sources never relocate; old sites keep source order.
-            let mut unpaired = new;
-            for rerooted in [false, true] {
-                for same_file in [true, false] {
-                    unpaired.retain(|site| {
-                        let Some(index) = old.iter().position(|candidate| {
-                            (!same_file || candidate.file == site.file)
-                                && reading(candidate, rerooted) == reading(site, rerooted)
-                        }) else {
-                            return true;
-                        };
-                        let candidate = old.remove(index);
-                        if scope.admits(key, site) && !binding {
-                            let change = Change {
-                                key,
-                                before: candidate,
-                                after: site,
-                                ambiguous,
-                            };
-                            let moved = candidate.file != site.file;
-                            report.relocated += usize::from(moved);
-                            if rerooted {
-                                report.rerooted.push(change);
-                            } else {
-                                report.exact += 1;
-                                if moved {
-                                    report.exact_relocated.push(change);
-                                }
-                            }
-                        }
-                        false
-                    });
-                }
-            }
-            for site in unpaired {
-                let reported = scope.admits(key, site);
-                if old.is_empty() {
-                    if reported && !binding {
-                        report.only_after.push((key, site));
-                    }
-                } else {
-                    let index = old
+            report.compare_key(key, before, after, scope);
+        }
+        report
+    }
+    /// One key's sites: unreadable bodies are reported apart, equal bodies
+    /// cancel, and the rest pair as changed or stay one-sided.
+    fn compare_key(
+        &mut self,
+        key: &'a Key,
+        before: &'a Inventory,
+        after: &'a Inventory,
+        scope: &Scope,
+    ) {
+        let sides = |inventory: &'a Inventory| -> Vec<&'a Site> {
+            inventory
+                .get(key)
+                .map(|sites| {
+                    sites
                         .iter()
-                        .position(|candidate| candidate.file == site.file)
-                        .unwrap_or(0);
+                        .filter(|site| site.body != Body::Uncompared)
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let (mut old, mut new) = (sides(before), sides(after));
+        if old.is_empty() && new.is_empty() {
+            return;
+        }
+        let ambiguous = old.len() > 1 || new.len() > 1;
+        for sites in [&mut old, &mut new] {
+            sites.retain(|site| {
+                let readable = site.body != Body::Unreadable;
+                if !readable && scope.admits(key, site) {
+                    self.unreadable.push((key, site));
+                }
+                readable
+            });
+        }
+        // A `use` binding reports only a retarget: moves add, drop and
+        // reroot imports by design.
+        let binding = key.1 == "use";
+        let unpaired = self.cancel_equal(key, &mut old, new, ambiguous, binding, scope);
+        self.pair_remaining(key, old, unpaired, ambiguous, binding, scope);
+    }
+    /// Cancel the new sites whose body equals an old one, exact readings
+    /// before rerooted ones; returns the new sites left unpaired. Same-file
+    /// pairs cancel before cross-file ones, so identical sources never
+    /// relocate; old sites keep source order.
+    fn cancel_equal(
+        &mut self,
+        key: &'a Key,
+        old: &mut Vec<&'a Site>,
+        new: Vec<&'a Site>,
+        ambiguous: bool,
+        binding: bool,
+        scope: &Scope,
+    ) -> Vec<&'a Site> {
+        let mut unpaired = new;
+        for rerooted in [false, true] {
+            for same_file in [true, false] {
+                unpaired.retain(|site| {
+                    let Some(index) = old.iter().position(|candidate| {
+                        (!same_file || candidate.file == site.file)
+                            && reading(candidate, rerooted) == reading(site, rerooted)
+                    }) else {
+                        return true;
+                    };
                     let candidate = old.remove(index);
-                    if reported {
-                        report.changed.push(Change {
+                    if scope.admits(key, site) && !binding {
+                        let change = Change {
                             key,
                             before: candidate,
                             after: site,
                             ambiguous,
-                        });
+                        };
+                        let moved = candidate.file != site.file;
+                        self.relocated += usize::from(moved);
+                        if rerooted {
+                            self.rerooted.push(change);
+                        } else {
+                            self.exact += 1;
+                            if moved {
+                                self.exact_relocated.push(change);
+                            }
+                        }
                     }
+                    false
+                });
+            }
+        }
+        unpaired
+    }
+    /// Pair each unpaired new site with an old one as changed (same file
+    /// first); without old sites left it is an addition, and old sites left
+    /// over are removals. A binding reports only its changes.
+    fn pair_remaining(
+        &mut self,
+        key: &'a Key,
+        mut old: Vec<&'a Site>,
+        unpaired: Vec<&'a Site>,
+        ambiguous: bool,
+        binding: bool,
+        scope: &Scope,
+    ) {
+        for site in unpaired {
+            let reported = scope.admits(key, site);
+            if old.is_empty() {
+                if reported && !binding {
+                    self.only_after.push((key, site));
+                }
+            } else {
+                let index = old
+                    .iter()
+                    .position(|candidate| candidate.file == site.file)
+                    .unwrap_or(0);
+                let candidate = old.remove(index);
+                if reported {
+                    self.changed.push(Change {
+                        key,
+                        before: candidate,
+                        after: site,
+                        ambiguous,
+                    });
                 }
             }
-            report.only_before.extend(
-                old.into_iter()
-                    .filter(|site| !binding && scope.admits(key, site))
-                    .map(|site| (key, site)),
-            );
         }
-        report
+        self.only_before.extend(
+            old.into_iter()
+                .filter(|site| !binding && scope.admits(key, site))
+                .map(|site| (key, site)),
+        );
     }
 }

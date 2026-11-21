@@ -619,10 +619,6 @@ fn usable(reading: &Reading) -> Result<()> {
         None => Ok(()),
     }
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn callers_by(
     graph: &SourceGraph,
     facts: &Facts,
@@ -638,91 +634,9 @@ fn callers_by(
         .map(|reading| reading.named(facts))
         .unwrap_or_default();
     let calls = Calls::new(facts, &named);
-    let kept = |unknown: &&UnknownCall| {
-        names
-            .functions
-            .get(unknown.from.as_str())
-            .is_some_and(|function| within(&function.file))
-    };
     let answers = select(&names.declarations, facts, selector, file)?
         .into_iter()
-        .map(|function| {
-            let levels = calls.levels(&function.id, depth, true);
-            let resolved: Vec<Caller> = rows(&names, &levels, true, within)
-                .into_iter()
-                .map(|row| Caller {
-                    from: row.far.id.clone(),
-                    from_name: names.display(row.far),
-                    site: row.site,
-                    depth: row.depth,
-                    reading: row.reading,
-                    test_only: row.far.test_only,
-                    via: row.via.map(|via| via.id.clone()),
-                    via_name: row.via.map(|via| names.display(via)),
-                })
-                .collect();
-            let (mut possibly, mut semantic) = calls.settle(
-                calls
-                    .written_as(&BTreeSet::from([last(&function.name)]))
-                    .into_iter()
-                    .filter(kept),
-                Some(&function.id),
-                reading.is_some(),
-            );
-            if let Some(semantic) = &mut semantic {
-                // Both ends of a conflict: callers Atlas has that the index
-                // names another function for, and sites the index names this
-                // function for that Atlas resolves to another.
-                semantic.disagrees = calls.disputes(
-                    resolved
-                        .iter()
-                        .filter(|row| row.depth == 1)
-                        .map(|row| &row.site),
-                ) + calls
-                    .claimed
-                    .get(function.id.as_str())
-                    .copied()
-                    .unwrap_or(0);
-            }
-            // Beyond depth 1, the calls written as the name of a caller
-            // one level nearer.
-            let possibly_by_depth: BTreeMap<u32, usize> = (2..)
-                .zip(&levels)
-                .take_while(|(level, _)| *level <= depth)
-                .map(|(level, (_, reached))| {
-                    let wanted = reached
-                        .iter()
-                        .filter_map(|id| names.functions.get(id))
-                        .map(|function| last(&function.name))
-                        .collect();
-                    (
-                        level,
-                        calls
-                            .written_as(&wanted)
-                            .into_iter()
-                            .filter(kept)
-                            .filter(|unknown| calls.remains(unknown))
-                            .count(),
-                    )
-                })
-                .filter(|(_, count)| *count > 0)
-                .collect();
-            for row in &mut possibly {
-                row.test_only = names
-                    .functions
-                    .get(row.from.as_str())
-                    .is_some_and(|from| from.test_only);
-            }
-            CallerAnswer {
-                function: subject(&names, function),
-                resolved,
-                possibly_by_kind: by_kind(&possibly),
-                possibly,
-                possibly_beyond_depth_1: possibly_by_depth.values().sum(),
-                possibly_by_depth,
-                semantic,
-            }
-        })
+        .map(|function| caller_answer(&names, &calls, function, depth, within, reading.is_some()))
         .collect();
     Ok(Report {
         schema: "atlas.callers/1",
@@ -733,6 +647,108 @@ fn callers_by(
         basis: basis(reading),
         semantic: reading.map(Reading::describe).unwrap_or_default(),
     })
+}
+/// One selected function's callers: the resolved rows `within` keeps, the
+/// unresolved calls written with its name (settled by the reading when
+/// `with_reading`), and beyond depth 1 the possible callers only counted.
+fn caller_answer<'a>(
+    names: &Names<'a>,
+    calls: &Calls<'a>,
+    function: &'a Function,
+    depth: u32,
+    within: &dyn Fn(&str) -> bool,
+    with_reading: bool,
+) -> CallerAnswer {
+    let kept = |unknown: &&UnknownCall| {
+        names
+            .functions
+            .get(unknown.from.as_str())
+            .is_some_and(|function| within(&function.file))
+    };
+    let levels = calls.levels(&function.id, depth, true);
+    let resolved: Vec<Caller> = rows(names, &levels, true, within)
+        .into_iter()
+        .map(|row| Caller {
+            from: row.far.id.clone(),
+            from_name: names.display(row.far),
+            site: row.site,
+            depth: row.depth,
+            reading: row.reading,
+            test_only: row.far.test_only,
+            via: row.via.map(|via| via.id.clone()),
+            via_name: row.via.map(|via| names.display(via)),
+        })
+        .collect();
+    let (mut possibly, mut semantic) = calls.settle(
+        calls
+            .written_as(&BTreeSet::from([last(&function.name)]))
+            .into_iter()
+            .filter(kept),
+        Some(&function.id),
+        with_reading,
+    );
+    if let Some(semantic) = &mut semantic {
+        // Both ends of a conflict: callers Atlas has that the index
+        // names another function for, and sites the index names this
+        // function for that Atlas resolves to another.
+        semantic.disagrees = calls.disputes(
+            resolved
+                .iter()
+                .filter(|row| row.depth == 1)
+                .map(|row| &row.site),
+        ) + calls
+            .claimed
+            .get(function.id.as_str())
+            .copied()
+            .unwrap_or(0);
+    }
+    let possibly_by_depth = possible_callers_by_depth(names, calls, &levels, depth, &kept);
+    for row in &mut possibly {
+        row.test_only = names
+            .functions
+            .get(row.from.as_str())
+            .is_some_and(|from| from.test_only);
+    }
+    CallerAnswer {
+        function: subject(names, function),
+        resolved,
+        possibly_by_kind: by_kind(&possibly),
+        possibly,
+        possibly_beyond_depth_1: possibly_by_depth.values().sum(),
+        possibly_by_depth,
+        semantic,
+    }
+}
+/// Beyond depth 1, the calls written as the name of a caller one level
+/// nearer that stay unresolved, counted by depth; empty depths are omitted.
+fn possible_callers_by_depth<'a>(
+    names: &Names<'a>,
+    calls: &Calls<'a>,
+    levels: &[(Vec<Edge<'a>>, BTreeSet<&'a str>)],
+    depth: u32,
+    kept: &impl Fn(&&UnknownCall) -> bool,
+) -> BTreeMap<u32, usize> {
+    (2..)
+        .zip(levels)
+        .take_while(|(level, _)| *level <= depth)
+        .map(|(level, (_, reached))| {
+            let wanted = reached
+                .iter()
+                .filter_map(|id| names.functions.get(id))
+                .map(|function| last(&function.name))
+                .collect();
+            (
+                level,
+                calls
+                    .written_as(&wanted)
+                    .into_iter()
+                    .filter(kept)
+                    .filter(|unknown| calls.remains(unknown))
+                    .count(),
+            )
+        })
+        .filter(|(_, count)| *count > 0)
+        .collect()
 }
 /// What the functions `selector` names call, up to `depth` calls away.
 /// `within` keeps the called functions in a part of the project, by file.
@@ -761,10 +777,6 @@ pub fn semantic_callees(
     usable(reading)?;
     callees_by(graph, facts, selector, file, depth, within, Some(reading))
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn callees_by(
     graph: &SourceGraph,
     facts: &Facts,
@@ -782,63 +794,7 @@ fn callees_by(
     let calls = Calls::new(facts, &named);
     let answers = select(&names.declarations, facts, selector, file)?
         .into_iter()
-        .map(|function| {
-            let levels = calls.levels(&function.id, depth, false);
-            let resolved: Vec<Callee> = rows(&names, &levels, false, within)
-                .into_iter()
-                .map(|row| Callee {
-                    to: row.far.id.clone(),
-                    to_name: names.display(row.far),
-                    site: row.site,
-                    depth: row.depth,
-                    reading: row.reading,
-                    test_only: row.far.test_only,
-                    via: row.via.map(|via| via.id.clone()),
-                    via_name: row.via.map(|via| names.display(via)),
-                })
-                .collect();
-            let (mut unresolved, mut semantic) = calls.settle(
-                calls.inside(&function.id).iter().copied(),
-                None,
-                reading.is_some(),
-            );
-            if let Some(semantic) = &mut semantic {
-                semantic.disagrees = calls.disputes(
-                    resolved
-                        .iter()
-                        .filter(|row| row.depth == 1)
-                        .map(|row| &row.site),
-                );
-            }
-            // Beyond depth 1, the calls inside the functions one level nearer
-            // that Atlas could not follow.
-            let unresolved_by_depth: BTreeMap<u32, usize> = (2..)
-                .zip(&levels)
-                .take_while(|(level, _)| *level <= depth)
-                .map(|(level, (_, reached))| {
-                    let open = reached
-                        .iter()
-                        .flat_map(|id| calls.inside(id))
-                        .filter(|unknown| calls.remains(unknown))
-                        .count();
-                    (level, open)
-                })
-                .filter(|(_, count)| *count > 0)
-                .collect();
-            // Inside one function: all test code or none.
-            for row in &mut unresolved {
-                row.test_only = function.test_only;
-            }
-            CalleeAnswer {
-                function: subject(&names, function),
-                resolved,
-                unresolved_by_kind: by_kind(&unresolved),
-                unresolved,
-                unresolved_beyond_depth_1: unresolved_by_depth.values().sum(),
-                unresolved_by_depth,
-                semantic,
-            }
-        })
+        .map(|function| callee_answer(&names, &calls, function, depth, within, reading.is_some()))
         .collect();
     Ok(Report {
         schema: "atlas.callees/1",
@@ -849,6 +805,80 @@ fn callees_by(
         basis: basis(reading),
         semantic: reading.map(Reading::describe).unwrap_or_default(),
     })
+}
+/// One selected function's callees: the resolved rows `within` keeps, the
+/// unresolved calls inside it (settled by the reading when `with_reading`), and
+/// beyond depth 1 the unresolved calls only counted.
+fn callee_answer<'a>(
+    names: &Names<'a>,
+    calls: &Calls<'a>,
+    function: &'a Function,
+    depth: u32,
+    within: &dyn Fn(&str) -> bool,
+    with_reading: bool,
+) -> CalleeAnswer {
+    let levels = calls.levels(&function.id, depth, false);
+    let resolved: Vec<Callee> = rows(names, &levels, false, within)
+        .into_iter()
+        .map(|row| Callee {
+            to: row.far.id.clone(),
+            to_name: names.display(row.far),
+            site: row.site,
+            depth: row.depth,
+            reading: row.reading,
+            test_only: row.far.test_only,
+            via: row.via.map(|via| via.id.clone()),
+            via_name: row.via.map(|via| names.display(via)),
+        })
+        .collect();
+    let (mut unresolved, mut semantic) = calls.settle(
+        calls.inside(&function.id).iter().copied(),
+        None,
+        with_reading,
+    );
+    if let Some(semantic) = &mut semantic {
+        semantic.disagrees = calls.disputes(
+            resolved
+                .iter()
+                .filter(|row| row.depth == 1)
+                .map(|row| &row.site),
+        );
+    }
+    let unresolved_by_depth = open_calls_by_depth(calls, &levels, depth);
+    // Inside one function: all test code or none.
+    for row in &mut unresolved {
+        row.test_only = function.test_only;
+    }
+    CalleeAnswer {
+        function: subject(names, function),
+        resolved,
+        unresolved_by_kind: by_kind(&unresolved),
+        unresolved,
+        unresolved_beyond_depth_1: unresolved_by_depth.values().sum(),
+        unresolved_by_depth,
+        semantic,
+    }
+}
+/// Beyond depth 1, the calls inside the functions one level nearer that
+/// Atlas could not follow, counted by depth; empty depths are omitted.
+fn open_calls_by_depth<'a>(
+    calls: &Calls<'a>,
+    levels: &[(Vec<Edge<'a>>, BTreeSet<&'a str>)],
+    depth: u32,
+) -> BTreeMap<u32, usize> {
+    (2..)
+        .zip(levels)
+        .take_while(|(level, _)| *level <= depth)
+        .map(|(level, (_, reached))| {
+            let open = reached
+                .iter()
+                .flat_map(|id| calls.inside(id))
+                .filter(|unknown| calls.remains(unknown))
+                .count();
+            (level, open)
+        })
+        .filter(|(_, count)| *count > 0)
+        .collect()
 }
 fn basis(reading: Option<&Reading>) -> &'static str {
     if reading.is_some() {
@@ -869,10 +899,6 @@ impl Report<CallerAnswer> {
     /// Text with at most `answers` functions and `rows` rows in each of
     /// their lists; a cut list ends with `… N more; ` and the command `more`
     /// names.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     pub fn text_bounded(&self, answers: usize, rows: usize, more: More<'_>) -> String {
         let mut out = heading(
             self.question,
@@ -880,105 +906,10 @@ impl Report<CallerAnswer> {
             self.answers.iter().map(|a| &a.function),
         );
         for answer in self.answers.iter().take(answers) {
-            let function = &answer.function;
             if self.answers.len() > 1 && !out.ends_with("\n\n") {
                 out.push('\n');
             }
-            let _ = writeln!(
-                out,
-                "callers of {}  {}:{}",
-                function.name, function.path, function.line
-            );
-            let calling = answer
-                .resolved
-                .iter()
-                .map(|row| row.from.as_str())
-                .collect::<std::collections::BTreeSet<_>>()
-                .len();
-            let wanted = last(&function.name);
-            if answer.resolved.is_empty() && answer.possibly.is_empty() {
-                let none = if answer.semantic.is_some() {
-                    format!(
-                        "no resolved callers by either reading, and no unresolved call written as {wanted:?} is left open"
-                    )
-                } else {
-                    format!("no resolved callers, and no unresolved call is written as {wanted:?}")
-                };
-                let _ = writeln!(
-                    out,
-                    "  {none}; calls Atlas does not record (inside macros, or through a function passed elsewhere as a value) are not covered"
-                );
-                settled(&mut out, answer.semantic.as_ref());
-                continue;
-            }
-            let _ = writeln!(
-                out,
-                "  resolved: {calling} calling function{}, {} call site{}{}{}",
-                plural(calling),
-                answer.resolved.len(),
-                plural(answer.resolved.len()),
-                by_reading(
-                    answer.semantic.as_ref(),
-                    answer.resolved.iter().map(|row| row.reading)
-                ),
-                in_tests(answer.resolved.iter().filter(|row| row.test_only).count())
-            );
-            let width = answer
-                .resolved
-                .iter()
-                .take(rows)
-                .map(|row| row.site.path.len() + digits(row.site.line) + 1)
-                .max()
-                .unwrap_or(0);
-            for row in answer.resolved.iter().take(rows) {
-                let at = format!("{}:{}", row.site.path, row.site.line);
-                let name = match &row.via_name {
-                    Some(via) => format!("{} → {via}", row.from_name),
-                    None => row.from_name.clone(),
-                };
-                let _ = writeln!(
-                    out,
-                    "      {}{at:width$}  {name}{}",
-                    level(self.depth, row.depth),
-                    marker(row.reading, row.test_only)
-                );
-            }
-            tail(&mut out, "    ", answer.resolved.len(), rows, more);
-            if !answer.possibly.is_empty() {
-                let _ = writeln!(
-                    out,
-                    "  possibly: {} unresolved call{} {} written as {wanted:?}{}",
-                    answer.possibly.len(),
-                    plural(answer.possibly.len()),
-                    if answer.possibly.len() == 1 {
-                        "is"
-                    } else {
-                        "are"
-                    },
-                    if answer.semantic.is_some() {
-                        " and pinned by neither reading"
-                    } else {
-                        ""
-                    }
-                );
-                kinds(
-                    &mut out,
-                    &answer.possibly,
-                    &answer.possibly_by_kind,
-                    rows,
-                    more,
-                );
-            }
-            settled(&mut out, answer.semantic.as_ref());
-            if answer.possibly_beyond_depth_1 > 0 {
-                let _ = writeln!(
-                    out,
-                    "  possibly, beyond depth 1: {} unresolved call{} written as the name of a caller ({})",
-                    answer.possibly_beyond_depth_1,
-                    plural(answer.possibly_beyond_depth_1),
-                    per_depth(&answer.possibly_by_depth)
-                );
-            }
+            answer.write_text(&mut out, self.depth, rows, more);
         }
         if self.answers.len() > answers {
             let _ = writeln!(out);
@@ -988,12 +919,113 @@ impl Report<CallerAnswer> {
         out
     }
 }
+impl CallerAnswer {
+    /// This function's block of a callers report; `depth` is the depth asked.
+    fn write_text(&self, out: &mut String, depth: u32, rows: usize, more: More<'_>) {
+        let function = &self.function;
+        let _ = writeln!(
+            out,
+            "callers of {}  {}:{}",
+            function.name, function.path, function.line
+        );
+        let calling = self
+            .resolved
+            .iter()
+            .map(|row| row.from.as_str())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+        let wanted = last(&function.name);
+        if self.resolved.is_empty() && self.possibly.is_empty() {
+            let none = if self.semantic.is_some() {
+                format!(
+                    "no resolved callers by either reading, and no unresolved call written as {wanted:?} is left open"
+                )
+            } else {
+                format!("no resolved callers, and no unresolved call is written as {wanted:?}")
+            };
+            let _ = writeln!(
+                out,
+                "  {none}; calls Atlas does not record (inside macros, or through a function passed elsewhere as a value) are not covered"
+            );
+            settled(out, self.semantic.as_ref());
+            return;
+        }
+        let _ = writeln!(
+            out,
+            "  resolved: {calling} calling function{}, {} call site{}{}{}",
+            plural(calling),
+            self.resolved.len(),
+            plural(self.resolved.len()),
+            by_reading(
+                self.semantic.as_ref(),
+                self.resolved.iter().map(|row| row.reading)
+            ),
+            in_tests(self.resolved.iter().filter(|row| row.test_only).count())
+        );
+        self.write_resolved(out, depth, rows);
+        tail(out, "    ", self.resolved.len(), rows, more);
+        self.write_possibly(out, wanted, rows, more);
+        settled(out, self.semantic.as_ref());
+        if self.possibly_beyond_depth_1 > 0 {
+            let _ = writeln!(
+                out,
+                "  possibly, beyond depth 1: {} unresolved call{} written as the name of a caller ({})",
+                self.possibly_beyond_depth_1,
+                plural(self.possibly_beyond_depth_1),
+                per_depth(&self.possibly_by_depth)
+            );
+        }
+    }
+    /// The first `rows` resolved callers, aligned by site; beyond depth 1
+    /// each names the function one level nearer that the call reaches.
+    fn write_resolved(&self, out: &mut String, depth: u32, rows: usize) {
+        let width = self
+            .resolved
+            .iter()
+            .take(rows)
+            .map(|row| row.site.path.len() + digits(row.site.line) + 1)
+            .max()
+            .unwrap_or(0);
+        for row in self.resolved.iter().take(rows) {
+            let at = format!("{}:{}", row.site.path, row.site.line);
+            let name = match &row.via_name {
+                Some(via) => format!("{} → {via}", row.from_name),
+                None => row.from_name.clone(),
+            };
+            let _ = writeln!(
+                out,
+                "      {}{at:width$}  {name}{}",
+                level(depth, row.depth),
+                marker(row.reading, row.test_only)
+            );
+        }
+    }
+    /// The possible callers, by reason kind, when any are left.
+    fn write_possibly(&self, out: &mut String, wanted: &str, rows: usize, more: More<'_>) {
+        if self.possibly.is_empty() {
+            return;
+        }
+        let _ = writeln!(
+            out,
+            "  possibly: {} unresolved call{} {} written as {wanted:?}{}",
+            self.possibly.len(),
+            plural(self.possibly.len()),
+            if self.possibly.len() == 1 {
+                "is"
+            } else {
+                "are"
+            },
+            if self.semantic.is_some() {
+                " and pinned by neither reading"
+            } else {
+                ""
+            }
+        );
+        kinds(out, &self.possibly, &self.possibly_by_kind, rows, more);
+    }
+}
 impl Report<CalleeAnswer> {
     /// As [`Report::<CallerAnswer>::text_bounded`], for the calls out.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     pub fn text_bounded(&self, answers: usize, rows: usize, more: More<'_>) -> String {
         let mut out = heading(
             self.question,
@@ -1001,84 +1033,10 @@ impl Report<CalleeAnswer> {
             self.answers.iter().map(|a| &a.function),
         );
         for answer in self.answers.iter().take(answers) {
-            let function = &answer.function;
             if self.answers.len() > 1 && !out.ends_with("\n\n") {
                 out.push('\n');
             }
-            let _ = writeln!(
-                out,
-                "callees of {}  {}:{}",
-                function.name, function.path, function.line
-            );
-            let called = answer
-                .resolved
-                .iter()
-                .map(|row| row.to.as_str())
-                .collect::<std::collections::BTreeSet<_>>()
-                .len();
-            let _ = writeln!(
-                out,
-                "  resolved: {} call{} to {called} function{}{}{}",
-                answer.resolved.len(),
-                plural(answer.resolved.len()),
-                plural(called),
-                by_reading(
-                    answer.semantic.as_ref(),
-                    answer.resolved.iter().map(|row| row.reading)
-                ),
-                in_tests(answer.resolved.iter().filter(|row| row.test_only).count())
-            );
-            let width = answer
-                .resolved
-                .iter()
-                .take(rows)
-                .map(|row| row.site.path.len() + digits(row.site.line) + 1)
-                .max()
-                .unwrap_or(0);
-            for row in answer.resolved.iter().take(rows) {
-                let at = format!("{}:{}", row.site.path, row.site.line);
-                let name = match &row.via_name {
-                    Some(via) => format!("{via} → {}", row.to_name),
-                    None => row.to_name.clone(),
-                };
-                let _ = writeln!(
-                    out,
-                    "      {}{at:width$}  {name}{}",
-                    level(self.depth, row.depth),
-                    marker(row.reading, row.test_only)
-                );
-            }
-            tail(&mut out, "    ", answer.resolved.len(), rows, more);
-            if !answer.unresolved.is_empty() {
-                let rest = if answer.semantic.is_some() {
-                    " that neither reading pins: unknown, not absent"
-                } else {
-                    "; the rest are external or unknown, not absent"
-                };
-                let _ = writeln!(
-                    out,
-                    "  unresolved: {} call{}{rest}",
-                    answer.unresolved.len(),
-                    plural(answer.unresolved.len()),
-                );
-                kinds(
-                    &mut out,
-                    &answer.unresolved,
-                    &answer.unresolved_by_kind,
-                    rows,
-                    more,
-                );
-            }
-            settled(&mut out, answer.semantic.as_ref());
-            if answer.unresolved_beyond_depth_1 > 0 {
-                let _ = writeln!(
-                    out,
-                    "  unresolved, beyond depth 1: {} call{} inside the functions above, external or unknown, not absent ({})",
-                    answer.unresolved_beyond_depth_1,
-                    plural(answer.unresolved_beyond_depth_1),
-                    per_depth(&answer.unresolved_by_depth)
-                );
-            }
+            answer.write_text(&mut out, self.depth, rows, more);
         }
         if self.answers.len() > answers {
             let _ = writeln!(out);
@@ -1086,6 +1044,85 @@ impl Report<CalleeAnswer> {
         }
         footer(&mut out, self.basis, &self.semantic);
         out
+    }
+}
+impl CalleeAnswer {
+    /// This function's block of a callees report; `depth` is the depth asked.
+    fn write_text(&self, out: &mut String, depth: u32, rows: usize, more: More<'_>) {
+        let function = &self.function;
+        let _ = writeln!(
+            out,
+            "callees of {}  {}:{}",
+            function.name, function.path, function.line
+        );
+        let called = self
+            .resolved
+            .iter()
+            .map(|row| row.to.as_str())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+        let _ = writeln!(
+            out,
+            "  resolved: {} call{} to {called} function{}{}{}",
+            self.resolved.len(),
+            plural(self.resolved.len()),
+            plural(called),
+            by_reading(
+                self.semantic.as_ref(),
+                self.resolved.iter().map(|row| row.reading)
+            ),
+            in_tests(self.resolved.iter().filter(|row| row.test_only).count())
+        );
+        self.write_resolved(out, depth, rows);
+        tail(out, "    ", self.resolved.len(), rows, more);
+        if !self.unresolved.is_empty() {
+            let rest = if self.semantic.is_some() {
+                " that neither reading pins: unknown, not absent"
+            } else {
+                "; the rest are external or unknown, not absent"
+            };
+            let _ = writeln!(
+                out,
+                "  unresolved: {} call{}{rest}",
+                self.unresolved.len(),
+                plural(self.unresolved.len()),
+            );
+            kinds(out, &self.unresolved, &self.unresolved_by_kind, rows, more);
+        }
+        settled(out, self.semantic.as_ref());
+        if self.unresolved_beyond_depth_1 > 0 {
+            let _ = writeln!(
+                out,
+                "  unresolved, beyond depth 1: {} call{} inside the functions above, external or unknown, not absent ({})",
+                self.unresolved_beyond_depth_1,
+                plural(self.unresolved_beyond_depth_1),
+                per_depth(&self.unresolved_by_depth)
+            );
+        }
+    }
+    /// The first `rows` resolved callees, aligned by site; beyond depth 1
+    /// each names the function one level nearer that makes the call.
+    fn write_resolved(&self, out: &mut String, depth: u32, rows: usize) {
+        let width = self
+            .resolved
+            .iter()
+            .take(rows)
+            .map(|row| row.site.path.len() + digits(row.site.line) + 1)
+            .max()
+            .unwrap_or(0);
+        for row in self.resolved.iter().take(rows) {
+            let at = format!("{}:{}", row.site.path, row.site.line);
+            let name = match &row.via_name {
+                Some(via) => format!("{via} → {}", row.to_name),
+                None => row.to_name.clone(),
+            };
+            let _ = writeln!(
+                out,
+                "      {}{at:width$}  {name}{}",
+                level(depth, row.depth),
+                marker(row.reading, row.test_only)
+            );
+        }
     }
 }
 

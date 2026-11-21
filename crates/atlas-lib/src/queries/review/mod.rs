@@ -1,5 +1,11 @@
 //! Source outlines and native non-test line accounting over a retained snapshot.
-use crate::{Result, architecture::contains, discovery::Snapshot};
+use crate::{
+    Result,
+    architecture::contains,
+    discovery::Snapshot,
+    model::SourceFile,
+    source::{Item, Source},
+};
 use serde::Serialize;
 pub mod moves;
 
@@ -43,10 +49,6 @@ pub struct Outline {
 
 /// Every lexical item, including private imports and macro invocations.
 /// No filesystem read occurs here: source and fingerprints come from the same snapshot.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub fn outline(snapshot: &Snapshot, scope: &str) -> Result<Outline> {
     let scope = crate::discovery::resolve_scope(snapshot.graph(), Some(scope))?;
     let mut files = Vec::new();
@@ -58,73 +60,7 @@ pub fn outline(snapshot: &Snapshot, scope: &str) -> Result<Outline> {
         let source = snapshot
             .source_facts(&file.path)
             .ok_or_else(|| format!("snapshot lacks source facts for {}", file.path))?;
-        let projection = source.projection();
-        let outline = source.outline();
-        let regions = source.test_regions();
-        let tops: Vec<_> = outline
-            .iter()
-            .filter(|i| i.kind.declares() && i.top_level)
-            .collect();
-        let top_level_items = tops
-            .iter()
-            .filter(|i| !file.test_only && !regions.covers(i.line))
-            .count();
-        let end = source.text().lines().count() + 1;
-        let mut largest_block: Option<Block> = None;
-        for (index, item) in tops.iter().enumerate() {
-            let next = tops.get(index + 1).map_or(end, |i| i.line);
-            let stop = next.min(regions.next_start_after(item.line).unwrap_or(end));
-            let lines = stop.saturating_sub(item.line);
-            if !file.test_only
-                && !regions.covers(item.line)
-                && largest_block.as_ref().is_none_or(|b| lines > b.lines)
-            {
-                largest_block = Some(Block {
-                    name: item.name.clone(),
-                    line: item.line,
-                    lines,
-                });
-            }
-        }
-        let mut covered = vec![false; source.text().lines().count()];
-        let mut items = Vec::new();
-        for item in outline {
-            for line in item.span.clone() {
-                if let Some(mark) = covered.get_mut(line - 1) {
-                    *mark = true;
-                }
-            }
-            items.push(ItemSpan {
-                name: item.name.clone(),
-                kind: item.kind.tag().to_owned(),
-                declaration: item.line,
-                first: *item.span.start(),
-                last: *item.span.end(),
-            });
-        }
-        let uncovered_code = projection
-            .code_lines()
-            .enumerate()
-            .filter_map(|(index, line)| {
-                (!covered[index]
-                    && !line.trim().is_empty()
-                    && !line.trim_start().starts_with("#!["))
-                .then_some(index + 1)
-            })
-            .collect();
-        files.push(FileOutline {
-            file: file.path.clone(),
-            fingerprint: file.content_fingerprint.clone(),
-            non_test_lines: if file.test_only {
-                0
-            } else {
-                regions.non_test_loc()
-            },
-            items,
-            uncovered_code,
-            top_level_items,
-            largest_block,
-        });
+        files.push(file_outline(file, source));
     }
     if files.is_empty() {
         return Err(format!("no source files in scope `{scope}`").into());
@@ -134,6 +70,88 @@ pub fn outline(snapshot: &Snapshot, scope: &str) -> Result<Outline> {
         scope,
         files,
     })
+}
+/// One file's outline; a test-only file has no production lines, items or block.
+fn file_outline(file: &SourceFile, source: &Source) -> FileOutline {
+    let regions = source.test_regions();
+    let tops: Vec<_> = source
+        .outline()
+        .iter()
+        .filter(|i| i.kind.declares() && i.top_level)
+        .collect();
+    let top_level_items = tops
+        .iter()
+        .filter(|i| !file.test_only && !regions.covers(i.line))
+        .count();
+    let largest_block = if file.test_only {
+        None
+    } else {
+        largest_block(source, &tops)
+    };
+    let (items, uncovered_code) = item_spans(source);
+    FileOutline {
+        file: file.path.clone(),
+        fingerprint: file.content_fingerprint.clone(),
+        non_test_lines: if file.test_only {
+            0
+        } else {
+            regions.non_test_loc()
+        },
+        items,
+        uncovered_code,
+        top_level_items,
+        largest_block,
+    }
+}
+/// The longest production block among the top-level declarations `tops`: from
+/// one declaration to the next, cut at the next test region; the first wins a tie.
+fn largest_block(source: &Source, tops: &[&Item]) -> Option<Block> {
+    let regions = source.test_regions();
+    let end = source.text().lines().count() + 1;
+    let mut largest_block: Option<Block> = None;
+    for (index, item) in tops.iter().enumerate() {
+        let next = tops.get(index + 1).map_or(end, |i| i.line);
+        let stop = next.min(regions.next_start_after(item.line).unwrap_or(end));
+        let lines = stop.saturating_sub(item.line);
+        if !regions.covers(item.line) && largest_block.as_ref().is_none_or(|b| lines > b.lines) {
+            largest_block = Some(Block {
+                name: item.name.clone(),
+                line: item.line,
+                lines,
+            });
+        }
+    }
+    largest_block
+}
+/// Every outline item's span, and the code lines no span covers (inner
+/// attributes aside): a nonempty list exposes outline omissions.
+fn item_spans(source: &Source) -> (Vec<ItemSpan>, Vec<usize>) {
+    let mut covered = vec![false; source.text().lines().count()];
+    let mut items = Vec::new();
+    for item in source.outline() {
+        for line in item.span.clone() {
+            if let Some(mark) = covered.get_mut(line - 1) {
+                *mark = true;
+            }
+        }
+        items.push(ItemSpan {
+            name: item.name.clone(),
+            kind: item.kind.tag().to_owned(),
+            declaration: item.line,
+            first: *item.span.start(),
+            last: *item.span.end(),
+        });
+    }
+    let uncovered_code = source
+        .projection()
+        .code_lines()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            (!covered[index] && !line.trim().is_empty() && !line.trim_start().starts_with("#!["))
+                .then_some(index + 1)
+        })
+        .collect();
+    (items, uncovered_code)
 }
 
 /// Native module-shape units; none denotes no top-level production block.

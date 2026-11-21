@@ -98,10 +98,6 @@ enum Enclosing {
 }
 
 /// The production declarations of one file as `(class, name, site)`.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn file_sites(
     file: &SourceFile,
     source: &Source,
@@ -110,8 +106,8 @@ fn file_sites(
     if file.test_only {
         return Ok(Vec::new());
     }
-    let outline = source.outline();
-    let items: Vec<&Item> = outline
+    let items: Vec<&Item> = source
+        .outline()
         .iter()
         .filter(|item| !source.test_regions().covers(item.line))
         .collect();
@@ -120,21 +116,11 @@ fn file_sites(
     } else {
         BTreeSet::new()
     };
-    let body_of = |item: &Item| {
-        if !bodies {
-            return Body::Uncompared;
-        }
-        tokens(&source.text()[item.byte_span.clone()], &roots)
-    };
-    let site = |item: &Item, body: Body| Site {
-        file: file.path.clone(),
-        line: item.line,
-        visibility: item.visibility,
-        restricted: item
-            .visibility_restriction()
-            .filter(|_| item.visibility == Visibility::PubIn)
-            .map(|path| path.split_whitespace().collect()),
-        body,
+    let reading = FileReading {
+        file,
+        source,
+        bodies,
+        roots,
     };
     let mut found = Vec::new();
     let mut stack: Vec<(&Item, Enclosing)> = Vec::new();
@@ -162,7 +148,7 @@ fn file_sites(
                     found.push((
                         "method",
                         format!("{owner}::{}", item.name),
-                        site(item, body_of(item)),
+                        reading.site(item, reading.body(item)),
                     ));
                 }
                 stack.push((item, Enclosing::Folded));
@@ -170,45 +156,69 @@ fn file_sites(
             }
             _ => {}
         }
-        let enclosing = match item.kind {
+        let enclosing = reading.key(item, &module, &mut found)?;
+        stack.push((item, enclosing));
+    }
+    Ok(found)
+}
+
+/// How one file's items become sites: their file, and with `bodies` their
+/// token readings over the file's path `roots`.
+struct FileReading<'s> {
+    file: &'s SourceFile,
+    source: &'s Source,
+    bodies: bool,
+    roots: BTreeSet<String>,
+}
+impl FileReading<'_> {
+    fn body(&self, item: &Item) -> Body {
+        if !self.bodies {
+            return Body::Uncompared;
+        }
+        tokens(&self.source.text()[item.byte_span.clone()], &self.roots)
+    }
+    fn site(&self, item: &Item, body: Body) -> Site {
+        Site {
+            file: self.file.path.clone(),
+            line: item.line,
+            visibility: item.visibility,
+            restricted: item
+                .visibility_restriction()
+                .filter(|_| item.visibility == Visibility::PubIn)
+                .map(|path| path.split_whitespace().collect()),
+            body,
+        }
+    }
+    /// Key an item outside any impl under `module` (its enclosing module
+    /// path, `a::b::`), and say how it encloses the items its span holds.
+    fn key(
+        &self,
+        item: &Item,
+        module: &str,
+        found: &mut Vec<(&'static str, String, Site)>,
+    ) -> Result<Enclosing> {
+        Ok(match item.kind {
             ItemKind::Use | ItemKind::PubUse => {
-                for binding in bindings(source, &file.path, item)? {
-                    // A binding's body is its target: a move may reroot the
-                    // path to it, never retarget the name.
-                    let body = if bodies {
-                        let rerooted = if rooted(&binding.source_path, &roots) {
-                            binding.source.clone()
-                        } else {
-                            binding.source_path.clone()
-                        };
-                        Body::Tokens {
-                            exact: vec![binding.source_path.clone()],
-                            rerooted: vec![rerooted],
-                        }
-                    } else {
-                        Body::Uncompared
-                    };
-                    let bound = if binding.local_name == "*" {
-                        binding.source_path.clone()
-                    } else {
-                        binding.local_name.clone()
-                    };
-                    found.push(("use", format!("{module}{bound}"), site(item, body)));
-                }
+                self.key_bindings(item, module, found)?;
                 Enclosing::Folded
             }
             ItemKind::Impl => {
-                let header = source.impl_header(item).and_then(|text| text.parse().ok());
+                let header = self
+                    .source
+                    .impl_header(item)
+                    .and_then(|text| text.parse().ok());
                 let owner = item.trait_name.as_deref().map_or_else(
                     || format!("{module}{}", item.name),
                     |name| format!("<{module}{} as {name}>", item.name),
                 );
-                let header_body = if bodies {
-                    header.map_or(Body::Unreadable, |header| tokens::readings(header, &roots))
+                let header_body = if self.bodies {
+                    header.map_or(Body::Unreadable, |header| {
+                        tokens::readings(header, &self.roots)
+                    })
                 } else {
                     Body::Uncompared
                 };
-                found.push(("impl", owner.clone(), site(item, header_body)));
+                found.push(("impl", owner.clone(), self.site(item, header_body)));
                 Enclosing::Impl(owner)
             }
             ItemKind::Mod => {
@@ -217,11 +227,12 @@ fn file_sites(
                 found.push((
                     "item",
                     format!("{module}{}", item.name),
-                    site(item, Body::Uncompared),
+                    self.site(item, Body::Uncompared),
                 ));
                 Enclosing::Module(item.name.clone())
             }
             ItemKind::MacroCall => {
+                let outline = self.source.outline();
                 let inner = outline
                     .get(outline.partition_point(|inner| inner.line <= item.line))
                     .filter(|inner| item.span.contains(&inner.line))
@@ -229,7 +240,7 @@ fn file_sites(
                 found.push((
                     "macro",
                     format!("{module}{}!({inner})", item.name),
-                    site(item, body_of(item)),
+                    self.site(item, self.body(item)),
                 ));
                 Enclosing::Folded
             }
@@ -237,28 +248,63 @@ fn file_sites(
                 found.push((
                     "item",
                     format!("{module}{}", item.name),
-                    site(item, body_of(item)),
+                    self.site(item, self.body(item)),
                 ));
                 if kind == ItemKind::Struct {
-                    for field in &item.fields {
-                        found.push((
-                            "field",
-                            format!("{module}{}.{}", item.name, field.name),
-                            Site {
-                                restricted: field.restricted.clone(),
-                                line: item.line + field.line_offset,
-                                visibility: field.visibility,
-                                ..site(item, Body::Uncompared)
-                            },
-                        ));
-                    }
+                    self.key_fields(item, module, found);
                 }
                 Enclosing::Folded
             }
-        };
-        stack.push((item, enclosing));
+        })
     }
-    Ok(found)
+    /// One `use` key per binding; a glob is keyed by its path.
+    fn key_bindings(
+        &self,
+        item: &Item,
+        module: &str,
+        found: &mut Vec<(&'static str, String, Site)>,
+    ) -> Result<()> {
+        for binding in bindings(self.source, &self.file.path, item)? {
+            // A binding's body is its target: a move may reroot the
+            // path to it, never retarget the name.
+            let body = if self.bodies {
+                let rerooted = if rooted(&binding.source_path, &self.roots) {
+                    binding.source.clone()
+                } else {
+                    binding.source_path.clone()
+                };
+                Body::Tokens {
+                    exact: vec![binding.source_path.clone()],
+                    rerooted: vec![rerooted],
+                }
+            } else {
+                Body::Uncompared
+            };
+            let bound = if binding.local_name == "*" {
+                binding.source_path.clone()
+            } else {
+                binding.local_name.clone()
+            };
+            found.push(("use", format!("{module}{bound}"), self.site(item, body)));
+        }
+        Ok(())
+    }
+    /// A struct's fields, keyed `Struct.field` with their own visibility;
+    /// their bodies are compared as part of the struct.
+    fn key_fields(&self, item: &Item, module: &str, found: &mut Vec<(&'static str, String, Site)>) {
+        for field in &item.fields {
+            found.push((
+                "field",
+                format!("{module}{}.{}", item.name, field.name),
+                Site {
+                    restricted: field.restricted.clone(),
+                    line: item.line + field.line_offset,
+                    visibility: field.visibility,
+                    ..self.site(item, Body::Uncompared)
+                },
+            ));
+        }
+    }
 }
 
 fn bindings<'a>(source: &'a Source, file: &str, item: &Item) -> Result<&'a [scan::ImportBinding]> {

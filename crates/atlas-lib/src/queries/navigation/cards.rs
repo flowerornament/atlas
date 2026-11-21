@@ -5,6 +5,7 @@ use crate::{
     discovery::module_path_of,
     model::{Evidence, Resolution},
     population::{TestSelection, VisibilitySelection},
+    queries::selector::Selector,
     source::{Item, ItemKind, Visibility},
     workspace::{CrateMap, FileMap},
 };
@@ -96,59 +97,30 @@ pub struct ModuleContext {
     pub unmentioned_names: Vec<String>,
     pub edges: Vec<Edge>,
 }
+/// The declarations a name selector admits, grouped as the card reports them.
+#[derive(Default)]
+struct Declarations<'w> {
+    matches: Vec<Site>,
+    hidden: usize,
+    reexports: Vec<Site>,
+    impls: Vec<Site>,
+    /// Defining sites (file, line) of matches and hidden declarations.
+    defining: BTreeSet<(&'w str, usize)>,
+}
 impl Navigation<'_> {
     /// A `NAME`, `MODULE::NAME` or `FILE:LINE[:COLUMN]` selector. The modules
     /// match the end of the declaration's module path: its file's directories
     /// and name, then enclosing inline `mod` blocks. No Rust resolution implied.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     pub fn name(&self, query: &str) -> Result<Name> {
         self.require_sources(None)?;
-        let selector = crate::queries::selector::Selector::parse(query)?;
-        let mut matches = Vec::new();
-        let mut hidden = 0;
-        let mut reexports = Vec::new();
-        let mut impls = Vec::new();
-        let mut defining = BTreeSet::new();
-        for package in &self.workspace.crates {
-            for file in &package.files {
-                let modules = crate::source::InlineModules::of(file.source.outline());
-                for item in file.items(TestSelection::OutsideTestModules) {
-                    let inline = || modules.enclosing(item);
-                    if item.kind == ItemKind::PubUse {
-                        let Some(name) = selector.name() else {
-                            continue;
-                        };
-                        // A re-export is selected by its own module path.
-                        if selector.admits(name, &file.rel, item.line, None, inline)
-                            && file.source.import_for(item).is_some_and(|import| {
-                                import.bindings.as_ref().is_ok_and(|bindings| {
-                                    bindings.iter().any(|binding| {
-                                        binding.source == name || binding.local_name == name
-                                    })
-                                })
-                            })
-                        {
-                            reexports.push(Site::of(&package.name, &file.rel, item));
-                        }
-                    } else if selector.admits(&item.name, &file.rel, item.line, None, inline) {
-                        let site = Site::of(&package.name, &file.rel, item);
-                        if item.kind == ItemKind::Impl {
-                            impls.push(site);
-                            continue;
-                        }
-                        defining.insert((file.rel.as_str(), item.line));
-                        if self.visibility.admits(item.visibility) {
-                            matches.push(site);
-                        } else {
-                            hidden += 1;
-                        }
-                    }
-                }
-            }
-        }
+        let selector = Selector::parse(query)?;
+        let Declarations {
+            mut matches,
+            hidden,
+            reexports,
+            impls,
+            defining,
+        } = self.declarations(&selector);
         if matches.is_empty() && hidden == 0 {
             return Err(format!("no declaration of `{query}` in the selected source scope; give NAME, MODULE::NAME (the end of its module path, inline modules included) or FILE:LINE; macro-generated declarations are outside the lexical grammar").into());
         }
@@ -159,21 +131,7 @@ impl Navigation<'_> {
             .unwrap_or_default()
             .to_owned();
         let name = name.as_str();
-        let refs_approx = self
-            .workspace
-            .crates
-            .iter()
-            .flat_map(|p| &p.files)
-            .flat_map(|file| {
-                file.code_lines(TestSelection::OutsideTestModules)
-                    .filter(|(line, _)| !defining.contains(&(file.rel.as_str(), *line)))
-            })
-            .map(|(_, code)| {
-                crate::scan::identifiers(code)
-                    .filter(|token| *token == name)
-                    .count()
-            })
-            .sum();
+        let refs_approx = self.approximate_references(name, &defining);
         let relations = self.relations()?;
         let edges = Self::edges(relations, |site, edge| {
             edge.spelling == name || defining.contains(&(site.file.as_str(), site.line))
@@ -198,6 +156,70 @@ impl Navigation<'_> {
             edges,
             basis,
         })
+    }
+    /// Sort every outside-test declaration the selector admits into the card's
+    /// groups: visible matches, hidden ones (counted only), impls, and
+    /// re-exports, which a path selector names by their own module path.
+    fn declarations(&self, selector: &Selector<'_>) -> Declarations<'_> {
+        let mut found = Declarations::default();
+        for package in &self.workspace.crates {
+            for file in &package.files {
+                let modules = crate::source::InlineModules::of(file.source.outline());
+                for item in file.items(TestSelection::OutsideTestModules) {
+                    let inline = || modules.enclosing(item);
+                    if item.kind == ItemKind::PubUse {
+                        let Some(name) = selector.name() else {
+                            continue;
+                        };
+                        // A re-export is selected by its own module path.
+                        if selector.admits(name, &file.rel, item.line, None, inline)
+                            && file.source.import_for(item).is_some_and(|import| {
+                                import.bindings.as_ref().is_ok_and(|bindings| {
+                                    bindings.iter().any(|binding| {
+                                        binding.source == name || binding.local_name == name
+                                    })
+                                })
+                            })
+                        {
+                            found
+                                .reexports
+                                .push(Site::of(&package.name, &file.rel, item));
+                        }
+                    } else if selector.admits(&item.name, &file.rel, item.line, None, inline) {
+                        let site = Site::of(&package.name, &file.rel, item);
+                        if item.kind == ItemKind::Impl {
+                            found.impls.push(site);
+                            continue;
+                        }
+                        found.defining.insert((file.rel.as_str(), item.line));
+                        if self.visibility.admits(item.visibility) {
+                            found.matches.push(site);
+                        } else {
+                            found.hidden += 1;
+                        }
+                    }
+                }
+            }
+        }
+        found
+    }
+    /// Lexical identifier tokens spelled `name` on outside-test code lines,
+    /// excluding the defining lines themselves: an approximation, not resolved uses.
+    fn approximate_references(&self, name: &str, defining: &BTreeSet<(&str, usize)>) -> usize {
+        self.workspace
+            .crates
+            .iter()
+            .flat_map(|p| &p.files)
+            .flat_map(|file| {
+                file.code_lines(TestSelection::OutsideTestModules)
+                    .filter(|(line, _)| !defining.contains(&(file.rel.as_str(), *line)))
+            })
+            .map(|(_, code)| {
+                crate::scan::identifiers(code)
+                    .filter(|token| *token == name)
+                    .count()
+            })
+            .sum()
     }
     pub fn module(&self, path: &str) -> Result<Module> {
         let path = path.trim_start_matches("./");

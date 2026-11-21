@@ -36,125 +36,50 @@ const PUNCTS: [&str; 16] = [
     ":-", "?-", "!=", "<=", ">=", "(", ")", "{", "}", ",", ".", ":", "!", "=", "<", ">",
 ];
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn lex(source: &str, origin: Origin) -> Result<Vec<Token>, Error> {
+    let error = |at, message| Error::located(ErrorKind::Syntax, origin, source, at, message);
     let mut tokens = Vec::new();
-    let mut chars = source.char_indices().peekable();
-    let (mut line, mut column) = (1, 1);
-    let advance = |c: char, line: &mut usize, column: &mut usize| {
-        if c == '\n' {
-            *line += 1;
-            *column = 1;
-        } else {
-            *column += 1;
-        }
+    let mut cursor = Cursor {
+        chars: source.char_indices().peekable(),
+        line: 1,
+        column: 1,
     };
-    while let Some(&(start, c)) = chars.peek() {
-        let at = Location { line, column };
+    while let Some((start, c)) = cursor.peek() {
+        let at = cursor.at();
         if c.is_whitespace() {
-            advance(c, &mut line, &mut column);
-            chars.next();
+            cursor.bump();
             continue;
         }
         if c == '%' || c == '#' {
-            while let Some(&(_, c)) = chars.peek() {
-                if c == '\n' {
-                    break;
-                }
-                advance(c, &mut line, &mut column);
-                chars.next();
-            }
+            cursor.take_while(|c| c != '\n');
             continue;
         }
         let tok = if c.is_alphabetic() || c == '_' {
-            let mut word = String::new();
-            while let Some(&(_, c)) = chars.peek() {
-                if !(c.is_alphanumeric() || c == '_') {
-                    break;
-                }
-                word.push(c);
-                advance(c, &mut line, &mut column);
-                chars.next();
-            }
-            if word == "_" {
-                Tok::Wild
-            } else if word.starts_with(|c: char| c.is_uppercase() || c == '_') {
-                Tok::Var(word)
-            } else {
-                Tok::Name(word)
-            }
+            word(cursor.take_while(|c| c.is_alphanumeric() || c == '_'))
         } else if c.is_ascii_digit() {
-            let mut digits = String::new();
-            while let Some(&(_, c)) = chars.peek() {
-                if !c.is_ascii_digit() {
-                    break;
-                }
-                digits.push(c);
-                advance(c, &mut line, &mut column);
-                chars.next();
-            }
-            Tok::Integer(digits.parse().map_err(|_| {
-                Error::located(
-                    ErrorKind::Syntax,
-                    origin,
-                    source,
-                    at,
-                    format!("integer {digits} is too large"),
-                )
-            })?)
+            let digits = cursor.take_while(|c| c.is_ascii_digit());
+            Tok::Integer(
+                digits
+                    .parse()
+                    .map_err(|_| error(at, format!("integer {digits} is too large")))?,
+            )
         } else if c == '"' {
-            advance(c, &mut line, &mut column);
-            chars.next();
-            let mut text = String::new();
-            loop {
-                let Some((_, c)) = chars.next() else {
-                    return Err(Error::located(
-                        ErrorKind::Syntax,
-                        origin,
-                        source,
-                        at,
-                        "text has no closing `\"`".into(),
-                    ));
-                };
-                advance(c, &mut line, &mut column);
-                match c {
-                    '"' => break,
-                    '\\' => {
-                        let Some((_, escaped)) = chars.next() else {
-                            continue;
-                        };
-                        advance(escaped, &mut line, &mut column);
-                        text.push(match escaped {
-                            'n' => '\n',
-                            't' => '\t',
-                            other => other,
-                        });
-                    }
-                    _ => text.push(c),
-                }
-            }
-            Tok::Text(text)
+            Tok::Text(
+                cursor
+                    .text()
+                    .ok_or_else(|| error(at, "text has no closing `\"`".into()))?,
+            )
         } else {
             let rest = &source[start..];
             let Some(punct) = PUNCTS.iter().copied().find(|p| rest.starts_with(p)) else {
-                return Err(Error::located(
-                    ErrorKind::Syntax,
-                    origin,
-                    source,
-                    at,
-                    format!("unexpected character `{c}`"),
-                ));
+                return Err(error(at, format!("unexpected character `{c}`")));
             };
-            for c in punct.chars() {
-                advance(c, &mut line, &mut column);
-                chars.next();
+            for _ in punct.chars() {
+                cursor.bump();
             }
             Tok::Punct(punct)
         };
-        let end = chars.peek().map_or(source.len(), |&(i, _)| i);
+        let end = cursor.peek().map_or(source.len(), |(i, _)| i);
         tokens.push(Token {
             tok,
             at,
@@ -163,6 +88,80 @@ fn lex(source: &str, origin: Origin) -> Result<Vec<Token>, Error> {
         });
     }
     Ok(tokens)
+}
+
+/// The characters not yet lexed, and the line and column of the next one.
+struct Cursor<'s> {
+    chars: std::iter::Peekable<std::str::CharIndices<'s>>,
+    line: usize,
+    column: usize,
+}
+impl Cursor<'_> {
+    fn peek(&mut self) -> Option<(usize, char)> {
+        self.chars.peek().copied()
+    }
+    fn at(&self) -> Location {
+        Location {
+            line: self.line,
+            column: self.column,
+        }
+    }
+    /// Consume one character and move the position past it.
+    fn bump(&mut self) -> Option<char> {
+        let (_, c) = self.chars.next()?;
+        if c == '\n' {
+            self.line += 1;
+            self.column = 1;
+        } else {
+            self.column += 1;
+        }
+        Some(c)
+    }
+    /// Consume the characters `keep` admits, up to the first it refuses.
+    fn take_while(&mut self, keep: impl Fn(char) -> bool) -> String {
+        let mut taken = String::new();
+        while let Some((_, c)) = self.peek() {
+            if !keep(c) {
+                break;
+            }
+            taken.push(c);
+            self.bump();
+        }
+        taken
+    }
+    /// At an opening `"`: the text up to the closing one, reading `\n`, `\t`
+    /// and any other escaped character as itself. None when it never closes.
+    fn text(&mut self) -> Option<String> {
+        self.bump();
+        let mut text = String::new();
+        loop {
+            match self.bump()? {
+                '"' => break,
+                '\\' => {
+                    let Some(escaped) = self.bump() else {
+                        continue;
+                    };
+                    text.push(match escaped {
+                        'n' => '\n',
+                        't' => '\t',
+                        other => other,
+                    });
+                }
+                c => text.push(c),
+            }
+        }
+        Some(text)
+    }
+}
+/// A name's token: `_` alone, a variable, or a lower-case name.
+fn word(word: String) -> Tok {
+    if word == "_" {
+        Tok::Wild
+    } else if word.starts_with(|c: char| c.is_uppercase() || c == '_') {
+        Tok::Var(word)
+    } else {
+        Tok::Name(word)
+    }
 }
 
 /// A constant as written.
@@ -448,10 +447,6 @@ impl Parser<'_> {
         self.i += 1;
         Ok(fields)
     }
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     fn literal(&mut self) -> Result<Literal, Error> {
         let at = self.here();
         let negated = if self.is("!") || self.is_name("not") {
@@ -474,33 +469,12 @@ impl Parser<'_> {
                         ),
                     ));
                 }
-                self.i += 2;
-                let mut args = Vec::new();
-                while !self.is(")") {
-                    args.push(self.term()?);
-                    if !self.is(")") {
-                        self.expect(",", &format!("between the arguments of `{name}`"))?;
-                    }
-                }
-                self.i += 1;
-                if args.len() != 2 {
-                    return Err(self.error(
-                        at,
-                        format!("`{name}` takes 2 arguments, given {}", args.len()),
-                    ));
-                }
-                return Ok(Literal::Builtin {
-                    builtin: *builtin,
-                    args,
-                    at,
-                });
+                return self.builtin(&name, *builtin, at);
             }
             if name == "order" && matches!(self.peek_at(1), Some(Tok::Name(by)) if by == "by") {
                 return Err(self.error(at, ORDER_HINT.to_owned()));
             }
-            if matches!(self.peek_at(1), Some(Tok::Punct("=")))
-                && matches!(self.peek_at(2), Some(Tok::Name(count)) if count == "count")
-            {
+            if self.is_count_in_body() {
                 return Err(self.error(at, COUNT_HINT.to_owned()));
             }
             let (relation, rel_at) = self.name("a relation")?;
@@ -523,11 +497,37 @@ impl Parser<'_> {
                 ),
             ));
         }
-        if matches!(self.peek_at(1), Some(Tok::Punct("=")))
-            && matches!(self.peek_at(2), Some(Tok::Name(count)) if count == "count")
-        {
+        if self.is_count_in_body() {
             return Err(self.error(at, COUNT_HINT.to_owned()));
         }
+        self.comparison(at)
+    }
+    /// Whether the next tokens read `X = count`: a count written in a body.
+    fn is_count_in_body(&self) -> bool {
+        matches!(self.peek_at(1), Some(Tok::Punct("=")))
+            && matches!(self.peek_at(2), Some(Tok::Name(count)) if count == "count")
+    }
+    /// `name(A, B)`, at the builtin's name: exactly two arguments.
+    fn builtin(&mut self, name: &str, builtin: Builtin, at: Location) -> Result<Literal, Error> {
+        self.i += 2;
+        let mut args = Vec::new();
+        while !self.is(")") {
+            args.push(self.term()?);
+            if !self.is(")") {
+                self.expect(",", &format!("between the arguments of `{name}`"))?;
+            }
+        }
+        self.i += 1;
+        if args.len() != 2 {
+            return Err(self.error(
+                at,
+                format!("`{name}` takes 2 arguments, given {}", args.len()),
+            ));
+        }
+        Ok(Literal::Builtin { builtin, args, at })
+    }
+    /// `left op right`, at the left term.
+    fn comparison(&mut self, at: Location) -> Result<Literal, Error> {
         let left = self.term()?;
         let op_at = self.here();
         let op = match self.peek() {
@@ -614,72 +614,12 @@ impl Parser<'_> {
         }
         self.term().map(HeadTerm::Term)
     }
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     fn clause(&mut self) -> Result<Clause, Error> {
         let first = self.i;
         let at = self.here();
         let kind = if self.is("?-") {
             self.i += 1;
-            let body = self.body(true)?;
-            let mut order = Vec::new();
-            if self.is_name("order") {
-                self.i += 1;
-                if !self.is_name("by") {
-                    return Err(self.error(self.here(), "expected `by` after `order`".into()));
-                }
-                self.i += 1;
-                loop {
-                    let at = self.here();
-                    let Some(Tok::Var(var)) = self.peek().cloned() else {
-                        return Err(self.error(
-                            at,
-                            format!(
-                                "`order by` takes the query's variables, found {}",
-                                Self::describe(self.peek())
-                            ),
-                        ));
-                    };
-                    self.i += 1;
-                    let descending = if self.is_name("desc") {
-                        self.i += 1;
-                        true
-                    } else {
-                        if self.is_name("asc") {
-                            self.i += 1;
-                        }
-                        false
-                    };
-                    order.push(Order {
-                        var,
-                        descending,
-                        at,
-                    });
-                    if !self.is(",") {
-                        break;
-                    }
-                    self.i += 1;
-                }
-            }
-            let mut limit = None;
-            if self.is_name("limit") {
-                self.i += 1;
-                let at = self.here();
-                let Some(Tok::Integer(n)) = self.peek().cloned() else {
-                    return Err(self.error(
-                        at,
-                        format!(
-                            "`limit` takes a number, found {}",
-                            Self::describe(self.peek())
-                        ),
-                    ));
-                };
-                self.i += 1;
-                limit = Some(usize::try_from(n).unwrap_or(usize::MAX));
-            }
-            ClauseKind::Query { body, order, limit }
+            self.query()?
         } else {
             let (relation, _) = self.name("a rule head or `?-`")?;
             let head = self.fields(&relation, Self::head_term)?;
@@ -707,6 +647,73 @@ impl Parser<'_> {
             .collect::<Vec<_>>()
             .join(" ");
         Ok(Clause { kind, at, text })
+    }
+    /// A query after `?-`: its body, then any `order by` and `limit`.
+    fn query(&mut self) -> Result<ClauseKind, Error> {
+        let body = self.body(true)?;
+        let order = if self.is_name("order") {
+            self.order_by()?
+        } else {
+            Vec::new()
+        };
+        let mut limit = None;
+        if self.is_name("limit") {
+            self.i += 1;
+            let at = self.here();
+            let Some(Tok::Integer(n)) = self.peek().cloned() else {
+                return Err(self.error(
+                    at,
+                    format!(
+                        "`limit` takes a number, found {}",
+                        Self::describe(self.peek())
+                    ),
+                ));
+            };
+            self.i += 1;
+            limit = Some(usize::try_from(n).unwrap_or(usize::MAX));
+        }
+        Ok(ClauseKind::Query { body, order, limit })
+    }
+    /// `order by V [desc|asc], ...`, at `order`.
+    fn order_by(&mut self) -> Result<Vec<Order>, Error> {
+        self.i += 1;
+        if !self.is_name("by") {
+            return Err(self.error(self.here(), "expected `by` after `order`".into()));
+        }
+        self.i += 1;
+        let mut order = Vec::new();
+        loop {
+            let at = self.here();
+            let Some(Tok::Var(var)) = self.peek().cloned() else {
+                return Err(self.error(
+                    at,
+                    format!(
+                        "`order by` takes the query's variables, found {}",
+                        Self::describe(self.peek())
+                    ),
+                ));
+            };
+            self.i += 1;
+            let descending = if self.is_name("desc") {
+                self.i += 1;
+                true
+            } else {
+                if self.is_name("asc") {
+                    self.i += 1;
+                }
+                false
+            };
+            order.push(Order {
+                var,
+                descending,
+                at,
+            });
+            if !self.is(",") {
+                break;
+            }
+            self.i += 1;
+        }
+        Ok(order)
     }
 }
 

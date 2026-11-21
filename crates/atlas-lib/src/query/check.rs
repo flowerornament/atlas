@@ -165,37 +165,13 @@ struct Source<'p> {
     index: usize,
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(crate) fn check(
     user: &Program,
     prelude: &Program,
     families: &[Family],
     accept: &BTreeSet<Check>,
 ) -> Result<Checked, Error> {
-    let mut catalog = Catalog {
-        rels: Vec::new(),
-        by_name: HashMap::new(),
-        defined_at: HashMap::new(),
-        kinds: HashMap::new(),
-    };
-    for relation in schema::RELATIONS {
-        catalog
-            .by_name
-            .insert(relation.name.to_owned(), catalog.rels.len());
-        catalog.rels.push(RelInfo {
-            name: relation.name.to_owned(),
-            columns: relation
-                .columns
-                .iter()
-                .map(|c| (c.name.to_owned(), c.kind))
-                .collect(),
-            stored: Some(relation),
-            origin: None,
-        });
-    }
+    let mut catalog = Catalog::of_schema();
     let sources: Vec<Source<'_>> = [prelude, user]
         .into_iter()
         .flat_map(|program| (0..program.clauses.len()).map(move |index| Source { program, index }))
@@ -208,77 +184,8 @@ pub(crate) fn check(
         }
     }
     catalog.kinds = infer_kinds(&catalog, &sources)?;
-    for (&rel, kinds) in &catalog.kinds {
-        let info = &mut catalog.rels[rel];
-        for ((name, kind), inferred) in info.columns.iter_mut().zip(kinds) {
-            let Some(inferred) = inferred else {
-                let (program, at) = catalog.defined_at[&rel];
-                return Err(program.error(
-                    ErrorKind::Schema,
-                    at,
-                    format!(
-                        "cannot tell whether field `{name}` of `{}` holds text, a number or a boolean: no rule binds it from a stored relation or a value",
-                        info.name
-                    ),
-                ));
-            };
-            *kind = *inferred;
-        }
-    }
-    let mut rules = Vec::new();
-    let mut queries = Vec::new();
-    // The caller's atoms are refused where they are written when their
-    // family is missing; a prelude rule only if a query needs it (below).
-    let available = |program: &Program| -> &[Family] {
-        if program.origin == Origin::Prelude {
-            &Family::ALL
-        } else {
-            families
-        }
-    };
-    for source in &sources {
-        let clause = &source.program.clauses[source.index];
-        match &clause.kind {
-            ClauseKind::Rule {
-                relation,
-                head,
-                body,
-            } => {
-                let head_rel = catalog.by_name[relation.as_str()];
-                let clause = Clause {
-                    program: source.program,
-                    at: clause.at,
-                    text: &clause.text,
-                };
-                rules.push(compile(
-                    &catalog,
-                    clause,
-                    head_rel,
-                    Some(head),
-                    body,
-                    available(source.program),
-                )?);
-            }
-            ClauseKind::Query { body, order, limit } => {
-                let compiled = Clause {
-                    program: source.program,
-                    at: clause.at,
-                    text: &clause.text,
-                };
-                let (rule, query) = compile_query(
-                    &mut catalog,
-                    compiled,
-                    body,
-                    order,
-                    *limit,
-                    available(source.program),
-                    queries.len(),
-                )?;
-                rules.push(rule);
-                queries.push(query);
-            }
-        }
-    }
+    catalog.settle_kinds()?;
+    let (rules, queries) = compile_clauses(&mut catalog, &sources, families)?;
     if queries.is_empty() {
         return Err(Error::plain(
             ErrorKind::Syntax,
@@ -292,26 +199,7 @@ pub(crate) fn check(
         .filter(|(i, _)| needed.contains(i))
         .map(|(_, r)| r)
         .collect();
-    for rule in rules.iter().filter(|r| r.origin == Origin::Prelude) {
-        for literal in &rule.body {
-            let (CLit::Pos(rel, _) | CLit::Neg(rel, _)) = literal else {
-                continue;
-            };
-            if let Some(stored) = catalog.rels[*rel].stored
-                && !families.contains(&stored.family)
-            {
-                return Err(Error::plain(
-                    ErrorKind::Schema,
-                    format!(
-                        "the prelude's `{}` reads `{}`, in the {} family, which these facts do not include",
-                        catalog.rels[rule.head].name,
-                        stored.name,
-                        stored.family.name()
-                    ),
-                ));
-            }
-        }
-    }
+    prelude_reads_available(&catalog.rels, &rules, families)?;
     let strata = stratify(&catalog.rels, user, prelude, &rules)?;
     let stored: BTreeSet<RelId> = rules
         .iter()
@@ -331,36 +219,7 @@ pub(crate) fn check(
                 .any(|&r| catalog.rels[r].stored.is_some_and(|s| s.family == *f))
         })
         .collect();
-    let mut accepted = Vec::new();
-    let mut refused = Vec::new();
-    for (check, finding) in honesty::review(&catalog.rels, &rules, user, prelude) {
-        if accept.contains(&check) {
-            accepted.push(format!("accepted {}: {finding}", check.name()));
-        } else {
-            refused.push((check, finding));
-        }
-    }
-    if let Some((_, first)) = refused.first() {
-        let checks: BTreeSet<&str> = refused.iter().map(|(c, _)| c.name()).collect();
-        let mut error = first.clone();
-        error.message = refused
-            .iter()
-            .map(|(_, f)| f.to_string())
-            .chain([format!(
-                "{} honesty finding(s); fix the rules, or accept with {} to run anyway (the acceptance is reported with the answer)",
-                refused.len(),
-                checks
-                    .iter()
-                    .map(|c| format!("--accept {c}"))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            )])
-            .collect::<Vec<_>>()
-            .join("\n");
-        error.location = None;
-        error.line = None;
-        return Err(error);
-    }
+    let accepted = honesty_accepted(&catalog.rels, &rules, user, prelude, accept)?;
     let notes = honesty::unread_unknowns(&catalog.rels, &stored);
     Ok(Checked {
         rels: catalog.rels,
@@ -374,11 +233,184 @@ pub(crate) fn check(
     })
 }
 
+/// Compile every clause in order: each rule, and each query as a rule for
+/// its answer. The caller's atoms are refused where they are written when
+/// their family is missing; a prelude rule only if a query needs it.
+fn compile_clauses(
+    catalog: &mut Catalog<'_>,
+    sources: &[Source<'_>],
+    families: &[Family],
+) -> Result<(Vec<CRule>, Vec<CQuery>), Error> {
+    let mut rules = Vec::new();
+    let mut queries = Vec::new();
+    let available = |program: &Program| -> &[Family] {
+        if program.origin == Origin::Prelude {
+            &Family::ALL
+        } else {
+            families
+        }
+    };
+    for source in sources {
+        let clause = &source.program.clauses[source.index];
+        let compiled = Clause {
+            program: source.program,
+            at: clause.at,
+            text: &clause.text,
+        };
+        match &clause.kind {
+            ClauseKind::Rule {
+                relation,
+                head,
+                body,
+            } => {
+                let head_rel = catalog.by_name[relation.as_str()];
+                rules.push(compile(
+                    catalog,
+                    compiled,
+                    head_rel,
+                    Some(head),
+                    body,
+                    available(source.program),
+                )?);
+            }
+            ClauseKind::Query { body, order, limit } => {
+                let (rule, query) = compile_query(
+                    catalog,
+                    compiled,
+                    body,
+                    order,
+                    *limit,
+                    available(source.program),
+                    queries.len(),
+                )?;
+                rules.push(rule);
+                queries.push(query);
+            }
+        }
+    }
+    Ok((rules, queries))
+}
+
+/// Refuse a needed prelude rule that reads a stored relation whose family
+/// the facts do not include.
+fn prelude_reads_available(
+    rels: &[RelInfo],
+    rules: &[CRule],
+    families: &[Family],
+) -> Result<(), Error> {
+    for rule in rules.iter().filter(|r| r.origin == Origin::Prelude) {
+        for literal in &rule.body {
+            let (CLit::Pos(rel, _) | CLit::Neg(rel, _)) = literal else {
+                continue;
+            };
+            if let Some(stored) = rels[*rel].stored
+                && !families.contains(&stored.family)
+            {
+                return Err(Error::plain(
+                    ErrorKind::Schema,
+                    format!(
+                        "the prelude's `{}` reads `{}`, in the {} family, which these facts do not include",
+                        rels[rule.head].name,
+                        stored.name,
+                        stored.family.name()
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The honesty findings `accept` admits, as reported with the answer; any
+/// other finding refuses the program, all of them listed in one error.
+fn honesty_accepted(
+    rels: &[RelInfo],
+    rules: &[CRule],
+    user: &Program,
+    prelude: &Program,
+    accept: &BTreeSet<Check>,
+) -> Result<Vec<String>, Error> {
+    let mut accepted = Vec::new();
+    let mut refused = Vec::new();
+    for (check, finding) in honesty::review(rels, rules, user, prelude) {
+        if accept.contains(&check) {
+            accepted.push(format!("accepted {}: {finding}", check.name()));
+        } else {
+            refused.push((check, finding));
+        }
+    }
+    let Some((_, first)) = refused.first() else {
+        return Ok(accepted);
+    };
+    let checks: BTreeSet<&str> = refused.iter().map(|(c, _)| c.name()).collect();
+    let mut error = first.clone();
+    error.message = refused
+        .iter()
+        .map(|(_, f)| f.to_string())
+        .chain([format!(
+            "{} honesty finding(s); fix the rules, or accept with {} to run anyway (the acceptance is reported with the answer)",
+            refused.len(),
+            checks
+                .iter()
+                .map(|c| format!("--accept {c}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        )])
+        .collect::<Vec<_>>()
+        .join("\n");
+    error.location = None;
+    error.line = None;
+    Err(error)
+}
+
 impl<'p> Catalog<'p> {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
+    /// The stored relations of the schema, before any rule is declared.
+    fn of_schema() -> Self {
+        let mut catalog = Self {
+            rels: Vec::new(),
+            by_name: HashMap::new(),
+            defined_at: HashMap::new(),
+            kinds: HashMap::new(),
+        };
+        for relation in schema::RELATIONS {
+            catalog
+                .by_name
+                .insert(relation.name.to_owned(), catalog.rels.len());
+            catalog.rels.push(RelInfo {
+                name: relation.name.to_owned(),
+                columns: relation
+                    .columns
+                    .iter()
+                    .map(|c| (c.name.to_owned(), c.kind))
+                    .collect(),
+                stored: Some(relation),
+                origin: None,
+            });
+        }
+        catalog
+    }
+    /// Write the inferred kinds into the derived relations' columns; a
+    /// column no rule gives a kind refuses at the relation's first head.
+    fn settle_kinds(&mut self) -> Result<(), Error> {
+        for (&rel, kinds) in &self.kinds {
+            let info = &mut self.rels[rel];
+            for ((name, kind), inferred) in info.columns.iter_mut().zip(kinds) {
+                let Some(inferred) = inferred else {
+                    let (program, at) = self.defined_at[&rel];
+                    return Err(program.error(
+                        ErrorKind::Schema,
+                        at,
+                        format!(
+                            "cannot tell whether field `{name}` of `{}` holds text, a number or a boolean: no rule binds it from a stored relation or a value",
+                            info.name
+                        ),
+                    ));
+                };
+                *kind = *inferred;
+            }
+        }
+        Ok(())
+    }
     fn declare(
         &mut self,
         program: &'p Program,
@@ -386,63 +418,9 @@ impl<'p> Catalog<'p> {
         relation: &str,
         head: &[Field<HeadTerm>],
     ) -> Result<(), Error> {
-        let mut names: Vec<&str> = Vec::new();
-        for field in head {
-            if names.contains(&field.name.as_str()) {
-                return Err(program.error(
-                    ErrorKind::Schema,
-                    field.at,
-                    format!("field `{}` is given twice", field.name),
-                ));
-            }
-            if let HeadTerm::Term(Term::Wild(at)) = &field.term {
-                return Err(program.error(
-                    ErrorKind::Safety,
-                    *at,
-                    format!(
-                        "field `{}` of a rule head needs a value or a variable, not `_`",
-                        field.name
-                    ),
-                ));
-            }
-            names.push(&field.name);
-        }
+        let names = head_fields(program, head)?;
         if let Some(&rel) = self.by_name.get(relation) {
-            let info = &self.rels[rel];
-            if info.stored.is_some() {
-                return Err(program.error(
-                    ErrorKind::Schema,
-                    at,
-                    format!(
-                        "`{relation}` is a stored relation of the facts; a rule cannot add rows to it. Name the derived relation differently"
-                    ),
-                ));
-            }
-            if info.origin != Some(program.origin) {
-                return Err(program.error(
-                    ErrorKind::Schema,
-                    at,
-                    format!(
-                        "`{relation}` is defined by the prelude; a program reads it but cannot add to it. Name your relation differently"
-                    ),
-                ));
-            }
-            let expected: BTreeSet<&str> = info.columns.iter().map(|(c, _)| c.as_str()).collect();
-            let given: BTreeSet<&str> = names.iter().copied().collect();
-            if expected != given {
-                let (_, first) = self.defined_at[&rel];
-                return Err(program.error(
-                    ErrorKind::Schema,
-                    at,
-                    format!(
-                        "every rule for `{relation}` gives the same fields; the rule at line {} gives {}, this one {}",
-                        first.line,
-                        list(expected.into_iter()),
-                        list(given.into_iter())
-                    ),
-                ));
-            }
-            return Ok(());
+            return self.redeclare(rel, program, at, relation, &names);
         }
         let rel = self.rels.len();
         self.by_name.insert(relation.to_owned(), rel);
@@ -457,6 +435,52 @@ impl<'p> Catalog<'p> {
         });
         self.defined_at.insert(rel, (program, at));
         self.kinds.insert(rel, vec![None; names.len()]);
+        Ok(())
+    }
+    /// Another head for a known relation: refused for a stored relation, one
+    /// another program defines, or one whose rules give different fields.
+    fn redeclare(
+        &self,
+        rel: RelId,
+        program: &Program,
+        at: Location,
+        relation: &str,
+        names: &[&str],
+    ) -> Result<(), Error> {
+        let info = &self.rels[rel];
+        if info.stored.is_some() {
+            return Err(program.error(
+                ErrorKind::Schema,
+                at,
+                format!(
+                    "`{relation}` is a stored relation of the facts; a rule cannot add rows to it. Name the derived relation differently"
+                ),
+            ));
+        }
+        if info.origin != Some(program.origin) {
+            return Err(program.error(
+                ErrorKind::Schema,
+                at,
+                format!(
+                    "`{relation}` is defined by the prelude; a program reads it but cannot add to it. Name your relation differently"
+                ),
+            ));
+        }
+        let expected: BTreeSet<&str> = info.columns.iter().map(|(c, _)| c.as_str()).collect();
+        let given: BTreeSet<&str> = names.iter().copied().collect();
+        if expected != given {
+            let (_, first) = self.defined_at[&rel];
+            return Err(program.error(
+                ErrorKind::Schema,
+                at,
+                format!(
+                    "every rule for `{relation}` gives the same fields; the rule at line {} gives {}, this one {}",
+                    first.line,
+                    list(expected.into_iter()),
+                    list(given.into_iter())
+                ),
+            ));
+        }
         Ok(())
     }
     fn column_kind(&self, rel: RelId, position: usize) -> Option<Kind> {
@@ -507,30 +531,41 @@ impl<'p> Catalog<'p> {
     }
 }
 
+/// A rule head's field names in written order: each given once, and each
+/// with a value or a variable.
+fn head_fields<'h>(program: &Program, head: &'h [Field<HeadTerm>]) -> Result<Vec<&'h str>, Error> {
+    let mut names: Vec<&str> = Vec::new();
+    for field in head {
+        if names.contains(&field.name.as_str()) {
+            return Err(program.error(
+                ErrorKind::Schema,
+                field.at,
+                format!("field `{}` is given twice", field.name),
+            ));
+        }
+        if let HeadTerm::Term(Term::Wild(at)) = &field.term {
+            return Err(program.error(
+                ErrorKind::Safety,
+                *at,
+                format!(
+                    "field `{}` of a rule head needs a value or a variable, not `_`",
+                    field.name
+                ),
+            ));
+        }
+        names.push(&field.name);
+    }
+    Ok(names)
+}
+
 /// Derived column kinds, to a fixed point: a head field takes the kind of
 /// the value or variable written there, and a variable the kind of the
 /// stored or already inferred column it is read from.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn infer_kinds(
     catalog: &Catalog<'_>,
     sources: &[Source<'_>],
 ) -> Result<HashMap<RelId, Vec<Option<Kind>>>, Error> {
     let mut kinds = catalog.kinds.clone();
-    let lookup = |kinds: &HashMap<RelId, Vec<Option<Kind>>>, rel: RelId, position: usize| {
-        kinds.get(&rel).map_or_else(
-            || Some(catalog.rels[rel].columns[position].1),
-            |k| k[position],
-        )
-    };
-    let position = |rel: RelId, name: &str| {
-        catalog.rels[rel]
-            .columns
-            .iter()
-            .position(|(c, _)| *c == name)
-    };
     loop {
         let mut changed = false;
         for source in sources {
@@ -543,92 +578,130 @@ fn infer_kinds(
             else {
                 continue;
             };
-            let mut vars: HashMap<&str, Kind> = HashMap::new();
-            for literal in body {
-                match literal {
-                    Literal::Atom { atom, .. } => {
-                        let Some(&rel) = catalog.by_name.get(&atom.relation) else {
-                            continue;
-                        };
-                        for field in &atom.fields {
-                            if let (Term::Var(v, _), Some(p)) =
-                                (&field.term, position(rel, &field.name))
-                                && let Some(kind) = lookup(&kinds, rel, p)
-                            {
-                                vars.entry(v).or_insert(kind);
-                            }
-                        }
-                    }
-                    Literal::Builtin { args, .. } => {
-                        for arg in args {
-                            if let Term::Var(v, _) = arg {
-                                vars.entry(v).or_insert(Kind::Text);
-                            }
-                        }
-                    }
-                    Literal::Compare { left, right, .. } => {
-                        for (a, b) in [(left, right), (right, left)] {
-                            if let (Term::Var(v, _), Term::Const(c, _)) = (a, b) {
-                                vars.entry(v).or_insert(const_kind(c));
-                            }
-                        }
-                    }
-                }
-            }
-            for literal in body {
-                if let Literal::Compare {
-                    left: Term::Var(a, _),
-                    right: Term::Var(b, _),
-                    ..
-                } = literal
-                {
-                    if let Some(&k) = vars.get(a.as_str()) {
-                        vars.entry(b).or_insert(k);
-                    } else if let Some(&k) = vars.get(b.as_str()) {
-                        vars.entry(a).or_insert(k);
-                    }
-                }
-            }
+            let vars = body_kinds(catalog, &kinds, body);
             let rel = catalog.by_name[relation.as_str()];
-            for field in head {
-                let Some(p) = position(rel, &field.name) else {
-                    continue;
-                };
-                let kind = match &field.term {
-                    HeadTerm::Count(_) => Some(Kind::Integer),
-                    HeadTerm::Term(Term::Const(c, _)) => Some(const_kind(c)),
-                    HeadTerm::Term(Term::Var(v, _)) => vars.get(v.as_str()).copied(),
-                    HeadTerm::Term(Term::Wild(_)) => None,
-                };
-                let (Some(kind), Some(slot)) = (kind, kinds.get_mut(&rel).map(|k| &mut k[p]))
-                else {
-                    continue;
-                };
-                match slot {
-                    None => {
-                        *slot = Some(kind);
-                        changed = true;
-                    }
-                    Some(existing) if *existing != kind => {
-                        return Err(source.program.error(
-                            ErrorKind::Schema,
-                            field.at,
-                            format!(
-                                "field `{}` of `{relation}` is {} here but {} in another rule",
-                                field.name,
-                                kind_name(kind),
-                                kind_name(*existing)
-                            ),
-                        ));
-                    }
-                    Some(_) => {}
-                }
-            }
+            changed |= head_kinds(catalog, &mut kinds, source.program, rel, head, &vars)?;
         }
         if !changed {
             return Ok(kinds);
         }
     }
+}
+/// The position of field `name` among `rel`'s columns.
+fn column_position(catalog: &Catalog<'_>, rel: RelId, name: &str) -> Option<usize> {
+    catalog.rels[rel]
+        .columns
+        .iter()
+        .position(|(c, _)| *c == name)
+}
+/// Each body variable's kind, from the first place that gives one: a stored
+/// or inferred column, a builtin (text), a compared value, then a variable
+/// compared with one that has a kind.
+fn body_kinds<'b>(
+    catalog: &Catalog<'_>,
+    kinds: &HashMap<RelId, Vec<Option<Kind>>>,
+    body: &'b [Literal],
+) -> HashMap<&'b str, Kind> {
+    let lookup = |rel: RelId, position: usize| {
+        kinds.get(&rel).map_or_else(
+            || Some(catalog.rels[rel].columns[position].1),
+            |k| k[position],
+        )
+    };
+    let mut vars: HashMap<&str, Kind> = HashMap::new();
+    for literal in body {
+        match literal {
+            Literal::Atom { atom, .. } => {
+                let Some(&rel) = catalog.by_name.get(&atom.relation) else {
+                    continue;
+                };
+                for field in &atom.fields {
+                    if let (Term::Var(v, _), Some(p)) =
+                        (&field.term, column_position(catalog, rel, &field.name))
+                        && let Some(kind) = lookup(rel, p)
+                    {
+                        vars.entry(v).or_insert(kind);
+                    }
+                }
+            }
+            Literal::Builtin { args, .. } => {
+                for arg in args {
+                    if let Term::Var(v, _) = arg {
+                        vars.entry(v).or_insert(Kind::Text);
+                    }
+                }
+            }
+            Literal::Compare { left, right, .. } => {
+                for (a, b) in [(left, right), (right, left)] {
+                    if let (Term::Var(v, _), Term::Const(c, _)) = (a, b) {
+                        vars.entry(v).or_insert(const_kind(c));
+                    }
+                }
+            }
+        }
+    }
+    for literal in body {
+        if let Literal::Compare {
+            left: Term::Var(a, _),
+            right: Term::Var(b, _),
+            ..
+        } = literal
+        {
+            if let Some(&k) = vars.get(a.as_str()) {
+                vars.entry(b).or_insert(k);
+            } else if let Some(&k) = vars.get(b.as_str()) {
+                vars.entry(a).or_insert(k);
+            }
+        }
+    }
+    vars
+}
+/// Record the kinds one head gives `rel`'s columns; returns whether any
+/// column gained a kind. A kind that differs from another rule's refuses.
+fn head_kinds(
+    catalog: &Catalog<'_>,
+    kinds: &mut HashMap<RelId, Vec<Option<Kind>>>,
+    program: &Program,
+    rel: RelId,
+    head: &[Field<HeadTerm>],
+    vars: &HashMap<&str, Kind>,
+) -> Result<bool, Error> {
+    let mut changed = false;
+    for field in head {
+        let Some(p) = column_position(catalog, rel, &field.name) else {
+            continue;
+        };
+        let kind = match &field.term {
+            HeadTerm::Count(_) => Some(Kind::Integer),
+            HeadTerm::Term(Term::Const(c, _)) => Some(const_kind(c)),
+            HeadTerm::Term(Term::Var(v, _)) => vars.get(v.as_str()).copied(),
+            HeadTerm::Term(Term::Wild(_)) => None,
+        };
+        let (Some(kind), Some(slot)) = (kind, kinds.get_mut(&rel).map(|k| &mut k[p])) else {
+            continue;
+        };
+        match slot {
+            None => {
+                *slot = Some(kind);
+                changed = true;
+            }
+            Some(existing) if *existing != kind => {
+                return Err(program.error(
+                    ErrorKind::Schema,
+                    field.at,
+                    format!(
+                        "field `{}` of `{}` is {} here but {} in another rule",
+                        field.name,
+                        catalog.rels[rel].name,
+                        kind_name(kind),
+                        kind_name(*existing)
+                    ),
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(changed)
 }
 
 /// Variables of one clause, numbered by first appearance.

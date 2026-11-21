@@ -1,6 +1,6 @@
 //! Native token readings, with exact and explicitly approximate rerooted modes.
 use super::inventory::Body;
-use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Group, Spacing, TokenStream, TokenTree};
 use std::collections::BTreeSet;
 
 /// A declaration span's two token readings.
@@ -35,115 +35,128 @@ fn path_separator(tokens: &[TokenTree], index: usize) -> bool {
 /// (`crate::state::Slot` and `dispatch::Slot` both read `Slot`). Primitive
 /// types, method names and other module paths are kept: `u32::MAX` and
 /// `u64::MAX` stay different. Macro input groups retain their tokens unchanged.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn normalized(stream: TokenStream, roots: Option<&BTreeSet<String>>) -> Vec<String> {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
-    fn push(stream: TokenStream, roots: Option<&BTreeSet<String>>, out: &mut Vec<String>) {
-        let tokens: Vec<TokenTree> = stream.into_iter().collect();
-        let mut index = 0;
-        while index < tokens.len() {
-            let skip = match &tokens[index] {
-                TokenTree::Punct(hash) if hash.as_char() == '#' => {
-                    let at = index + 1 + usize::from(punct(tokens.get(index + 1), '!'));
-                    let doc = matches!(tokens.get(at), Some(TokenTree::Group(group))
-                        if group.delimiter() == Delimiter::Bracket
-                            && group.stream().into_iter().next().is_some_and(|head| head.to_string() == "doc"));
-                    if doc { at + 1 - index } else { 0 }
-                }
-                TokenTree::Ident(ident) if ident == "pub" => {
-                    let restricted = matches!(tokens.get(index + 1), Some(TokenTree::Group(group))
-                        if group.delimiter() == Delimiter::Parenthesis);
-                    1 + usize::from(restricted)
-                }
-                TokenTree::Ident(root)
-                    if roots.is_some_and(|roots| roots.contains(&root.to_string()))
-                        && path_separator(&tokens, index + 1)
-                        && !(index >= 2 && path_separator(&tokens, index - 2)) =>
-                {
-                    let mut end = index + 3;
-                    while let Some(TokenTree::Ident(segment)) = tokens.get(end)
-                        && segment
-                            .to_string()
-                            .starts_with(|ch: char| ch.is_ascii_lowercase() || ch == '_')
-                        && path_separator(&tokens, end + 1)
-                    {
-                        end += 3;
-                    }
-                    end - index
-                }
-                _ => 0,
-            };
-            if skip > 0 {
-                index += skip;
-                continue;
-            }
-            match &tokens[index] {
-                TokenTree::Group(group) => {
-                    let invocation = index > 0 && punct(tokens.get(index - 1), '!');
-                    let definition = index >= 3
-                        && tokens[index - 3].to_string() == "macro_rules"
-                        && punct(tokens.get(index - 2), '!');
-                    let attribute = group.delimiter() == Delimiter::Bracket
-                        && ((index > 0 && punct(tokens.get(index - 1), '#'))
-                            || (index >= 2
-                                && punct(tokens.get(index - 2), '#')
-                                && punct(tokens.get(index - 1), '!')));
-                    if invocation || definition || attribute {
-                        raw(&tokens[index], out);
-                        index += 1;
-                        continue;
-                    }
-                    let mut inner = Vec::new();
-                    push(group.stream(), roots, &mut inner);
-                    // Parentheses can form a one-element tuple: `(x,)` differs
-                    // from `(x)`. Without a syntax classification, keep its comma.
-                    if group.delimiter() != Delimiter::Parenthesis
-                        && inner.last().is_some_and(|last| last == ",")
-                    {
-                        inner.pop();
-                    }
-                    // The braces are the closure's whole body only when the
-                    // group ends the argument, statement or enclosing group.
-                    let ends_body = tokens
-                        .get(index + 1)
-                        .is_none_or(|next| punct(Some(next), ',') || punct(Some(next), ';'));
-                    let single_expression_closure = group.delimiter() == Delimiter::Brace
-                        && out.last().is_some_and(|last| last == "|")
-                        && ends_body
-                        && !inner.is_empty()
-                        && !group
-                            .stream()
-                            .into_iter()
-                            .any(|token| punct(Some(&token), ';'));
-                    let (open, close) = match group.delimiter() {
-                        _ if single_expression_closure => ("", ""),
-                        Delimiter::Parenthesis => ("(", ")"),
-                        Delimiter::Brace => ("{", "}"),
-                        Delimiter::Bracket => ("[", "]"),
-                        Delimiter::None => ("", ""),
-                    };
-                    if !open.is_empty() {
-                        out.push(open.to_owned());
-                    }
-                    out.extend(inner);
-                    if !close.is_empty() {
-                        out.push(close.to_owned());
-                    }
-                }
-                other => out.push(other.to_string()),
-            }
-            index += 1;
-        }
-    }
     let mut out = Vec::new();
     push(stream, roots, &mut out);
     out
+}
+/// Append `stream`'s normalized reading to `out`, as [`normalized`] describes.
+fn push(stream: TokenStream, roots: Option<&BTreeSet<String>>, out: &mut Vec<String>) {
+    let tokens: Vec<TokenTree> = stream.into_iter().collect();
+    let mut index = 0;
+    while index < tokens.len() {
+        let skip = removed(&tokens, index, roots);
+        if skip > 0 {
+            index += skip;
+            continue;
+        }
+        match &tokens[index] {
+            TokenTree::Group(_) if opaque_group(&tokens, index) => raw(&tokens[index], out),
+            TokenTree::Group(group) => {
+                let ends_body = tokens
+                    .get(index + 1)
+                    .is_none_or(|next| punct(Some(next), ',') || punct(Some(next), ';'));
+                push_group(group, ends_body, roots, out);
+            }
+            other => out.push(other.to_string()),
+        }
+        index += 1;
+    }
+}
+/// How many tokens from `index` the reading drops: a doc attribute, `pub` or
+/// `pub(..)`, or with `roots` a root path prefix and its lowercase module
+/// segments. Zero keeps the token.
+fn removed(tokens: &[TokenTree], index: usize, roots: Option<&BTreeSet<String>>) -> usize {
+    match &tokens[index] {
+        TokenTree::Punct(hash) if hash.as_char() == '#' => {
+            let at = index + 1 + usize::from(punct(tokens.get(index + 1), '!'));
+            let doc = matches!(tokens.get(at), Some(TokenTree::Group(group))
+                if group.delimiter() == Delimiter::Bracket
+                    && group.stream().into_iter().next().is_some_and(|head| head.to_string() == "doc"));
+            if doc { at + 1 - index } else { 0 }
+        }
+        TokenTree::Ident(ident) if ident == "pub" => {
+            let restricted = matches!(tokens.get(index + 1), Some(TokenTree::Group(group))
+                if group.delimiter() == Delimiter::Parenthesis);
+            1 + usize::from(restricted)
+        }
+        TokenTree::Ident(root)
+            if roots.is_some_and(|roots| roots.contains(&root.to_string()))
+                && path_separator(tokens, index + 1)
+                && !(index >= 2 && path_separator(tokens, index - 2)) =>
+        {
+            let mut end = index + 3;
+            while let Some(TokenTree::Ident(segment)) = tokens.get(end)
+                && segment
+                    .to_string()
+                    .starts_with(|ch: char| ch.is_ascii_lowercase() || ch == '_')
+                && path_separator(tokens, end + 1)
+            {
+                end += 3;
+            }
+            end - index
+        }
+        _ => 0,
+    }
+}
+/// Whether the group at `index` is macro input, a `macro_rules!` body or an
+/// attribute's brackets, whose tokens are kept as written.
+fn opaque_group(tokens: &[TokenTree], index: usize) -> bool {
+    let TokenTree::Group(group) = &tokens[index] else {
+        return false;
+    };
+    let invocation = index > 0 && punct(tokens.get(index - 1), '!');
+    let definition = index >= 3
+        && tokens[index - 3].to_string() == "macro_rules"
+        && punct(tokens.get(index - 2), '!');
+    let attribute = group.delimiter() == Delimiter::Bracket
+        && ((index > 0 && punct(tokens.get(index - 1), '#'))
+            || (index >= 2
+                && punct(tokens.get(index - 2), '#')
+                && punct(tokens.get(index - 1), '!')));
+    invocation || definition || attribute
+}
+/// Append a group's normalized reading: its inner tokens without a trailing
+/// comma before `}` or `]`, inside its delimiters, unless the braces are a
+/// closure's whole single-expression body. `ends_body` says the group ends
+/// the argument, statement or enclosing group.
+fn push_group(
+    group: &Group,
+    ends_body: bool,
+    roots: Option<&BTreeSet<String>>,
+    out: &mut Vec<String>,
+) {
+    let mut inner = Vec::new();
+    push(group.stream(), roots, &mut inner);
+    // Parentheses can form a one-element tuple: `(x,)` differs
+    // from `(x)`. Without a syntax classification, keep its comma.
+    if group.delimiter() != Delimiter::Parenthesis && inner.last().is_some_and(|last| last == ",") {
+        inner.pop();
+    }
+    // The braces are the closure's whole body only when the
+    // group ends the argument, statement or enclosing group.
+    let single_expression_closure = group.delimiter() == Delimiter::Brace
+        && out.last().is_some_and(|last| last == "|")
+        && ends_body
+        && !inner.is_empty()
+        && !group
+            .stream()
+            .into_iter()
+            .any(|token| punct(Some(&token), ';'));
+    let (open, close) = match group.delimiter() {
+        _ if single_expression_closure => ("", ""),
+        Delimiter::Parenthesis => ("(", ")"),
+        Delimiter::Brace => ("{", "}"),
+        Delimiter::Bracket => ("[", "]"),
+        Delimiter::None => ("", ""),
+    };
+    if !open.is_empty() {
+        out.push(open.to_owned());
+    }
+    out.extend(inner);
+    if !close.is_empty() {
+        out.push(close.to_owned());
+    }
 }
 
 /// Macro matchers can distinguish visibility words, doc attributes, commas and

@@ -3,8 +3,9 @@ use crate::{
     Result,
     architecture::contains,
     discovery::{Snapshot, resolve_scope},
+    model::SourceFile,
     population::Population,
-    source::ItemKind,
+    source::{ItemKind, RustSourceProjection, Source},
 };
 use serde::Serialize;
 
@@ -78,10 +79,6 @@ pub struct Report {
     pub sources: std::collections::BTreeMap<String, String>,
 }
 /// Audit captured facts. Unknown scopes refuse; an unrequested citation rule is explicit.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub fn audit(snapshot: &Snapshot, scope: &str, policy: &Policy<'_>) -> Result<Report> {
     if policy
         .citation_markers
@@ -90,7 +87,51 @@ pub fn audit(snapshot: &Snapshot, scope: &str, policy: &Policy<'_>) -> Result<Re
         return Err("citation policy must contain nonempty markers; use None when citation checking is not requested".into());
     }
     let scope = resolve_scope(snapshot.graph(), Some(scope))?;
-    let mut report = Report {
+    let mut report = empty_report(scope, policy);
+    for file in snapshot
+        .graph()
+        .physical_files()
+        .filter(|file| contains(&report.scope, &file.path))
+    {
+        report
+            .sources
+            .insert(file.path.clone(), file.content_fingerprint.clone());
+        let source = snapshot.source_facts(&file.path);
+        let raw;
+        let projection = if let Some(source) = source {
+            source.projection()
+        } else if policy.item_kinds.is_empty()
+            && matches!(policy.header_scope, HeaderScope::AnyModule)
+        {
+            raw = RustSourceProjection::of(
+                snapshot
+                    .source(&file.path)
+                    .ok_or("captured bytes absent")?
+                    .to_owned(),
+            );
+            &raw
+        } else {
+            return Err(format!("{}: required item syntax unavailable", file.path).into());
+        };
+        if matches!(policy.headers, HeaderPopulation::AllFiles) || !file.test_only {
+            report.checked_files += 1;
+            report
+                .findings
+                .extend(audit_header(file, source, projection, policy));
+        }
+        let Some(source) = source else {
+            continue;
+        };
+        let (checked, undocumented) = audit_items(file, source, policy);
+        report.checked_items += checked;
+        report.findings.extend(undocumented);
+    }
+    Ok(report)
+}
+
+/// The report for `scope` before any file is read: the policy as stated, no counts.
+fn empty_report(scope: String, policy: &Policy<'_>) -> Report {
+    Report {
         schema: 1,
         scope,
         population: policy.items,
@@ -112,76 +153,62 @@ pub fn audit(snapshot: &Snapshot, scope: &str, policy: &Policy<'_>) -> Result<Re
             "File header scope excludes sites inside recognized item spans; macro expansion is not inferred.",
         ],
         sources: std::collections::BTreeMap::new(),
-    };
-    for file in snapshot
-        .graph()
-        .physical_files()
-        .filter(|file| contains(&report.scope, &file.path))
-    {
-        report
-            .sources
-            .insert(file.path.clone(), file.content_fingerprint.clone());
-        let source = snapshot.source_facts(&file.path);
-        let raw;
-        let projection = if let Some(source) = source {
-            source.projection()
-        } else if policy.item_kinds.is_empty()
-            && matches!(policy.header_scope, HeaderScope::AnyModule)
-        {
-            raw = crate::source::RustSourceProjection::of(
-                snapshot
-                    .source(&file.path)
-                    .ok_or("captured bytes absent")?
-                    .to_owned(),
-            );
-            &raw
-        } else {
-            return Err(format!("{}: required item syntax unavailable", file.path).into());
-        };
-        if matches!(policy.headers, HeaderPopulation::AllFiles) || !file.test_only {
-            report.checked_files += 1;
-            let header: Vec<_> = projection
-                .module_header_sites()
-                .filter(|(line, _)| {
-                    matches!(policy.header_scope, HeaderScope::AnyModule)
-                        || !source.is_some_and(|source| {
-                            source.outline().iter().any(|item| item.span.contains(line))
-                        })
+    }
+}
+
+/// Judge one file's header: missing, uncited under a requested citation rule, or fine.
+/// Without item syntax, file scope cannot exclude item-span sites, so every site counts.
+fn audit_header(
+    file: &SourceFile,
+    source: Option<&Source>,
+    projection: &RustSourceProjection,
+    policy: &Policy<'_>,
+) -> Option<Finding> {
+    let header: Vec<_> = projection
+        .module_header_sites()
+        .filter(|(line, _)| {
+            matches!(policy.header_scope, HeaderScope::AnyModule)
+                || !source.is_some_and(|source| {
+                    source.outline().iter().any(|item| item.span.contains(line))
                 })
-                .collect();
-            if header.is_empty() {
-                report.findings.push(Finding::MissingHeader {
-                    file: file.path.clone(),
-                });
-            } else if policy.citation_markers.is_some_and(|markers| {
-                let text = header
-                    .iter()
-                    .map(|(_, text)| *text)
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                !markers.iter().any(|marker| text.contains(marker))
-            }) {
-                report.findings.push(Finding::UncitedHeader {
-                    file: file.path.clone(),
-                    lines: header.iter().map(|(line, _)| *line).collect(),
-                });
-            }
-        }
-        let Some(source) = source else {
-            continue;
-        };
-        for item in source.outline().iter().filter(|item| {
-            policy.item_kinds.contains(&item.kind) && policy.items.admits(file, source, item)
-        }) {
-            report.checked_items += 1;
-            if item.doc.is_none() {
-                report.findings.push(Finding::MissingOuterLineDoc {
-                    file: file.path.clone(),
-                    name: item.name.clone(),
-                    line: item.line,
-                });
-            }
+        })
+        .collect();
+    if header.is_empty() {
+        Some(Finding::MissingHeader {
+            file: file.path.clone(),
+        })
+    } else if policy.citation_markers.is_some_and(|markers| {
+        let text = header
+            .iter()
+            .map(|(_, text)| *text)
+            .collect::<Vec<_>>()
+            .join("\n");
+        !markers.iter().any(|marker| text.contains(marker))
+    }) {
+        Some(Finding::UncitedHeader {
+            file: file.path.clone(),
+            lines: header.iter().map(|(line, _)| *line).collect(),
+        })
+    } else {
+        None
+    }
+}
+
+/// Count the policy's admitted items in one file and report each without an outer line doc.
+fn audit_items(file: &SourceFile, source: &Source, policy: &Policy<'_>) -> (usize, Vec<Finding>) {
+    let mut checked = 0;
+    let mut undocumented = Vec::new();
+    for item in source.outline().iter().filter(|item| {
+        policy.item_kinds.contains(&item.kind) && policy.items.admits(file, source, item)
+    }) {
+        checked += 1;
+        if item.doc.is_none() {
+            undocumented.push(Finding::MissingOuterLineDoc {
+                file: file.path.clone(),
+                name: item.name.clone(),
+                line: item.line,
+            });
         }
     }
-    Ok(report)
+    (checked, undocumented)
 }
