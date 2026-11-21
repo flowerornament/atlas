@@ -65,6 +65,10 @@ struct Findings {
 /// Every cap reads the base tree: a listed path holds at most the lesser of
 /// its published row and what it measured in the base. `description` is the
 /// candidate's commit description, which must cite each new ruling's bead.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(super) fn landing(
     policy: &ConcentrationPolicy,
     published: Option<&ConcentrationPolicy>,
@@ -442,6 +446,10 @@ fn against_published(
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn name_rows(
     policy: &ConcentrationPolicy,
     published: Option<&ConcentrationPolicy>,

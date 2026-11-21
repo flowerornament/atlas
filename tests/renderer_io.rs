@@ -41,6 +41,10 @@ fn run(fixture: &Fixture, body: &str) -> Output {
     );
     output
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn invoke(fixture: &Fixture, body: &str, arguments: &[&str]) -> Output {
     let real = Command::new("node")
         .args(["-p", "process.execPath"])

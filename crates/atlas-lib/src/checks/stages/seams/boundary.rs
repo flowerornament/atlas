@@ -52,6 +52,10 @@ impl Boundary {
 }
 
 /// Each stage's boundary, read from its root module's header and items.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(super) fn boundaries(
     crate_map: &CrateMap,
     stages: &[String],

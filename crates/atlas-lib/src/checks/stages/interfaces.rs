@@ -140,6 +140,10 @@ impl StageReport {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(in crate::checks) fn interface_policy_violations(
     orders: &[StageOrder],
     interfaces: &BTreeMap<String, BTreeMap<String, policy::StageReads>>,

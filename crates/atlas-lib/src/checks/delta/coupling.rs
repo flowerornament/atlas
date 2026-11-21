@@ -7,6 +7,10 @@ impl CrateGraphPolicy {
     /// The graph's violations over `members` and their normal dependencies
     /// on members (`dag`). The rules are checked for shape first
     /// (`validate_configuration`): every rule writes `allowed`.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     pub(in crate::checks) fn violations(
         &self,
         members: &BTreeSet<String>,

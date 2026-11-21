@@ -193,6 +193,10 @@ fn resolve_references(policy: &Policy, inputs: &Inputs, report: &mut Report) {
         }
     }
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn read_authorities(
     snapshot: &Snapshot,
     policy: &Policy,

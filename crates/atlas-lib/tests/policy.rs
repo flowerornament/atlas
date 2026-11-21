@@ -71,6 +71,10 @@ fn source_authorities_refuse_ambiguous_or_test_only_homes_and_forbidden_items() 
     }
 }
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn missing_paths_patterns_and_project_authority_never_mean_pass() {
     let root = fixture("pub struct Home;\n");
     let snapshot = snapshot_workspace(root.path()).unwrap();

@@ -30,6 +30,10 @@ pub(crate) struct Options {
     #[command(flatten)]
     rows: crate::cli::output::rows::Rows,
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Result<()> {
     let snapshot = atlas_lib::discovery::snapshot_metadata(metadata)?;
     let markers = options

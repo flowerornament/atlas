@@ -127,6 +127,10 @@ impl GitStore {
         command
     }
     /// Bind the live capture to the pinned extraction without changing the project.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     pub fn verify_capture(&self, revision: &Revision, capture: &Snapshot) -> Result<()> {
         if revision.root != revision.directory.path() || revision.commit != revision.object_id {
             return Err(

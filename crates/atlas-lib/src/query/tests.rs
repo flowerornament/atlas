@@ -252,6 +252,10 @@ fn refusal(source: &str) -> Error {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn refusals_say_what_and_where() {
     let cases: &[(&str, ErrorKind, &str, (usize, usize))] = &[
         (

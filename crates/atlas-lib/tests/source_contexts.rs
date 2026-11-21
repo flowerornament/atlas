@@ -9,6 +9,10 @@ mod support;
 use support::Fixture;
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn shared_package_roots_keep_contexts_and_one_physical_report() {
     let fixture = Fixture::new(&[
         (

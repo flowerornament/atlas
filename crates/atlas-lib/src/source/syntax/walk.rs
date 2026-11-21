@@ -94,6 +94,10 @@ impl<'a> Walk<'a> {
             })
             .unwrap_or(end)
     }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     fn record(
         &mut self,
         kind: ItemKind,
@@ -239,6 +243,10 @@ impl<'ast> Visit<'ast> for Walk<'_> {
         }
         visit::visit_file(self, file);
     }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     fn visit_item(&mut self, item: &'ast syn::Item) {
         let private = syn::Visibility::Inherited;
         match item {

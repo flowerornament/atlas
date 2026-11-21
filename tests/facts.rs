@@ -241,6 +241,10 @@ fn qualified_rows_bridge_to_exactly_one_lexical_declaration() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn counts_agree_with_census_and_dependencies() {
     let fixture = fixture();
     let facts = json(&fixture, &["facts"]);

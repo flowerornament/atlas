@@ -253,6 +253,10 @@ impl SeamReading {
     /// narrowed (a method or function dropped) or widened (a producer added).
     /// A new floor stage, a new row, an added method and a dropped producer
     /// tighten and pass.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     fn policy_refusals(&self, published: &policy::PublishedStages) -> Vec<String> {
         let name = &self.crate_name;
         let Some(was) = published.seams.get(name) else {

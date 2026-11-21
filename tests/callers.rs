@@ -39,6 +39,10 @@ fn json(f: &Fixture, args: &[&str]) -> serde_json::Value {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn callers_lists_resolved_calls_and_possible_ones_apart() {
     let f = fixture();
     // AT7: resolved callers, one per site.

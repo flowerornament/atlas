@@ -27,6 +27,10 @@ pub enum Unavailable {
 }
 /// Read the native typed-error population, package by package. Unknown packages
 /// are invalid selection; missing required source or syntax is unavailable data.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub fn read(
     analysis: &Analysis<'_>,
     packages: &[String],

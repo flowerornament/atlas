@@ -619,6 +619,10 @@ fn usable(reading: &Reading) -> Result<()> {
         None => Ok(()),
     }
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn callers_by(
     graph: &SourceGraph,
     facts: &Facts,
@@ -757,6 +761,10 @@ pub fn semantic_callees(
     usable(reading)?;
     callees_by(graph, facts, selector, file, depth, within, Some(reading))
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn callees_by(
     graph: &SourceGraph,
     facts: &Facts,
@@ -861,6 +869,10 @@ impl Report<CallerAnswer> {
     /// Text with at most `answers` functions and `rows` rows in each of
     /// their lists; a cut list ends with `… N more; ` and the command `more`
     /// names.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     pub fn text_bounded(&self, answers: usize, rows: usize, more: More<'_>) -> String {
         let mut out = heading(
             self.question,
@@ -978,6 +990,10 @@ impl Report<CallerAnswer> {
 }
 impl Report<CalleeAnswer> {
     /// As [`Report::<CallerAnswer>::text_bounded`], for the calls out.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     pub fn text_bounded(&self, answers: usize, rows: usize, more: More<'_>) -> String {
         let mut out = heading(
             self.question,

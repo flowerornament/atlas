@@ -58,6 +58,10 @@ impl Question {
         }
     }
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(crate) fn run(
     root: &Path,
     metadata: &cargo_metadata::Metadata,
@@ -257,6 +261,10 @@ struct DeclarationReview {
     shapes: atlas_lib::review::ShapeDiff,
     items: atlas_lib::queries::navigation::DeclarationDiff,
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(crate) fn diff(
     root: &Path,
     metadata: &cargo_metadata::Metadata,

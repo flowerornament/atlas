@@ -36,6 +36,10 @@ const PUNCTS: [&str; 16] = [
     ":-", "?-", "!=", "<=", ">=", "(", ")", "{", "}", ",", ".", ":", "!", "=", "<", ">",
 ];
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn lex(source: &str, origin: Origin) -> Result<Vec<Token>, Error> {
     let mut tokens = Vec::new();
     let mut chars = source.char_indices().peekable();
@@ -444,6 +448,10 @@ impl Parser<'_> {
         self.i += 1;
         Ok(fields)
     }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     fn literal(&mut self) -> Result<Literal, Error> {
         let at = self.here();
         let negated = if self.is("!") || self.is_name("not") {
@@ -606,6 +614,10 @@ impl Parser<'_> {
         }
         self.term().map(HeadTerm::Term)
     }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     fn clause(&mut self) -> Result<Clause, Error> {
         let first = self.i;
         let at = self.here();

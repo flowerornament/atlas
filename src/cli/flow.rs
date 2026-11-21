@@ -57,6 +57,10 @@ pub(super) struct Options {
     render: RenderOptions,
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(super) fn run(
     root: &Path,
     metadata: &cargo_metadata::Metadata,

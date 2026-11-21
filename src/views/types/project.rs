@@ -78,6 +78,10 @@ pub fn project(facts: &Facts, query: &Query) -> Result<Views> {
 
 /// The projection without the figure limits, for a view that divides a derived
 /// population itself and must check the limits per figure.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(crate) fn select(facts: &Facts, query: &Query) -> Result<Views> {
     let mut selected = BTreeMap::new();
     for s in &query.types {

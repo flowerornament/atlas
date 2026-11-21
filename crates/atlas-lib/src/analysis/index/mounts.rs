@@ -14,6 +14,10 @@ pub(super) struct Mounts {
     pub(super) files: BTreeMap<String, Vec<(Vec<String>, bool)>>,
 }
 impl Mounts {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     pub(super) fn read(
         metadata: &Metadata,
         graph: &SourceGraph,

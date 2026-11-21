@@ -96,6 +96,10 @@ enum LexicalState {
 /// This is deliberately smaller than a parser: it recognizes only comments
 /// and string literals, the two lexical forms that can counterfeit declaration
 /// lines or braces for the line grammar.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn code_projection(text: &str) -> Vec<ProjectedLine> {
     let bytes = text.as_bytes();
     let mut state = LexicalState::Code;

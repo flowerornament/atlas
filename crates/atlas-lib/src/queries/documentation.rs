@@ -78,6 +78,10 @@ pub struct Report {
     pub sources: std::collections::BTreeMap<String, String>,
 }
 /// Audit captured facts. Unknown scopes refuse; an unrequested citation rule is explicit.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub fn audit(snapshot: &Snapshot, scope: &str, policy: &Policy<'_>) -> Result<Report> {
     if policy
         .citation_markers

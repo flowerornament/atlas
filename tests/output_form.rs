@@ -144,6 +144,10 @@ fn as_json_prints_the_bytes_json_prints_and_json_needs_no_notice() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn every_old_output_spelling_prints_what_its_as_form_prints() {
     let f = fixture();
     let flow = ["flow", "--path", "src/lib.rs", "--function", "run"];

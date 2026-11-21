@@ -153,6 +153,10 @@ impl<'a> BodyReport<'a> {
     /// file before across files, then the rest as changed (same file first). Pairing spans the matched crates; a finding is
     /// reported when its current site (or, for a removal, its old site) lies
     /// in scope.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     pub(super) fn between(before: &'a Inventory, after: &'a Inventory, scope: &Scope) -> Self {
         let mut report = Self {
             exact: 0,

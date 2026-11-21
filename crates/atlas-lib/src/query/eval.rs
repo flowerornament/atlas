@@ -125,6 +125,10 @@ enum Stop {
 /// The order a rule's literals run in: a test or negation as soon as its
 /// variables are bound, otherwise the positive relation with the most
 /// bound columns (written order on ties). A delta literal goes first.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn plan(rule: &Rule, first: Option<usize>) -> Vec<Step> {
     let mut bound = vec![false; rule.vars];
     let is_bound = |t: &T, bound: &[bool]| match t {
@@ -412,6 +416,10 @@ impl Engine<'_> {
         env[var] = None;
         result
     }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     fn join(
         &self,
         pass: &Pass<'_>,

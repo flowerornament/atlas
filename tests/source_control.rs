@@ -239,6 +239,10 @@ fn large_empty_match_arms_refuse_the_node_budget_instead_of_evading_it() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn compact_control_preserves_retained_paths_and_every_folded_observation() {
     for source in [
         CONTROL,

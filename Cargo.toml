@@ -84,6 +84,11 @@ allow_attributes_without_reason = "deny"
 # Nursery lints — opt-in for hygiene
 use_self = "warn"
 
+# A function body fits on one screen: at most too-many-lines-threshold (70)
+# code lines, set in clippy.toml (ARCHITECTURE.md, "Functions fit on a
+# screen"). A function still over it carries an #[expect] until it is split.
+too_many_lines = "deny"
+
 # Pedantic allows — noisy or inapplicable
 module_name_repetitions = "allow"
 # Rust 1.99: suggests assert_eq!(x, [] as [T; 0]) for assert!(x.is_empty()), which reads worse.
@@ -94,7 +99,6 @@ missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 missing_fields_in_debug = "allow"
 doc_markdown = "allow"
-too_many_lines = "allow"
 similar_names = "allow"
 trivially_copy_pass_by_ref = "allow"
 inline_always = "allow"

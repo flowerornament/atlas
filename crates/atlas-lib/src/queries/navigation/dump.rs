@@ -57,6 +57,10 @@ pub struct Export {
     pub target: Resolution,
 }
 impl Navigation<'_> {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     pub fn dump(&self) -> Result<Dump> {
         let relations = self.relations()?;
         let packages: BTreeMap<_, _> = self

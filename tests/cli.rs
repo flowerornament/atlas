@@ -216,6 +216,10 @@ fn representation_query_outputs_are_explicit_and_cannot_overwrite_inputs() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn canonical_root_and_current_directory_preserve_existing_queries() {
     let f = fixture();
     for (legacy, named) in [

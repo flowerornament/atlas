@@ -2,6 +2,10 @@
 use super::{Panel, Views, name, shape};
 use std::fmt::Write;
 /// Text carries the same facts as Pele without pretending ASCII lines are call traces.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(super) fn render(v: &Views, panel: Panel) -> String {
     let mut s = format!(
         "{}\nContracts and direct fields, not runtime value flow.\n",

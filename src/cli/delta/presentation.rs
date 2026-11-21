@@ -14,6 +14,10 @@ fn verdict(status: Status) -> &'static str {
         Status::Unavailable => "UNAVAILABLE",
     }
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(super) fn json(
     report: &delta::Report,
     policy: &Policy,
@@ -106,6 +110,10 @@ pub(super) fn json(
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(super) fn display(
     report: &delta::Report,
     policy: &Policy,

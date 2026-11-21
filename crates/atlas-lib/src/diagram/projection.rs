@@ -235,6 +235,10 @@ struct Groups {
     file_nodes: BTreeMap<String, Vec<String>>,
 }
 impl Groups {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     fn new(
         graph: &SourceGraph,
         profile: Option<&Architecture>,
@@ -426,6 +430,10 @@ fn hidden(out: &mut Diagram, reason: &str, id: &str) {
         .push(id.into());
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn types(
     graph: &SourceGraph,
     profile: Option<&Architecture>,

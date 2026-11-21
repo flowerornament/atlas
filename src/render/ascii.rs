@@ -21,6 +21,10 @@ impl Renderer for Ascii {
         })
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     fn render(&self, diagram: &Diagram) -> Result<Artifact> {
         diagram.validate()?;
         if matches!(
@@ -138,6 +142,10 @@ fn unique_labels(diagram: &Diagram) -> BTreeMap<&str, String> {
         .collect()
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn coarse(diagram: &Diagram) -> Result<Artifact> {
     use crate::diagram::View;
     let edges = super::display_edges(diagram);

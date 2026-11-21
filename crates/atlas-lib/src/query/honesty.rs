@@ -124,6 +124,10 @@ fn subject(rels: &[RelInfo], rule: &CRule) -> String {
 }
 
 /// Every finding of both checks over the rules a program runs.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(crate) fn review(
     rels: &[RelInfo],
     rules: &[CRule],

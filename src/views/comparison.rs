@@ -63,6 +63,10 @@ fn shared_keys(sides: [&Facts; 2]) -> BTreeSet<String> {
     }
     shared
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn observations(
     f: &Facts,
     query: Option<&Query>,

@@ -56,6 +56,10 @@ pub struct InstrumentCall {
 /// Entries return the main forms; surface methods enter the picture when they
 /// produce a form another stage accepts, or construct the declared entry type.
 /// Metadata/error types are not promoted merely because a surface lists them.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub fn project(facts: &Facts, architecture: &Architecture) -> Result<Overview> {
     let candidates: Vec<_> = facts
         .functions
@@ -178,6 +182,10 @@ pub fn project(facts: &Facts, architecture: &Architecture) -> Result<Overview> {
 /// [`MAX_TYPES`] types and [`MAX_ROWS`] API contracts, keeping each
 /// declaring module's types together. A module that alone exceeds a limit
 /// refuses rather than being split, and nothing is dropped.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn panels(
     facts: &Facts,
     architecture: &Architecture,

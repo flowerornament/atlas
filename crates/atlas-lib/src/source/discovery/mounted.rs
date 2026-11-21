@@ -46,6 +46,10 @@ pub fn module_path_of(src_rel: &str, rel: &str) -> Option<String> {
 /// and at the module declarations of target roots outside it (a test
 /// target's `mod common;` is `tests/common.rs` or `tests/common/mod.rs`),
 /// then follow their declarations. Each physical source is captured once.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(super) fn outside_mounts(
     root: &Path,
     src_rel: &str,

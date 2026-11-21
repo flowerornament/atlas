@@ -382,6 +382,10 @@ impl SemanticIndex {
         self.reading(calls, text)
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     fn reading<'a>(
         &self,
         calls: impl Iterator<
@@ -518,6 +522,10 @@ fn compare(target: Option<&crate::analysis::index::Function>, semantic: &Semanti
 }
 
 impl Tables {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     fn new(index: &wire::Index) -> Result<Self, String> {
         if index.documents.is_empty() {
             return Err("the index has no documents".into());

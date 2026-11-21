@@ -165,6 +165,10 @@ struct Source<'p> {
     index: usize,
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(crate) fn check(
     user: &Program,
     prelude: &Program,
@@ -371,6 +375,10 @@ pub(crate) fn check(
 }
 
 impl<'p> Catalog<'p> {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     fn declare(
         &mut self,
         program: &'p Program,
@@ -502,6 +510,10 @@ impl<'p> Catalog<'p> {
 /// Derived column kinds, to a fixed point: a head field takes the kind of
 /// the value or variable written there, and a variable the kind of the
 /// stored or already inferred column it is read from.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn infer_kinds(
     catalog: &Catalog<'_>,
     sources: &[Source<'_>],

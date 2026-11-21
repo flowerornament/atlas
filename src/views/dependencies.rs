@@ -54,6 +54,10 @@ pub struct Dependencies {
 }
 /// Every edge has a positive source witness; unresolved names create no guessed edge.
 /// The physical scope chooses both endpoints. Outside relationships remain in evidence.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub fn project(facts: &Facts, scope: &str, relation: Relation) -> Result<Dependencies> {
     let files: BTreeSet<_> = facts
         .fingerprints

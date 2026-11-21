@@ -254,6 +254,10 @@ impl<'a> Builder<'a> {
         );
         Some(continuation)
     }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     fn steps(&mut self, steps: &[Step], mut tails: Vec<String>) -> Vec<String> {
         for step in steps {
             if self.nodes.len() >= self.budget {

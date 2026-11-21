@@ -140,6 +140,10 @@ pub(crate) fn schema() -> Result<String> {
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(crate) fn run(
     metadata: &cargo_metadata::Metadata,
     options: &Options,

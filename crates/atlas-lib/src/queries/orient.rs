@@ -229,6 +229,10 @@ pub fn semantic_orient(
 ) -> Result<Orientation> {
     orient_by(snapshot, scope, rows, Some(index))
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn orient_by(
     snapshot: &Snapshot,
     scope: Option<&str>,
@@ -636,6 +640,10 @@ fn counts(map: BTreeMap<String, (usize, String)>) -> Vec<Count> {
 fn leader(section: &Section) -> Option<&Row> {
     section.rows.first().filter(|_| section.tied <= 1)
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn next_commands(
     sections: &[Section],
     packages: &[Package],
@@ -764,6 +772,10 @@ pub fn command_line(args: &[String]) -> String {
 impl Orientation {
     /// One page of text. `suffix` is appended to every printed command, such
     /// as the `--root` the caller used, so each command runs as printed.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     pub fn text(&self, suffix: &[String]) -> String {
         let render = |args: &[String]| {
             let mut all = args.to_vec();

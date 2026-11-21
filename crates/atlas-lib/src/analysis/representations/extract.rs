@@ -57,6 +57,10 @@ impl References<'_> {
         let expression = text(self.source, t.span());
         self.ty(t, &role, slot, &expression, false, &[]);
     }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     fn ty(
         &mut self,
         t: &syn::Type,
@@ -204,6 +208,10 @@ pub(in crate::analysis) fn from_sources(
         crate::population::TestSelection::Production,
     )
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(in crate::analysis) fn from_selected_sources(
     sources: &crate::analysis::sources::Sources,
     metadata: &Metadata,

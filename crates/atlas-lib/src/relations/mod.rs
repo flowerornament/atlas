@@ -461,6 +461,10 @@ fn label(value: &impl Serialize) -> Cell {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn lexical(graph: &SourceGraph) -> Vec<Relation> {
     let mut file = Relation::new("file");
     let mut mount = Relation::new("mount");
@@ -581,6 +585,10 @@ impl<'a> Bridge<'a> {
 /// The semantic family from a reading joined with a qualified index: a
 /// function is named by its file and line, as the index and the facts both
 /// record it; a site several captured functions share names none.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn semantic(reading: &crate::analysis::semantic::Reading, facts: &Facts) -> Vec<Relation> {
     use crate::analysis::semantic::Semantic;
     let mut call = Relation::new("semantic_call");
@@ -656,6 +664,10 @@ fn semantic(reading: &crate::analysis::semantic::Reading, facts: &Facts) -> Vec<
     vec![call, unknown]
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
     let functions = Bridge::new(graph, &["Fn"]);
     let types = Bridge::new(graph, &["Struct", "Enum", "Union", "TypeAlias"]);

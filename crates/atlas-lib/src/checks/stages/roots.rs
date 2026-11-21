@@ -440,6 +440,10 @@ impl RootTable {
     /// a crate module (`use crate::cover::timing;`) carries its inline paths
     /// (`timing::RegionWork`) with it, so a module import cannot hide what
     /// is read through it.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     pub(super) fn edges(
         &self,
         file: &str,

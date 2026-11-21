@@ -217,6 +217,10 @@ fn render(cell: &Cell) -> String {
 
 /// `standing` are the facts' fixed limitations, the same on every run: the
 /// text folds them into one line, and JSON keeps each.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn text(answer: &query::Answer, source: &str, show: usize, standing: &[String]) -> String {
     let more = crate::cli::output::rows::rerun_all();
     let mut out = String::new();
@@ -305,6 +309,10 @@ fn text(answer: &query::Answer, source: &str, show: usize, standing: &[String]) 
     out
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(crate) fn run(
     metadata: &cargo_metadata::Metadata,
     options: &Options,

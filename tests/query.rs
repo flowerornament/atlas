@@ -190,6 +190,10 @@ fn name_cards_agree(root: &Path, name: &str) {
 /// `callers`/`callees` and the prelude's `calls_function` and `reaches`:
 /// depth 1 is one `calls_function` step, and depth 16 (more than any chain
 /// here) is every `reaches` row.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn calls_agree(root: &Path, selector: &str) {
     let ends = |question: &str, depth: &str| -> (String, BTreeSet<String>) {
         let report = json(root, &[question, selector, "--depth", depth, "--json"]);

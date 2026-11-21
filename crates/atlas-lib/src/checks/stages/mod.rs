@@ -139,6 +139,10 @@ impl StageReport {
         let root = RootTable::of(crate_map, TestSelection::Production);
         Self::from_root(crate_map, stages, &root)
     }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     pub(in crate::checks) fn from_root(
         crate_map: &CrateMap,
         stages: &[String],

@@ -30,6 +30,10 @@ fn value<'a>(c: &Change, v: Option<&'a str>) -> &'a str {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(crate) fn pele(c: &Comparison, palette: &Palette, bare: bool) -> Result<Artifact> {
     if c.changes.len() > 40 {
         return Err(

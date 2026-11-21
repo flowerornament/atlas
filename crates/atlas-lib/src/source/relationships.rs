@@ -74,6 +74,10 @@ enum MentionScope {
     Declarations,
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn derive_with_bindings(
     graph: &mut SourceGraph,
     imports: &BTreeMap<String, Vec<scan::ImportBinding>>,

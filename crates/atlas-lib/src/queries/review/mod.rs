@@ -43,6 +43,10 @@ pub struct Outline {
 
 /// Every lexical item, including private imports and macro invocations.
 /// No filesystem read occurs here: source and fingerprints come from the same snapshot.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub fn outline(snapshot: &Snapshot, scope: &str) -> Result<Outline> {
     let scope = crate::discovery::resolve_scope(snapshot.graph(), Some(scope))?;
     let mut files = Vec::new();

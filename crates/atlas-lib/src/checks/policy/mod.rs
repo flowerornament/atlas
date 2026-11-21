@@ -550,6 +550,10 @@ pub struct Reference {
 }
 impl Policy {
     /// The project wrapper must resolve these; parsing them never grants authority.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     pub fn external_references(&self) -> Vec<Reference> {
         let mut out = Vec::new();
         let mut add = |field: Vec<String>, written: &str| {

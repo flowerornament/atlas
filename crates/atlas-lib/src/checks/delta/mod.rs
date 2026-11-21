@@ -114,6 +114,10 @@ impl Report {
 }
 /// Capture owners supply source and identity; this function measures, judges, then returns data.
 /// A caller must not project PASS until this complete result is available.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub fn check(
     before: &Snapshot,
     after: &Snapshot,
@@ -260,6 +264,10 @@ fn paired_measures(
         shape,
     })
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn stage_judgment(
     before: &Snapshot,
     after: &Snapshot,

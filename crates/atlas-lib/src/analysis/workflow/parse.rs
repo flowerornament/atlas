@@ -200,6 +200,10 @@ impl Reader<'_> {
         steps.push(self.action(expr));
         steps
     }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     fn expr(&self, expr: &Expr) -> Vec<Step> {
         let site = self.site(expr.span());
         match expr {

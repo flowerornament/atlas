@@ -11,6 +11,10 @@ use crate::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(super) fn build(
     index: &Index,
     architecture: &Architecture,

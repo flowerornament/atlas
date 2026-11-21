@@ -36,6 +36,10 @@ pub struct Measure {
 }
 
 impl Measure {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     pub(super) fn of(
         ws: &Workspace,
         policy: &ConcentrationPolicy,

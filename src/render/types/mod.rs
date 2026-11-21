@@ -83,6 +83,10 @@ pub fn pele(v: &Views, panel: Panel, options: &Pele) -> Result<Artifact> {
 pub(crate) fn vertical(v: &Views, panel: Panel, palette: &Palette, bare: bool) -> Result<Artifact> {
     render(v, panel, true, palette, bare)
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn render(
     v: &Views,
     panel: Panel,

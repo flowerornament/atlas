@@ -100,6 +100,10 @@ impl Navigation<'_> {
     /// A `NAME`, `MODULE::NAME` or `FILE:LINE[:COLUMN]` selector. The modules
     /// match the end of the declaration's module path: its file's directories
     /// and name, then enclosing inline `mod` blocks. No Rust resolution implied.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     pub fn name(&self, query: &str) -> Result<Name> {
         self.require_sources(None)?;
         let selector = crate::queries::selector::Selector::parse(query)?;

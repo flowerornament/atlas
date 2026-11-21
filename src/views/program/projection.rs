@@ -6,6 +6,10 @@ use crate::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(super) fn overview(program: &Program) -> Overview {
     let mut nodes: BTreeMap<_, _> = program
         .nodes

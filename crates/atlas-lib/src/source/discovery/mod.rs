@@ -211,6 +211,10 @@ fn package_sources(package: &cargo_metadata::Package, root: &Path) -> Result<Pac
     })
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn read_metadata(
     metadata: &Metadata,
     captured: &mut BTreeMap<String, Arc<crate::source::Captured>>,
@@ -707,6 +711,10 @@ struct ModuleMount {
 /// Follow test-gated file declarations and their transitive children. A path
 /// mount changes the child's location, never its inherited test boundary.
 /// Production mounts take precedence when a file has both kinds of parent.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn mark_test_files(
     files: &mut [Loaded],
     entry_points: &[(String, bool, Option<String>)],

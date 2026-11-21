@@ -545,6 +545,10 @@ fn export_candidates_preserve_qualified_and_name_preference_evidence() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn exports_keep_global_ambiguity_qualified_priority_and_package_context() {
     use atlas_lib::{model::Resolution, queries::navigation::BindingEvidence};
     let root = Fixture::new(&[]);

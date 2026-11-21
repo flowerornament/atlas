@@ -35,7 +35,15 @@ fn path_separator(tokens: &[TokenTree], index: usize) -> bool {
 /// (`crate::state::Slot` and `dispatch::Slot` both read `Slot`). Primitive
 /// types, method names and other module paths are kept: `u32::MAX` and
 /// `u64::MAX` stay different. Macro input groups retain their tokens unchanged.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn normalized(stream: TokenStream, roots: Option<&BTreeSet<String>>) -> Vec<String> {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     fn push(stream: TokenStream, roots: Option<&BTreeSet<String>>, out: &mut Vec<String>) {
         let tokens: Vec<TokenTree> = stream.into_iter().collect();
         let mut index = 0;

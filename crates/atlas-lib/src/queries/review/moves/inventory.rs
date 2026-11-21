@@ -98,6 +98,10 @@ enum Enclosing {
 }
 
 /// The production declarations of one file as `(class, name, site)`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn file_sites(
     file: &SourceFile,
     source: &Source,

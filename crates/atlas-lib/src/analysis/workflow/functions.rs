@@ -20,6 +20,10 @@ pub(super) struct Function<'a> {
     signature: &'a syn::Signature,
     body: &'a syn::Block,
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(super) fn collect<'a>(
     items: &'a [Item],
     module: &[String],

@@ -26,6 +26,10 @@ pub(crate) struct FileMap {
     pub test_file: bool,
 }
 impl Workspace {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     pub fn of(snapshot: &Snapshot) -> crate::Result<Self> {
         let root = snapshot.metadata().workspace_root.as_std_path();
         let mut files = BTreeMap::<_, Vec<_>>::new();

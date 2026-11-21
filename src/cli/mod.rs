@@ -29,6 +29,10 @@ mod types;
 use args::{Cli, Command};
 use cargo_atlas::Result;
 use clap::{CommandFactory, FromArgMatches};
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(crate) fn run() -> Result<()> {
     let mut args: Vec<_> = std::env::args_os().collect();
     // Cargo runs `cargo atlas ARGS` as `cargo-atlas atlas ARGS`.

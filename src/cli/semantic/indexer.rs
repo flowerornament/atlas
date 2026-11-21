@@ -89,6 +89,10 @@ pub(in crate::cli) struct Indexing {
 /// Produce (or reuse) an index of the workspace at `root`. `sources` are the
 /// captured source files, which are digested with the manifests,
 /// configuration and build scripts.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(in crate::cli) fn index(
     root: &Path,
     metadata: &cargo_metadata::Metadata,

@@ -36,6 +36,10 @@ pub(crate) struct Options {
     #[command(flatten)]
     output: crate::cli::output::form::Report,
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(crate) fn run(
     root: &Path,
     metadata: &cargo_metadata::Metadata,
@@ -154,6 +158,10 @@ struct Stats {
     removed: Vec<String>,
 }
 impl Stats {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     fn read(report: &delta::Report, policy: &Policy) -> Result<Option<Self>> {
         let Some(measured) = &report.measurements else {
             return Ok(None);

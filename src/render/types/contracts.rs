@@ -8,6 +8,10 @@ pub(super) struct Edge {
     label: String,
     title: String,
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 pub(super) fn source(v: &Views, palette: &Palette) -> (String, Vec<Edge>) {
     let ids: BTreeMap<_, _> = v
         .types

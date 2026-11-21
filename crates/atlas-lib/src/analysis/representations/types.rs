@@ -239,6 +239,10 @@ impl Facts {
     /// Nothing is resolved anew; observations elsewhere are left out, not
     /// changed, and the limitations say so.
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than 70 lines; to be split along its decisions"
+    )]
     pub fn incident(&self, scope: &str, in_scope: impl Fn(&str) -> bool) -> Self {
         let touches = |from: &str, to: &str| in_scope(file_of(from)) || in_scope(file_of(to));
         let calls: Vec<_> = self

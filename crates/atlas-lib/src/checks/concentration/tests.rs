@@ -518,6 +518,10 @@ const BASE_KNOBS: &str =
 // Critic: the section may not loosen itself, in any of its three forms,
 // unless the landing names a new, cited ruling that covers the knob.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than 70 lines; to be split along its decisions"
+)]
 fn the_section_cannot_loosen_itself_without_a_named_ruling() {
     let tree = workspace(&[("lib.rs", CITED)]);
     let published = section(BASE_KNOBS, "");
