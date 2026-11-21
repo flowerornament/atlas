@@ -367,7 +367,7 @@ fn orient_by(
     let mut by_index: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
     for named in &named {
         if let (Some(from), Some(to)) = (named.from, named.to)
-            && named.call.agreement != Some(Agreement::Agrees)
+            && named.call.agreement == Some(Agreement::Extends)
             && file_of(to).is_some_and(in_scope)
             && !callers.get(to).is_some_and(|known| known.contains(from))
         {

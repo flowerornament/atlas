@@ -133,6 +133,14 @@ pub struct Settled {
     pub elsewhere: BTreeMap<&'static str, usize>,
     /// Calls the index pins to nothing, by reading: still listed.
     pub open: BTreeMap<&'static str, usize>,
+    /// Call sites where the index and the qualified reading name different
+    /// functions: for callees, resolved calls (depth 1) the index names
+    /// another function for; for callers, those among the callers and the
+    /// sites the index names this function at that Atlas resolves to
+    /// another. The qualified rows are kept; the index's target is never
+    /// added.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub disagrees: usize,
 }
 #[allow(
     clippy::trivially_copy_pass_by_ref,
@@ -278,6 +286,12 @@ struct Calls<'a> {
     /// With a semantic reading: what it says of each recorded call, by site
     /// and spelling.
     pins: Pins<'a>,
+    /// With a semantic reading: the sites of resolved calls the index names
+    /// another function for (a stale index, a cfg difference or a resolver
+    /// bug). The qualified edge stays; the index's is never added.
+    disputed: std::collections::HashSet<(&'a str, usize, usize)>,
+    /// Those disputed calls by the function the index names for them.
+    claimed: HashMap<&'a str, usize>,
 }
 /// One resolved call by one reading.
 #[derive(Clone, Copy)]
@@ -342,6 +356,15 @@ impl<'a> Calls<'a> {
             written: HashMap::new(),
             inside: HashMap::new(),
             pins: Pins::new(semantic),
+            disputed: semantic
+                .iter()
+                .filter(|named| named.call.agreement == Some(Agreement::Disagrees))
+                .map(|named| {
+                    let site = &named.call.site;
+                    (site.path.as_str(), site.line, site.column)
+                })
+                .collect(),
+            claimed: HashMap::new(),
         };
         let mut add = |edge: Edge<'a>| {
             calls.to.entry(edge.to).or_default().push(edge);
@@ -355,11 +378,19 @@ impl<'a> Calls<'a> {
                 reading: "qualified",
             });
         }
-        // The semantic edges the qualified reading lacks; an agreeing one is
-        // the same call, already an edge.
+        for named in semantic {
+            if let Some(to) = named.to
+                && named.call.agreement == Some(Agreement::Disagrees)
+            {
+                *calls.claimed.entry(to).or_default() += 1;
+            }
+        }
+        // The semantic edges for calls the qualified reading left
+        // unresolved. An agreeing one is the same call, already an edge; a
+        // disagreeing one is a conflict, counted, never a second target.
         for named in semantic {
             if let (Some(from), Some(to)) = (named.from, named.to)
-                && named.call.agreement != Some(Agreement::Agrees)
+                && named.call.agreement == Some(Agreement::Extends)
             {
                 add(Edge {
                     from,
@@ -434,6 +465,15 @@ impl<'a> Calls<'a> {
     }
     fn inside(&self, function: &str) -> &[&'a UnknownCall] {
         self.inside.get(function).map_or(&[], Vec::as_slice)
+    }
+    /// How many of `sites` the index names another function for.
+    fn disputes<'s>(&self, sites: impl Iterator<Item = &'s Site>) -> usize {
+        sites
+            .filter(|site| {
+                self.disputed
+                    .contains(&(site.path.as_str(), site.line, site.column))
+            })
+            .count()
     }
     fn pin(&self, unknown: &UnknownCall) -> Option<Pin<'a>> {
         self.pins.get(unknown)
@@ -604,7 +644,7 @@ fn callers_by(
         .into_iter()
         .map(|function| {
             let levels = calls.levels(&function.id, depth, true);
-            let resolved = rows(&names, &levels, true, within)
+            let resolved: Vec<Caller> = rows(&names, &levels, true, within)
                 .into_iter()
                 .map(|row| Caller {
                     from: row.far.id.clone(),
@@ -617,7 +657,7 @@ fn callers_by(
                     via_name: row.via.map(|via| names.display(via)),
                 })
                 .collect();
-            let (mut possibly, semantic) = calls.settle(
+            let (mut possibly, mut semantic) = calls.settle(
                 calls
                     .written_as(&BTreeSet::from([last(&function.name)]))
                     .into_iter()
@@ -625,6 +665,21 @@ fn callers_by(
                 Some(&function.id),
                 reading.is_some(),
             );
+            if let Some(semantic) = &mut semantic {
+                // Both ends of a conflict: callers Atlas has that the index
+                // names another function for, and sites the index names this
+                // function for that Atlas resolves to another.
+                semantic.disagrees = calls.disputes(
+                    resolved
+                        .iter()
+                        .filter(|row| row.depth == 1)
+                        .map(|row| &row.site),
+                ) + calls
+                    .claimed
+                    .get(function.id.as_str())
+                    .copied()
+                    .unwrap_or(0);
+            }
             // Beyond depth 1, the calls written as the name of a caller
             // one level nearer.
             let possibly_by_depth: BTreeMap<u32, usize> = (2..)
@@ -721,7 +776,7 @@ fn callees_by(
         .into_iter()
         .map(|function| {
             let levels = calls.levels(&function.id, depth, false);
-            let resolved = rows(&names, &levels, false, within)
+            let resolved: Vec<Callee> = rows(&names, &levels, false, within)
                 .into_iter()
                 .map(|row| Callee {
                     to: row.far.id.clone(),
@@ -734,11 +789,19 @@ fn callees_by(
                     via_name: row.via.map(|via| names.display(via)),
                 })
                 .collect();
-            let (mut unresolved, semantic) = calls.settle(
+            let (mut unresolved, mut semantic) = calls.settle(
                 calls.inside(&function.id).iter().copied(),
                 None,
                 reading.is_some(),
             );
+            if let Some(semantic) = &mut semantic {
+                semantic.disagrees = calls.disputes(
+                    resolved
+                        .iter()
+                        .filter(|row| row.depth == 1)
+                        .map(|row| &row.site),
+                );
+            }
             // Beyond depth 1, the calls inside the functions one level nearer
             // that Atlas could not follow.
             let unresolved_by_depth: BTreeMap<u32, usize> = (2..)
@@ -1068,6 +1131,13 @@ fn settled(out: &mut String, settled: Option<&Settled>) {
             settled.other_function
         ));
     }
+    if settled.disagrees > 0 {
+        parts.push(format!(
+            "disagrees at {} call site{} (it names another function than the qualified reading: a stale index, a cfg difference or a resolver error; the qualified rows are kept, the index's not added)",
+            settled.disagrees,
+            plural(settled.disagrees)
+        ));
+    }
     let elsewhere: usize = settled.elsewhere.values().sum();
     if elsewhere > 0 {
         parts.push(format!(
@@ -1080,11 +1150,7 @@ fn settled(out: &mut String, settled: Option<&Settled>) {
         parts.push(format!("left open {open} ({})", counts(&settled.open)));
     }
     if !parts.is_empty() {
-        let _ = writeln!(
-            out,
-            "  the index read the unresolved calls: {}",
-            parts.join("; ")
-        );
+        let _ = writeln!(out, "  the index: {}", parts.join("; "));
     }
 }
 fn footer(out: &mut String, basis: &str, semantic: &[String]) {

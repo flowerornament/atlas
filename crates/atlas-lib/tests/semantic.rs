@@ -315,6 +315,49 @@ fn a_definition_elsewhere_disagrees_and_both_readings_are_kept() {
     assert_eq!(json["semantic"]["site"]["line"], 4);
 }
 
+/// A disagreeing index (stale, say: the 2026-11-21 review's import
+/// retarget) never adds its target as a second call at a site the qualified
+/// reading resolves: the site is one call, and the conflict is counted from
+/// both ends.
+#[test]
+fn a_disagreeing_index_adds_no_second_target_and_says_so() {
+    use atlas_lib::queries::callers::{semantic_callees, semantic_callers};
+    let mut document = faithful();
+    document.occurrences[0] = (3, 7, 12, BASE.into(), 1);
+    document.occurrences[1] = (0, 7, 11, OTHER.into(), 1);
+    let fixture = source_fixture(SOURCE);
+    let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
+    let analysis = Analysis::new(&snapshot).expect("analysis");
+    let facts = analysis.representations().expect("facts");
+    let reading = analysis
+        .semantic(&SemanticIndex::read(&scip::index(&[document])))
+        .expect("semantic reading");
+    let all = |_: &str| true;
+    let callees = semantic_callees(snapshot.graph(), &facts, "direct", None, 1, &all, &reading)
+        .expect("callees");
+    let answer = serde_json::to_value(&callees.answers[0]).expect("serialize");
+    let resolved = answer["resolved"].as_array().expect("resolved");
+    assert_eq!(resolved.len(), 1, "{answer}");
+    assert_eq!(resolved[0]["to_name"], "base");
+    assert_eq!(resolved[0]["reading"], "qualified");
+    assert_eq!(answer["semantic"]["disagrees"], 1, "{answer}");
+    // The function the index names there gains no caller, and hears of it.
+    let callers = semantic_callers(snapshot.graph(), &facts, "other", None, 1, &all, &reading)
+        .expect("callers");
+    let answer = serde_json::to_value(&callers.answers[0]).expect("serialize");
+    assert_eq!(
+        answer["resolved"].as_array().map(Vec::len),
+        Some(0),
+        "{answer}"
+    );
+    assert_eq!(answer["semantic"]["disagrees"], 1, "{answer}");
+    let text = callers.text_bounded(1, 20, &|_| String::new());
+    assert!(
+        text.contains("the index: disagrees at 1 call site"),
+        "{text}"
+    );
+}
+
 #[test]
 fn unusable_indexes_name_their_reason() {
     let fixture = source_fixture(SOURCE);

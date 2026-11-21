@@ -6,6 +6,14 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Fixed: `callers`/`callees` with an index added the index's target as a
+ second call wherever it disagreed with the qualified reading (a stale
+ index after an import retarget, say), so one site counted twice and a
+ stale caller appeared. The index now adds rows only for calls Atlas left
+ unresolved; a disagreement keeps the qualified row and is stated from
+ both ends ("the index: disagrees at N call sites", JSON
+ `semantic.disagrees`). `orient`'s "+N by the index" counts the same way.
+ The `semantic_call` facts keep disagreeing rows, marked `disagrees`.
 - Fixed: the semantic reading found a method call's name by searching the
  text after its receiver, so a comment before the method, or a call of the
  same name inside the receiver's arguments, made the outer call take the
