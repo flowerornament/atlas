@@ -127,10 +127,6 @@ impl GitStore {
         command
     }
     /// Bind the live capture to the pinned extraction without changing the project.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     pub fn verify_capture(&self, revision: &Revision, capture: &Snapshot) -> Result<()> {
         if revision.root != revision.directory.path() || revision.commit != revision.object_id {
             return Err(
@@ -147,6 +143,13 @@ impl GitStore {
         {
             return Err("source capture belongs to another workspace".into());
         }
+        self.verify_tree(revision)?;
+        self.verify_tracked_files(revision)?;
+        let expected = crate::discovery::snapshot_workspace(&revision.root)?;
+        verify_population(capture, &expected)
+    }
+    /// The materialized commit has the pinned candidate's tree.
+    fn verify_tree(&self, revision: &Revision) -> Result<()> {
         let current = self.current()?;
         let current_tree = output(self.command().args([
             "rev-parse",
@@ -163,6 +166,12 @@ impl GitStore {
         if current_tree != candidate_tree {
             return Err("pinned candidate differs from the materialized commit tree; materialize it before measuring".into());
         }
+        Ok(())
+    }
+    /// Every path the candidate tracks is the same file or symlink in the
+    /// working tree and in the extraction, reached through no intermediate
+    /// symlink in either.
+    fn verify_tracked_files(&self, revision: &Revision) -> Result<()> {
         let listing = self
             .command()
             .args([
@@ -205,60 +214,68 @@ impl GitStore {
                     }
                 }
             }
-            let actual_meta = fs::symlink_metadata(&actual)?;
-            let expected_meta = fs::symlink_metadata(&expected)?;
-            let same =
-                if actual_meta.file_type().is_symlink() && expected_meta.file_type().is_symlink() {
-                    fs::read_link(&actual)? == fs::read_link(&expected)?
-                } else if actual_meta.is_file() && expected_meta.is_file() {
-                    same_mode(&actual_meta, &expected_meta)? && same_bytes(&actual, &expected)?
-                } else {
-                    false
-                };
-            if !same {
+            if !same_entry(&actual, &expected)? {
                 return Err(format!("pinned candidate differs from the working tree at `{name}`; materialize the candidate before measuring").into());
             }
         }
-        let expected = crate::discovery::snapshot_workspace(&revision.root)?;
-        if capture.graph().import_roots != expected.graph().import_roots
-            || capture.graph().files != expected.graph().files
-        {
-            return Err("captured source/package population differs from the pinned candidate, including possible untracked source".into());
-        }
-        for file in &capture.graph().files {
-            if capture.source(&file.path) != expected.source(&file.path) {
-                return Err(format!(
-                    "captured bytes for {} differ from the pinned candidate",
-                    file.path
-                )
-                .into());
-            }
-        }
-        let dependencies = |snapshot: &Snapshot| {
-            snapshot
-                .metadata()
-                .workspace_packages()
-                .into_iter()
-                .map(|package| {
-                    (
-                        package.name.to_string(),
-                        package
-                            .dependencies
-                            .iter()
-                            .filter(|dependency| {
-                                dependency.kind == cargo_metadata::DependencyKind::Normal
-                            })
-                            .map(|dependency| dependency.name.clone())
-                            .collect::<BTreeSet<_>>(),
-                    )
-                })
-                .collect::<std::collections::BTreeMap<_, _>>()
-        };
-        if dependencies(capture) != dependencies(&expected) {
-            return Err("captured normal dependencies differ from the pinned candidate".into());
-        }
         Ok(())
     }
+}
+/// Two tracked entries are the same symlink target, or regular files with
+/// the same executable mode and bytes; any other pair differs.
+fn same_entry(actual: &Path, expected: &Path) -> Result<bool> {
+    let actual_meta = fs::symlink_metadata(actual)?;
+    let expected_meta = fs::symlink_metadata(expected)?;
+    if actual_meta.file_type().is_symlink() && expected_meta.file_type().is_symlink() {
+        Ok(fs::read_link(actual)? == fs::read_link(expected)?)
+    } else if actual_meta.is_file() && expected_meta.is_file() {
+        Ok(same_mode(&actual_meta, &expected_meta)? && same_bytes(actual, expected)?)
+    } else {
+        Ok(false)
+    }
+}
+/// The live capture has the candidate's package population, source bytes
+/// and normal dependencies; untracked source in the capture differs.
+fn verify_population(capture: &Snapshot, expected: &Snapshot) -> Result<()> {
+    if capture.graph().import_roots != expected.graph().import_roots
+        || capture.graph().files != expected.graph().files
+    {
+        return Err("captured source/package population differs from the pinned candidate, including possible untracked source".into());
+    }
+    for file in &capture.graph().files {
+        if capture.source(&file.path) != expected.source(&file.path) {
+            return Err(format!(
+                "captured bytes for {} differ from the pinned candidate",
+                file.path
+            )
+            .into());
+        }
+    }
+    if normal_dependencies(capture) != normal_dependencies(expected) {
+        return Err("captured normal dependencies differ from the pinned candidate".into());
+    }
+    Ok(())
+}
+/// Each workspace package's normal dependency names.
+fn normal_dependencies(
+    snapshot: &Snapshot,
+) -> std::collections::BTreeMap<String, BTreeSet<String>> {
+    snapshot
+        .metadata()
+        .workspace_packages()
+        .into_iter()
+        .map(|package| {
+            (
+                package.name.to_string(),
+                package
+                    .dependencies
+                    .iter()
+                    .filter(|dependency| dependency.kind == cargo_metadata::DependencyKind::Normal)
+                    .map(|dependency| dependency.name.clone())
+                    .collect::<BTreeSet<_>>(),
+            )
+        })
+        .collect()
 }
 #[cfg(unix)]
 #[expect(

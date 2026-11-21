@@ -26,10 +26,6 @@ pub(crate) struct FileMap {
     pub test_file: bool,
 }
 impl Workspace {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     pub fn of(snapshot: &Snapshot) -> crate::Result<Self> {
         let root = snapshot.metadata().workspace_root.as_std_path();
         let mut files = BTreeMap::<_, Vec<_>>::new();
@@ -48,38 +44,8 @@ impl Workspace {
                 .ok_or("manifest lacks parent")?
                 .join("src");
             let src_rel = crate::source::discovery::path_key(directory.strip_prefix(root)?);
-            let mut captured = Vec::new();
-            for file in files.get(package.name.as_str()).into_iter().flatten() {
-                let Some(source) = snapshot.retain_source(&file.path) else {
-                    continue;
-                };
-                captured.push(FileMap {
-                    rel: file.path.clone(),
-                    source,
-                    test_file: file.test_only,
-                });
-            }
-            captured.sort_by(|a, b| std::path::Path::new(&a.rel).cmp(std::path::Path::new(&b.rel)));
-            let mounts = snapshot
-                .mounted_sources(package.name.as_str())
-                .ok_or("package lacks captured native mount population")?;
-            let mounted = mounts
-                .files
-                .iter()
-                .filter(|mount| snapshot.source_facts(&mount.path).is_some())
-                .map(|mount| {
-                    Ok(ModuleMount {
-                        module: mount.module.clone(),
-                        file: FileMap {
-                            rel: mount.path.clone(),
-                            source: snapshot
-                                .retain_source(&mount.path)
-                                .ok_or("mount lacks captured source")?,
-                            test_file: true,
-                        },
-                    })
-                })
-                .collect::<crate::Result<Vec<_>>>()?;
+            let captured = package_files(snapshot, files.get(package.name.as_str()));
+            let mounted = mounted_files(snapshot, package.name.as_str())?;
             crates.push(CrateMap {
                 name: package.name.to_string(),
                 src_rel,
@@ -88,33 +54,82 @@ impl Workspace {
             });
         }
         crates.sort_by(|a, b| a.name.cmp(&b.name));
-        let unavailable = snapshot
-            .graph()
-            .diagnostics
-            .iter()
-            .filter(|issue| {
-                (snapshot.source_facts(&issue.file).is_none()
-                    || snapshot.native_source_error(&issue.file).is_some())
-                    && snapshot
-                        .graph()
-                        .files
-                        .iter()
-                        .filter(|file| {
-                            file.path == issue.file
-                                && issue.package.as_ref().is_none_or(|p| p == &file.crate_name)
-                        })
-                        .all(|file| !file.test_only)
-            })
-            .cloned()
-            .collect();
         Ok(Self {
             crates,
-            unavailable,
+            unavailable: unavailable(snapshot),
         })
     }
     pub fn crate_named(&self, name: &str) -> Option<&CrateMap> {
         self.crates.iter().find(|package| package.name == name)
     }
+}
+/// A package's source-tree files with valid captured facts, in path order.
+fn package_files(
+    snapshot: &Snapshot,
+    files: Option<&Vec<&crate::model::SourceFile>>,
+) -> Vec<FileMap> {
+    let mut captured = Vec::new();
+    for file in files.into_iter().flatten() {
+        let Some(source) = snapshot.retain_source(&file.path) else {
+            continue;
+        };
+        captured.push(FileMap {
+            rel: file.path.clone(),
+            source,
+            test_file: file.test_only,
+        });
+    }
+    captured.sort_by(|a, b| std::path::Path::new(&a.rel).cmp(std::path::Path::new(&b.rel)));
+    captured
+}
+
+/// A package's native source-tree mounts with valid facts, each a test file.
+/// A package without a captured mount population refuses.
+fn mounted_files(snapshot: &Snapshot, package: &str) -> crate::Result<Vec<ModuleMount>> {
+    let mounts = snapshot
+        .mounted_sources(package)
+        .ok_or("package lacks captured native mount population")?;
+    mounts
+        .files
+        .iter()
+        .filter(|mount| snapshot.source_facts(&mount.path).is_some())
+        .map(|mount| {
+            Ok(ModuleMount {
+                module: mount.module.clone(),
+                file: FileMap {
+                    rel: mount.path.clone(),
+                    source: snapshot
+                        .retain_source(&mount.path)
+                        .ok_or("mount lacks captured source")?,
+                    test_file: true,
+                },
+            })
+        })
+        .collect()
+}
+
+/// Diagnostics of files whose native facts are missing or limited, unless
+/// every context the diagnostic applies to is test-only.
+fn unavailable(snapshot: &Snapshot) -> Vec<crate::model::Diagnostic> {
+    snapshot
+        .graph()
+        .diagnostics
+        .iter()
+        .filter(|issue| {
+            (snapshot.source_facts(&issue.file).is_none()
+                || snapshot.native_source_error(&issue.file).is_some())
+                && snapshot
+                    .graph()
+                    .files
+                    .iter()
+                    .filter(|file| {
+                        file.path == issue.file
+                            && issue.package.as_ref().is_none_or(|p| p == &file.crate_name)
+                    })
+                    .all(|file| !file.test_only)
+        })
+        .cloned()
+        .collect()
 }
 impl CrateMap {
     pub fn production_modules(&self) -> impl Iterator<Item = (Option<String>, &FileMap)> {

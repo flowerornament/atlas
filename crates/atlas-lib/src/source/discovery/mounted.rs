@@ -41,15 +41,10 @@ pub fn module_path_of(src_rel: &str, rel: &str) -> Option<String> {
     let stem = stem.strip_suffix("/mod").unwrap_or(stem);
     (!matches!(stem, "lib" | "main" | "mod")).then(|| stem.replace('/', "::"))
 }
-
 /// Adapted from native outside_mounts: start at explicit mounts leaving src,
 /// and at the module declarations of target roots outside it (a test
 /// target's `mod common;` is `tests/common.rs` or `tests/common/mod.rs`),
 /// then follow their declarations. Each physical source is captured once.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(super) fn outside_mounts(
     root: &Path,
     src_rel: &str,
@@ -58,9 +53,26 @@ pub(super) fn outside_mounts(
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<MountedSources> {
     let inside = format!("{src_rel}/");
+    let mut pending = target_root_children(root, &inside, files, sources, diagnostics)?;
+    pending.extend(mounts_leaving_src(src_rel, &inside, files));
+    follow_mounts(root, pending, sources, diagnostics)
+}
+
+/// A mount still to follow: the file, its module path, the file declaring
+/// it, and the files on the path that reached it.
+type Pending = (String, String, String, BTreeSet<String>);
+
+/// A target root outside src reads its modules beside it, as a crate root.
+/// Only children that capture are followed.
+fn target_root_children(
+    root: &Path,
+    inside: &str,
+    files: &[Loaded],
+    sources: &mut BTreeMap<String, Arc<Captured>>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Result<Vec<Pending>> {
     let mut pending = Vec::new();
-    // A target root outside src reads its modules beside it, as a crate root.
-    for file in files.iter().filter(|file| !file.rel.starts_with(&inside)) {
+    for file in files.iter().filter(|file| !file.rel.starts_with(inside)) {
         let Some(source) = file.source.facts() else {
             continue;
         };
@@ -79,7 +91,14 @@ pub(super) fn outside_mounts(
             }
         }
     }
-    for file in files.iter().filter(|file| file.rel.starts_with(&inside)) {
+    Ok(pending)
+}
+
+/// The explicit `#[path]` or conditional-path mounts of files inside src
+/// whose candidate files lie outside it, named below the declaring module.
+fn mounts_leaving_src(src_rel: &str, inside: &str, files: &[Loaded]) -> Vec<Pending> {
+    let mut pending = Vec::new();
+    for file in files.iter().filter(|file| file.rel.starts_with(inside)) {
         let parent = module_path_of(src_rel, &file.rel);
         let Some(source) = file.source.facts() else {
             continue;
@@ -90,7 +109,7 @@ pub(super) fn outside_mounts(
             }
             let name = declaration.qualified_name();
             for rel in module_files(&file.rel, false, declaration) {
-                if !rel.starts_with(&inside) {
+                if !rel.starts_with(inside) {
                     let module = parent
                         .as_ref()
                         .map_or_else(|| name.clone(), |parent| format!("{parent}::{name}"));
@@ -104,6 +123,18 @@ pub(super) fn outside_mounts(
             }
         }
     }
+    pending
+}
+
+/// Capture each pending mount and follow its module declarations, stopping
+/// at a cycle on the path that reached it. A mount whose file cannot be
+/// captured, or a declaration none of whose candidates can, is unavailable.
+fn follow_mounts(
+    root: &Path,
+    mut pending: Vec<Pending>,
+    sources: &mut BTreeMap<String, Arc<Captured>>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Result<MountedSources> {
     let mut mounts = BTreeSet::new();
     let mut unavailable = Vec::new();
     while let Some((rel, module, declaring_file, mut ancestry)) = pending.pop() {

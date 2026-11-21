@@ -461,11 +461,25 @@ fn label(value: &impl Serialize) -> Cell {
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn lexical(graph: &SourceGraph) -> Vec<Relation> {
+    let [file, mount, declaration, import] = files(graph);
+    let [mention, target, unresolved] = mentions(graph);
+    let diagnostic = diagnostics(graph);
+    vec![
+        file,
+        mount,
+        declaration,
+        import,
+        mention,
+        target,
+        unresolved,
+        diagnostic,
+    ]
+}
+
+/// The per-file lexical tables: each file, its mounts, its declarations and
+/// its written imports, in the graph's file order.
+fn files(graph: &SourceGraph) -> [Relation; 4] {
     let mut file = Relation::new("file");
     let mut mount = Relation::new("mount");
     let mut declaration = Relation::new("declaration");
@@ -509,6 +523,13 @@ fn lexical(graph: &SourceGraph) -> Vec<Relation> {
             ]);
         }
     }
+    [file, mount, declaration, import]
+}
+
+/// Each mention and its resolution as the capture recorded it: one target
+/// row for a unique target, one candidate row per ambiguous candidate, or an
+/// unresolved row with its reason.
+fn mentions(graph: &SourceGraph) -> [Relation; 3] {
     let mut mention = Relation::new("mention");
     let mut target = Relation::new("mention_target");
     let mut unresolved = Relation::new("mention_unresolved");
@@ -529,6 +550,10 @@ fn lexical(graph: &SourceGraph) -> Vec<Relation> {
             Resolution::Unresolved(reason) => unresolved.push([(&r.id).into(), reason.into()]),
         }
     }
+    [mention, target, unresolved]
+}
+
+fn diagnostics(graph: &SourceGraph) -> Relation {
     let mut diagnostic = Relation::new("diagnostic");
     for (n, d) in graph.diagnostics.iter().enumerate() {
         diagnostic.push([
@@ -540,16 +565,7 @@ fn lexical(graph: &SourceGraph) -> Vec<Relation> {
             code(&d.code).into(),
         ]);
     }
-    vec![
-        file,
-        mount,
-        declaration,
-        import,
-        mention,
-        target,
-        unresolved,
-        diagnostic,
-    ]
+    diagnostic
 }
 
 /// Lexical declaration ids by file, start line and written name, for the
@@ -585,10 +601,6 @@ impl<'a> Bridge<'a> {
 /// The semantic family from a reading joined with a qualified index: a
 /// function is named by its file and line, as the index and the facts both
 /// record it; a site several captured functions share names none.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn semantic(reading: &crate::analysis::semantic::Reading, facts: &Facts) -> Vec<Relation> {
     use crate::analysis::semantic::Semantic;
     let mut call = Relation::new("semantic_call");
@@ -597,59 +609,23 @@ fn semantic(reading: &crate::analysis::semantic::Reading, facts: &Facts) -> Vec<
         let reading = named.call;
         let from = named.from.unwrap_or_default();
         let site = &reading.site;
-        let (kind, detail) = match &reading.semantic {
-            Semantic::Definition {
-                site: definition,
-                kind,
-                ..
-            } => {
-                if let Some(to) = named.to {
-                    call.push([
-                        witness("semantic_call", call.rows.len()),
-                        from.into(),
-                        to.into(),
-                        (&reading.spelling).into(),
-                        (&site.path).into(),
-                        site.line.into(),
-                        site.column.into(),
-                        reading
-                            .agreement
-                            .map_or_else(String::new, |a| code(&a))
-                            .into(),
-                    ]);
-                    continue;
-                }
-                (
-                    "definition",
-                    format!(
-                        "{kind} at {}:{}: no single captured function there",
-                        definition.path, definition.line
-                    ),
-                )
-            }
-            Semantic::TraitMethod {
-                declaration,
-                symbol,
-            } => (
-                "trait-method",
-                format!(
-                    "{symbol} declared at {}:{}",
-                    declaration.path, declaration.line
-                ),
-            ),
-            Semantic::External {
-                package,
-                version,
-                item,
-            } => ("external", format!("{package} {version} {item}")),
-            Semantic::NoDefinition { symbol } => ("no-definition", symbol.clone()),
-            Semantic::Local => ("local", String::new()),
-            Semantic::Ambiguous { reason } => ("ambiguous", reason.clone()),
-            Semantic::Mismatch { symbol } => {
-                ("mismatch", format!("index names {symbol} at this site"))
-            }
-            Semantic::NotIndexed { reason } => ("not-indexed", reason.clone()),
-        };
+        if let (Semantic::Definition { .. }, Some(to)) = (&reading.semantic, named.to) {
+            call.push([
+                witness("semantic_call", call.rows.len()),
+                from.into(),
+                to.into(),
+                (&reading.spelling).into(),
+                (&site.path).into(),
+                site.line.into(),
+                site.column.into(),
+                reading
+                    .agreement
+                    .map_or_else(String::new, |a| code(&a))
+                    .into(),
+            ]);
+            continue;
+        }
+        let (kind, detail) = unknown_semantic(&reading.semantic);
         unknown.push([
             witness("semantic_unknown", unknown.rows.len()),
             from.into(),
@@ -664,32 +640,100 @@ fn semantic(reading: &crate::analysis::semantic::Reading, facts: &Facts) -> Vec<
     vec![call, unknown]
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
+/// The kind and detail of a semantic reading that names no single captured
+/// callee. A definition reaches here only when no one captured function
+/// starts at its site.
+fn unknown_semantic(semantic: &crate::analysis::semantic::Semantic) -> (&'static str, String) {
+    use crate::analysis::semantic::Semantic;
+    match semantic {
+        Semantic::Definition {
+            site: definition,
+            kind,
+            ..
+        } => (
+            "definition",
+            format!(
+                "{kind} at {}:{}: no single captured function there",
+                definition.path, definition.line
+            ),
+        ),
+        Semantic::TraitMethod {
+            declaration,
+            symbol,
+        } => (
+            "trait-method",
+            format!(
+                "{symbol} declared at {}:{}",
+                declaration.path, declaration.line
+            ),
+        ),
+        Semantic::External {
+            package,
+            version,
+            item,
+        } => ("external", format!("{package} {version} {item}")),
+        Semantic::NoDefinition { symbol } => ("no-definition", symbol.clone()),
+        Semantic::Local => ("local", String::new()),
+        Semantic::Ambiguous { reason } => ("ambiguous", reason.clone()),
+        Semantic::Mismatch { symbol } => ("mismatch", format!("index names {symbol} at this site")),
+        Semantic::NotIndexed { reason } => ("not-indexed", reason.clone()),
+    }
+}
+
 fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
-    let functions = Bridge::new(graph, &["Fn"]);
-    let types = Bridge::new(graph, &["Struct", "Enum", "Union", "TypeAlias"]);
     let mut file = Relation::new("qualified_file");
     for (path, fingerprint) in &facts.fingerprints {
         file.push([path.into(), fingerprint.into()]);
     }
-    // Each observation is test code when the item it is in is.
-    let test_items: BTreeSet<&str> = facts
-        .functions
-        .iter()
-        .filter(|f| f.test_only)
-        .map(|f| f.id.as_str())
-        .chain(
-            facts
-                .types
-                .iter()
-                .filter(|t| t.test_only)
-                .map(|t| t.id.as_str()),
-        )
-        .collect();
-    let in_test = |from: &str| test_items.contains(from).into();
+    let [function, ty, field] = items(graph, facts);
+    let tests = TestItems::of(facts);
+    let [call, unknown_call] = calls(facts, &tests);
+    let [reference, unknown_type] = references(facts, &tests);
+    let construction = constructors("construction", &facts.constructors, &tests);
+    let default_call = constructors("default_call", &facts.default_calls, &tests);
+    let constant = constants(facts);
+    vec![
+        file,
+        function,
+        ty,
+        field,
+        call,
+        unknown_call,
+        reference,
+        unknown_type,
+        construction,
+        default_call,
+        constant,
+    ]
+}
+
+/// The ids of the qualified functions and types that are test code. Each
+/// observation is test code when the item it is in is.
+struct TestItems<'a>(BTreeSet<&'a str>);
+impl<'a> TestItems<'a> {
+    fn of(facts: &'a Facts) -> Self {
+        let functions = facts
+            .functions
+            .iter()
+            .filter(|f| f.test_only)
+            .map(|f| f.id.as_str());
+        let types = facts
+            .types
+            .iter()
+            .filter(|t| t.test_only)
+            .map(|t| t.id.as_str());
+        Self(functions.chain(types).collect())
+    }
+    fn contain(&self, from: &str) -> Cell {
+        self.0.contains(from).into()
+    }
+}
+
+/// Qualified functions and types, each bridged to the lexical declaration at
+/// its site, and the written fields of each type in their order.
+fn items(graph: &SourceGraph, facts: &Facts) -> [Relation; 3] {
+    let functions = Bridge::new(graph, &["Fn"]);
+    let types = Bridge::new(graph, &["Struct", "Enum", "Union", "TypeAlias"]);
     let mut function = Relation::new("function");
     for f in &facts.functions {
         function.push([
@@ -722,6 +766,12 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
             field.push([(&t.id).into(), position.into(), name.into(), written.into()]);
         }
     }
+    [function, ty, field]
+}
+
+/// Resolved calls and their unknowns companion, with every recorded reason a
+/// call stayed unknown.
+fn calls(facts: &Facts, tests: &TestItems<'_>) -> [Relation; 2] {
     let mut call = Relation::new("call");
     for (n, c) in facts.calls.iter().enumerate() {
         call.push([
@@ -731,7 +781,7 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
             (&c.site.path).into(),
             c.site.line.into(),
             c.site.column.into(),
-            in_test(&c.from),
+            tests.contain(&c.from),
         ]);
     }
     let mut unknown_call = Relation::new("unknown_call");
@@ -752,9 +802,14 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
                     .map(|r| r.subject.clone().unwrap_or_default()),
             )
             .into(),
-            in_test(&u.from),
+            tests.contain(&u.from),
         ]);
     }
+    [call, unknown_call]
+}
+
+/// Resolved type references and their unknowns companion.
+fn references(facts: &Facts, tests: &TestItems<'_>) -> [Relation; 2] {
     let mut reference = Relation::new("reference");
     for (n, r) in facts.references.iter().enumerate() {
         reference.push([
@@ -766,7 +821,7 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
             (&r.expression).into(),
             r.line.into(),
             r.borrow.into(),
-            in_test(&r.from),
+            tests.contain(&r.from),
         ]);
     }
     let mut unknown_type = Relation::new("unknown_type");
@@ -780,24 +835,32 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
             (&u.slot).into(),
             u.line.into(),
             u.column.into(),
-            in_test(&u.from),
+            tests.contain(&u.from),
         ]);
     }
-    let built = |name: &str, list: &[crate::representations::Constructor]| {
-        let mut relation = Relation::new(name);
-        for (n, c) in list.iter().enumerate() {
-            relation.push([
-                witness(name, n),
-                (&c.from).into(),
-                (&c.to).into(),
-                c.line.into(),
-                in_test(&c.from),
-            ]);
-        }
-        relation
-    };
-    let construction = built("construction", &facts.constructors);
-    let default_call = built("default_call", &facts.default_calls);
+    [reference, unknown_type]
+}
+
+/// One construction-shaped relation (`construction` or `default_call`).
+fn constructors(
+    name: &str,
+    list: &[crate::representations::Constructor],
+    tests: &TestItems<'_>,
+) -> Relation {
+    let mut relation = Relation::new(name);
+    for (n, c) in list.iter().enumerate() {
+        relation.push([
+            witness(name, n),
+            (&c.from).into(),
+            (&c.to).into(),
+            c.line.into(),
+            tests.contain(&c.from),
+        ]);
+    }
+    relation
+}
+
+fn constants(facts: &Facts) -> Relation {
     let mut constant = Relation::new("constant");
     for c in &facts.constants {
         constant.push([
@@ -810,19 +873,7 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
             c.test_only.into(),
         ]);
     }
-    vec![
-        file,
-        function,
-        ty,
-        field,
-        call,
-        unknown_call,
-        reference,
-        unknown_type,
-        construction,
-        default_call,
-        constant,
-    ]
+    constant
 }
 
 /// A unit enum's serialized name: the stable code of a diagnostic or reason

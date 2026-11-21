@@ -211,10 +211,6 @@ fn package_sources(package: &cargo_metadata::Package, root: &Path) -> Result<Pac
     })
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn read_metadata(
     metadata: &Metadata,
     captured: &mut BTreeMap<String, Arc<crate::source::Captured>>,
@@ -226,9 +222,101 @@ fn read_metadata(
     let root = metadata.workspace_root.as_std_path().canonicalize()?;
     let mut packages = metadata.workspace_packages();
     packages.sort_by(|a, b| a.name.cmp(&b.name));
+    let import_roots = import_roots(&packages);
+    let mut files = Vec::new();
+    let mut source_mounts = BTreeMap::new();
+    let mut diagnostics = Vec::new();
+    let inputs = capture_packages(&packages, &root, captured)?;
+    for (package, input) in packages.into_iter().zip(inputs) {
+        let PackageSources {
+            src,
+            selected,
+            diagnostics: package_diagnostics,
+        } = input;
+        diagnostics.extend(package_diagnostics);
+        let entry_points = entry_points(&root, package);
+        let mut loaded: Vec<_> = selected
+            .into_iter()
+            .map(|(rel, _)| Loaded {
+                source: Arc::clone(&captured[&rel]),
+                rel,
+                test_file: false,
+            })
+            .collect();
+        let outside = mounted::outside_mounts(
+            &root,
+            &rel_display(&root, &src),
+            &loaded,
+            captured,
+            &mut diagnostics,
+        )?;
+        add_outside_mounts(
+            &mut loaded,
+            &outside,
+            &package.name,
+            captured,
+            &mut diagnostics,
+        );
+        source_mounts.insert(package.name.to_string(), outside);
+        let mounts = mark_test_files(&mut loaded, &entry_points, &package.name, &mut diagnostics);
+        for (file_index, file) in loaded.into_iter().enumerate() {
+            let mounts = mounts.get(&file_index).cloned().unwrap_or_default();
+            files.push(source_file(file, &package.name, mounts, &mut diagnostics)?);
+        }
+    }
+    qualify_shared_declarations(&mut files);
+    diagnostics.sort_by(|a, b| {
+        (&a.file, a.line, &a.package, &a.message).cmp(&(&b.file, b.line, &b.package, &b.message))
+    });
+    diagnostics.dedup_by(|a, b| {
+        a.file == b.file && a.line == b.line && a.package == b.package && a.message == b.message
+    });
+    let source_diagnostics = diagnostics.clone();
+    let mut graph = SourceGraph {
+        schema: 1,
+        root: ".".into(),
+        files,
+        import_roots,
+        relationships: Vec::new(),
+        diagnostics,
+    };
+    let sources = captured
+        .iter()
+        .filter_map(|(p, c)| Some((p.clone(), c.retain()?)))
+        .collect();
+    crate::relationships::derive_captured(&mut graph, &sources);
+    Ok((graph, source_mounts, source_diagnostics))
+}
+
+/// Read every package's files first, so one capture parses all the misses
+/// in parallel; a package's own diagnostics keep their place in its input.
+fn capture_packages(
+    packages: &[&cargo_metadata::Package],
+    root: &Path,
+    captured: &mut BTreeMap<String, Arc<crate::source::Captured>>,
+) -> Result<Vec<PackageSources>> {
+    let inputs = packages
+        .iter()
+        .map(|package| package_sources(package, root))
+        .collect::<Result<Vec<_>>>()?;
+    // A file two packages share is read and parsed once.
+    let everything: Vec<_> = inputs
+        .iter()
+        .flat_map(|input| input.selected.iter().cloned())
+        .collect::<BTreeMap<_, _>>()
+        .into_iter()
+        .collect();
+    crate::source::capture_files(root, &everything, captured)?;
+    Ok(inputs)
+}
+
+/// The crate names each package may import a workspace member by: every
+/// member and every library-like target, and the renames of its own
+/// dependencies on members, as written in `use` paths.
+fn import_roots(packages: &[&cargo_metadata::Package]) -> BTreeMap<String, Vec<String>> {
     let member_names: BTreeSet<_> = packages.iter().map(|p| p.name.to_string()).collect();
     let mut import_roots = BTreeMap::new();
-    for package in &packages {
+    for package in packages {
         let mut roots: BTreeSet<String> =
             member_names.iter().map(|n| n.replace('-', "_")).collect();
         roots.extend(
@@ -254,232 +342,210 @@ fn read_metadata(
         );
         import_roots.insert(package.name.to_string(), roots.into_iter().collect());
     }
-    let mut files = Vec::new();
-    let mut source_mounts = BTreeMap::new();
-    let mut diagnostics = Vec::new();
-    // Read every package's files first, so one capture parses all the misses
-    // in parallel; a package's own diagnostics keep their place below.
-    let inputs = packages
+    import_roots
+}
+
+/// Each Cargo target root of a package: its path key, whether a test or
+/// bench target starts there, and the target's label when several targets
+/// share that root.
+fn entry_points(
+    root: &Path,
+    package: &cargo_metadata::Package,
+) -> Vec<(String, bool, Option<String>)> {
+    let targets: Vec<_> = package
+        .targets
         .iter()
-        .map(|package| package_sources(package, &root))
-        .collect::<Result<Vec<_>>>()?;
-    // A file two packages share is read and parsed once.
-    let everything: Vec<_> = inputs
-        .iter()
-        .flat_map(|input| input.selected.iter().cloned())
-        .collect::<BTreeMap<_, _>>()
-        .into_iter()
+        .map(|target| (target_key(root, target.src_path.as_std_path()), target))
         .collect();
-    crate::source::capture_files(&root, &everything, captured)?;
-    for (package, input) in packages.into_iter().zip(inputs) {
-        let PackageSources {
-            src,
-            selected,
-            diagnostics: package_diagnostics,
-        } = input;
-        diagnostics.extend(package_diagnostics);
-        let targets: Vec<_> = package
-            .targets
-            .iter()
-            .map(|target| (target_key(&root, target.src_path.as_std_path()), target))
-            .collect();
-        let mut target_counts = BTreeMap::<&str, usize>::new();
-        for (path, _) in &targets {
-            *target_counts.entry(path).or_default() += 1;
-        }
-        let entry_points: Vec<_> = targets
-            .iter()
-            .map(|(path, target)| {
-                (
-                    path.clone(),
-                    target
-                        .kind
-                        .iter()
-                        .any(|kind| matches!(kind, TargetKind::Test | TargetKind::Bench)),
-                    (target_counts[path.as_str()] > 1).then(|| target_label(target)),
-                )
-            })
-            .collect();
-        let mut loaded: Vec<_> = selected
-            .into_iter()
-            .map(|(rel, _)| Loaded {
-                source: Arc::clone(&captured[&rel]),
-                rel,
-                test_file: false,
-            })
-            .collect();
-        let outside = mounted::outside_mounts(
-            &root,
-            &rel_display(&root, &src),
-            &loaded,
-            captured,
-            &mut diagnostics,
-        )?;
-        let mut known: BTreeSet<_> = loaded.iter().map(|file| file.rel.clone()).collect();
-        for issue in &outside.unavailable {
-            diagnostics.push(Diagnostic {
-                code: crate::model::DiagnosticCode::MountUnavailable,
-                file: issue.declaring_file.clone(),
-                line: None,
-                package: Some(package.name.to_string()),
-                message: format!(
-                    "required source-tree mount {} could not be captured: {}",
-                    issue.module,
-                    issue.candidates.join(", ")
-                ),
-            });
-        }
-        for mount in &outside.files {
-            if known.insert(mount.path.clone()) {
-                loaded.push(Loaded {
-                    rel: mount.path.clone(),
-                    source: Arc::clone(&captured[&mount.path]),
-                    test_file: true,
-                });
-            }
-        }
-        source_mounts.insert(package.name.to_string(), outside);
-        let mounts = mark_test_files(&mut loaded, &entry_points, &package.name, &mut diagnostics);
-        for (file_index, file) in loaded.into_iter().enumerate() {
-            let Some(source) = file.source.facts() else {
-                let error = file
-                    .source
-                    .error()
-                    .ok_or("invalid capture lacks syntax cause")?;
-                diagnostics.push(Diagnostic {
-                    code: crate::model::DiagnosticCode::SyntaxError,
-                    file: file.rel.clone(),
-                    line: Some(error.line()),
-                    package: Some(package.name.to_string()),
-                    message: error.to_string(),
-                });
-                files.push(SourceFile {
-                    path: file.rel,
-                    crate_name: package.name.to_string(),
-                    content_fingerprint: fingerprint(file.source.text().as_bytes()),
-                    test_only: file.test_file,
-                    mounts: mounts.get(&file_index).cloned().unwrap_or_default(),
-                    imports: Vec::new(),
-                    declarations: Vec::new(),
-                });
-                continue;
-            };
-            if let Some((line, reason)) = super::population::native_limitation(source) {
-                diagnostics.push(Diagnostic {
-                    code: crate::model::DiagnosticCode::NativeLimit,
-                    file: file.rel.clone(),
-                    line: Some(line),
-                    package: Some(package.name.to_string()),
-                    message: format!("native source at {line}: {reason}"),
-                });
-            }
-            for import in source.imports().filter(|import| {
-                crate::population::TestSelection::Production
-                    .admits_offset(source, import.bytes.start)
-            }) {
-                if let Err(error) = &import.bindings {
-                    diagnostics.push(Diagnostic {
-                        code: crate::model::DiagnosticCode::UseUnreadable,
-                        file: file.rel.clone(),
-                        line: Some(import.line),
-                        package: Some(package.name.to_string()),
-                        message: format!("use syntax could not be read: {error}"),
-                    });
-                }
-            }
-            let imports = source
-                .outline()
-                .iter()
-                .filter(|item| {
-                    matches!(
-                        item.kind,
-                        crate::scan::ItemKind::Use | crate::scan::ItemKind::PubUse
-                    ) && crate::population::TestSelection::Production
-                        .admits_offset(source, item.syntax_span.start)
-                })
-                .map(|item| Arc::clone(&item.declaration_block))
-                .collect();
-            let mut sites = BTreeMap::new();
-            for item in source.outline().iter().filter(|item| item.kind.declares()) {
-                *sites.entry((item.line, &item.name)).or_insert(0usize) += 1;
-            }
-            let inline = crate::source::InlineModules::of(source.outline());
-            let impls = crate::source::Blocks::impls(source.outline());
-            let declarations = source
-                .outline()
-                .iter()
-                .filter(|item| item.kind.declares())
-                .map(|item| Declaration {
-                    id: {
-                        let id = format!("{}:{}:{}", file.rel, item.line, item.name);
-                        if sites[&(item.line, &item.name)] > 1 {
-                            format!("{id}#{}", item.syntax_span.start)
-                        } else {
-                            id
-                        }
-                    },
-                    name: item.name.clone(),
-                    kind: item.kind.tag().to_owned(),
-                    visibility: item.visibility.tag().to_owned(),
-                    line: item.line,
-                    end_line: *item.span.end(),
-                    summary: item.doc.clone(),
-                    test_only: file.test_file
-                        || !crate::population::TestSelection::Production
-                            .admits_offset(source, item.syntax_span.start),
-                    block: Arc::clone(&item.declaration_block),
-                    modules: inline
-                        .enclosing(item)
-                        .into_iter()
-                        .map(str::to_owned)
-                        .collect(),
-                    self_type: impls.self_type(item).map(str::to_owned),
-                })
-                .collect();
-            files.push(SourceFile {
-                path: file.rel,
-                crate_name: package.name.to_string(),
-                content_fingerprint: fingerprint(source.text().as_bytes()),
-                test_only: file.test_file,
-                mounts: mounts.get(&file_index).cloned().unwrap_or_default(),
-                imports,
-                declarations,
+    let mut target_counts = BTreeMap::<&str, usize>::new();
+    for (path, _) in &targets {
+        *target_counts.entry(path).or_default() += 1;
+    }
+    targets
+        .iter()
+        .map(|(path, target)| {
+            (
+                path.clone(),
+                target
+                    .kind
+                    .iter()
+                    .any(|kind| matches!(kind, TargetKind::Test | TargetKind::Bench)),
+                (target_counts[path.as_str()] > 1).then(|| target_label(target)),
+            )
+        })
+        .collect()
+}
+
+/// Report each required mount outside src that could not be captured, then
+/// load each captured one not already loaded, as a test file until the test
+/// boundary is marked.
+fn add_outside_mounts(
+    loaded: &mut Vec<Loaded>,
+    outside: &MountedSources,
+    package: &str,
+    captured: &BTreeMap<String, Arc<crate::source::Captured>>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let mut known: BTreeSet<_> = loaded.iter().map(|file| file.rel.clone()).collect();
+    for issue in &outside.unavailable {
+        diagnostics.push(Diagnostic {
+            code: crate::model::DiagnosticCode::MountUnavailable,
+            file: issue.declaring_file.clone(),
+            line: None,
+            package: Some(package.to_owned()),
+            message: format!(
+                "required source-tree mount {} could not be captured: {}",
+                issue.module,
+                issue.candidates.join(", ")
+            ),
+        });
+    }
+    for mount in &outside.files {
+        if known.insert(mount.path.clone()) {
+            loaded.push(Loaded {
+                rel: mount.path.clone(),
+                source: Arc::clone(&captured[&mount.path]),
+                test_file: true,
             });
         }
     }
+}
+
+/// One package context of a loaded file. An invalid file stays in the
+/// inventory with its syntax error and no imports or declarations; a valid
+/// one reports its native limitation and unreadable production imports.
+fn source_file(
+    file: Loaded,
+    package: &str,
+    mounts: Vec<crate::model::Mount>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Result<SourceFile> {
+    let Some(source) = file.source.facts() else {
+        let error = file
+            .source
+            .error()
+            .ok_or("invalid capture lacks syntax cause")?;
+        diagnostics.push(Diagnostic {
+            code: crate::model::DiagnosticCode::SyntaxError,
+            file: file.rel.clone(),
+            line: Some(error.line()),
+            package: Some(package.to_owned()),
+            message: error.to_string(),
+        });
+        return Ok(SourceFile {
+            path: file.rel,
+            crate_name: package.to_owned(),
+            content_fingerprint: fingerprint(file.source.text().as_bytes()),
+            test_only: file.test_file,
+            mounts,
+            imports: Vec::new(),
+            declarations: Vec::new(),
+        });
+    };
+    if let Some((line, reason)) = super::population::native_limitation(source) {
+        diagnostics.push(Diagnostic {
+            code: crate::model::DiagnosticCode::NativeLimit,
+            file: file.rel.clone(),
+            line: Some(line),
+            package: Some(package.to_owned()),
+            message: format!("native source at {line}: {reason}"),
+        });
+    }
+    for import in source.imports().filter(|import| {
+        crate::population::TestSelection::Production.admits_offset(source, import.bytes.start)
+    }) {
+        if let Err(error) = &import.bindings {
+            diagnostics.push(Diagnostic {
+                code: crate::model::DiagnosticCode::UseUnreadable,
+                file: file.rel.clone(),
+                line: Some(import.line),
+                package: Some(package.to_owned()),
+                message: format!("use syntax could not be read: {error}"),
+            });
+        }
+    }
+    let imports = source
+        .outline()
+        .iter()
+        .filter(|item| {
+            matches!(
+                item.kind,
+                crate::scan::ItemKind::Use | crate::scan::ItemKind::PubUse
+            ) && crate::population::TestSelection::Production
+                .admits_offset(source, item.syntax_span.start)
+        })
+        .map(|item| Arc::clone(&item.declaration_block))
+        .collect();
+    let declarations = declarations(&file, source);
+    Ok(SourceFile {
+        path: file.rel,
+        crate_name: package.to_owned(),
+        content_fingerprint: fingerprint(source.text().as_bytes()),
+        test_only: file.test_file,
+        mounts,
+        imports,
+        declarations,
+    })
+}
+
+/// A valid file's declarations. Several declarations with one line and name
+/// are told apart by their syntax offset; an item is test-only in a test
+/// file or outside the production population.
+fn declarations(file: &Loaded, source: &crate::source::Source) -> Vec<Declaration> {
+    let mut sites = BTreeMap::new();
+    for item in source.outline().iter().filter(|item| item.kind.declares()) {
+        *sites.entry((item.line, &item.name)).or_insert(0usize) += 1;
+    }
+    let inline = crate::source::InlineModules::of(source.outline());
+    let impls = crate::source::Blocks::impls(source.outline());
+    source
+        .outline()
+        .iter()
+        .filter(|item| item.kind.declares())
+        .map(|item| Declaration {
+            id: {
+                let id = format!("{}:{}:{}", file.rel, item.line, item.name);
+                if sites[&(item.line, &item.name)] > 1 {
+                    format!("{id}#{}", item.syntax_span.start)
+                } else {
+                    id
+                }
+            },
+            name: item.name.clone(),
+            kind: item.kind.tag().to_owned(),
+            visibility: item.visibility.tag().to_owned(),
+            line: item.line,
+            end_line: *item.span.end(),
+            summary: item.doc.clone(),
+            test_only: file.test_file
+                || !crate::population::TestSelection::Production
+                    .admits_offset(source, item.syntax_span.start),
+            block: Arc::clone(&item.declaration_block),
+            modules: inline
+                .enclosing(item)
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            self_type: impls.self_type(item).map(str::to_owned),
+        })
+        .collect()
+}
+
+/// Order files by path and package. A declaration in a path several packages
+/// share names its package in its id, so each context keeps its own id.
+fn qualify_shared_declarations(files: &mut [SourceFile]) {
     files.sort_by(|a, b| (&a.path, &a.crate_name).cmp(&(&b.path, &b.crate_name)));
     let mut shared = BTreeMap::<String, usize>::new();
-    for file in &files {
+    for file in &*files {
         *shared.entry(file.path.clone()).or_default() += 1;
     }
-    for file in &mut files {
+    for file in files {
         if shared[&file.path] > 1 {
             for declaration in &mut file.declarations {
                 declaration.id = format!("{}@{}", declaration.id, file.crate_name);
             }
         }
     }
-    diagnostics.sort_by(|a, b| {
-        (&a.file, a.line, &a.package, &a.message).cmp(&(&b.file, b.line, &b.package, &b.message))
-    });
-    diagnostics.dedup_by(|a, b| {
-        a.file == b.file && a.line == b.line && a.package == b.package && a.message == b.message
-    });
-    let source_diagnostics = diagnostics.clone();
-    let mut graph = SourceGraph {
-        schema: 1,
-        root: ".".into(),
-        files,
-        import_roots,
-        relationships: Vec::new(),
-        diagnostics,
-    };
-    let sources = captured
-        .iter()
-        .filter_map(|(p, c)| Some((p.clone(), c.retain()?)))
-        .collect();
-    crate::relationships::derive_captured(&mut graph, &sources);
-    Ok((graph, source_mounts, source_diagnostics))
 }
 
 fn has_symlink(root: &Path, path: &Path) -> Result<bool> {
@@ -711,10 +777,6 @@ struct ModuleMount {
 /// Follow test-gated file declarations and their transitive children. A path
 /// mount changes the child's location, never its inherited test boundary.
 /// Production mounts take precedence when a file has both kinds of parent.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn mark_test_files(
     files: &mut [Loaded],
     entry_points: &[(String, bool, Option<String>)],
@@ -726,6 +788,27 @@ fn mark_test_files(
         .enumerate()
         .map(|(index, file)| (file.rel.clone(), index))
         .collect();
+    let (children, mounted) = module_children(files, &by_path, package, diagnostics);
+    let (tests, production) = test_reach(files, entry_points, &by_path, &children, &mounted);
+    for (index, file) in files.iter_mut().enumerate() {
+        file.test_file = (file.test_file || tests.contains(&index)) && !production.contains(&index);
+    }
+    mount_paths(entry_points, &by_path, &children)
+}
+
+/// For each way a file can be loaded (as a mod-rs root or beside its own
+/// name), the discovered files its module declarations load: the child's
+/// mount, whether its declaration is test-gated, and the module path it adds.
+type Children = BTreeMap<ModuleMount, Vec<(ModuleMount, bool, Vec<String>)>>;
+
+/// The module children of every valid file, and the set of files some
+/// declaration mounts. A declaration with no discovered file is diagnosed.
+fn module_children(
+    files: &[Loaded],
+    by_path: &BTreeMap<String, usize>,
+    package: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> (Children, BTreeSet<usize>) {
     let mut children = BTreeMap::new();
     let mut mounted = BTreeSet::new();
     for (index, file) in files.iter().enumerate() {
@@ -782,6 +865,19 @@ fn mark_test_files(
             children.insert(mount, edges);
         }
     }
+    (children, mounted)
+}
+
+/// The files reached inside test code and those reached as production, from
+/// every entry point and every unmounted production file. A file can be in
+/// both sets.
+fn test_reach(
+    files: &[Loaded],
+    entry_points: &[(String, bool, Option<String>)],
+    by_path: &BTreeMap<String, usize>,
+    children: &Children,
+    mounted: &BTreeSet<usize>,
+) -> (BTreeSet<usize>, BTreeSet<usize>) {
     // Unmounted files remain production census inputs. Cargo supplies the
     // actual entry points, including roots also imported by another module.
     let mut pending: Vec<_> = (0..files.len())
@@ -837,9 +933,17 @@ fn mark_test_files(
             );
         }
     }
-    for (index, file) in files.iter_mut().enumerate() {
-        file.test_file = (file.test_file || tests.contains(&index)) && !production.contains(&index);
-    }
+    (tests, production)
+}
+
+/// Every module path from an entry point to each file it reaches, with its
+/// inherited test boundary and target label. A cycle stops at the first
+/// repeat on its own path.
+fn mount_paths(
+    entry_points: &[(String, bool, Option<String>)],
+    by_path: &BTreeMap<String, usize>,
+    children: &Children,
+) -> BTreeMap<usize, Vec<crate::model::Mount>> {
     let mut paths = BTreeMap::<usize, BTreeSet<crate::model::Mount>>::new();
     for (root, root_test, target) in entry_points {
         let Some(&file) = by_path.get(root) else {

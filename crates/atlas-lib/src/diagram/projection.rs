@@ -3,7 +3,7 @@ use super::{Coverage, Diagram, Edge, EdgeEvidence, Level, Node, Query, View};
 use crate::{
     Result,
     architecture::{Architecture, Kind, Module, contains},
-    model::{Declaration, Resolution, SourceFile, SourceGraph},
+    model::{Declaration, Relationship, Resolution, SourceFile, SourceGraph},
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -235,10 +235,6 @@ struct Groups {
     file_nodes: BTreeMap<String, Vec<String>>,
 }
 impl Groups {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     fn new(
         graph: &SourceGraph,
         profile: Option<&Architecture>,
@@ -257,134 +253,10 @@ impl Groups {
         let focus_module = profile.and_then(|p| p.modules.iter().find(|m| m.path == focus));
         for file in &graph.files {
             if query.level == Level::Declarations {
-                let id = format!("file:{}", file.path);
-                result.add(
-                    file,
-                    None,
-                    Node {
-                        id,
-                        label: format!("{} (file)", leaf(&file.path)),
-                        group: folder(&file.path),
-                        source_sites: vec![file.path.clone()],
-                        context: !contains(focus, &file.path),
-                        internal_relationships: Vec::new(),
-                        surface: None,
-                    },
-                );
-                for d in file.declarations.iter().filter(|d| !d.test_only) {
-                    result.add(
-                        file,
-                        Some(d),
-                        Node {
-                            id: d.id.clone(),
-                            label: format!(
-                                "{} [{}:{}]{}",
-                                d.name,
-                                leaf(&file.path),
-                                d.line,
-                                if path_counts[file.path.as_str()] > 1 {
-                                    format!(" @{}", file.crate_name)
-                                } else {
-                                    String::new()
-                                }
-                            ),
-                            group: folder(&file.path),
-                            source_sites: vec![d.id.clone()],
-                            context: !contains(focus, &file.path),
-                            internal_relationships: Vec::new(),
-                            surface: None,
-                        },
-                    );
-                }
+                result.add_declarations(file, focus, &path_counts);
                 continue;
             }
-            let node = match query.level {
-                Level::Stages => profile
-                    .and_then(|p| p.owner(&file.path))
-                    .filter(|m| m.kind == Kind::Stage)
-                    .map(|m| profile_node(m, !contains(focus, &file.path), query.level)),
-                Level::Modules => {
-                    if let Some(module) =
-                        focus_module.filter(|m| m.directory && contains(&m.path, &file.path))
-                    {
-                        let suffix = file
-                            .path
-                            .strip_prefix(&format!("{}/", module.path))
-                            .unwrap_or(&file.path)
-                            .trim_end_matches(".rs");
-                        let suffix = if suffix == "mod" {
-                            ""
-                        } else {
-                            suffix.trim_end_matches("/mod")
-                        };
-                        let name = if suffix.is_empty() {
-                            module.name.clone()
-                        } else {
-                            format!("{}::{}", module.name, suffix.replace('/', "::"))
-                        };
-                        Some(Node {
-                            id: format!("child:{name}"),
-                            label: name,
-                            group: module.name.clone(),
-                            source_sites: vec![file.path.clone()],
-                            context: false,
-                            internal_relationships: Vec::new(),
-                            surface: if suffix.is_empty() {
-                                profile_node(module, false, query.level).surface
-                            } else {
-                                None
-                            },
-                        })
-                    } else if let Some(profile) = profile {
-                        profile.owner(&file.path).map(|m| {
-                            if !focus.is_empty()
-                                && !contains(focus, &file.path)
-                                && matches!(m.kind, Kind::Vocabulary | Kind::SharedLaw)
-                            {
-                                Node {
-                                    id: "context:shared-layer".into(),
-                                    label: "shared layer".into(),
-                                    group: "context".into(),
-                                    source_sites: vec![file.path.clone()],
-                                    context: true,
-                                    internal_relationships: Vec::new(),
-                                    surface: None,
-                                }
-                            } else {
-                                let mut node =
-                                    profile_node(m, !contains(focus, &file.path), query.level);
-                                node.source_sites = vec![file.path.clone()];
-                                if node.context {
-                                    node.group = "context".into();
-                                }
-                                node
-                            }
-                        })
-                    } else {
-                        let path = folder(&file.path);
-                        Some(Node {
-                            id: format!("directory:{path}"),
-                            label: leaf(&path).into(),
-                            group: folder(&path),
-                            source_sites: vec![file.path.clone()],
-                            context: !contains(focus, &file.path),
-                            internal_relationships: Vec::new(),
-                            surface: None,
-                        })
-                    }
-                }
-                Level::Files => Some(Node {
-                    id: file.path.clone(),
-                    label: leaf(&file.path).into(),
-                    group: folder(&file.path),
-                    source_sites: vec![file.path.clone()],
-                    context: !contains(focus, &file.path),
-                    internal_relationships: Vec::new(),
-                    surface: None,
-                }),
-                Level::Declarations => None,
-            };
-            if let Some(mut node) = node {
+            if let Some(mut node) = file_node(file, profile, query.level, focus, focus_module) {
                 node.source_sites = vec![file.path.clone()];
                 let id = node.id.clone();
                 result.add(file, None, node);
@@ -394,6 +266,55 @@ impl Groups {
             }
         }
         result
+    }
+    /// The declarations level: a node for the file and one for each
+    /// production declaration in it. A declaration in a path several
+    /// packages share names its package.
+    fn add_declarations(
+        &mut self,
+        file: &SourceFile,
+        focus: &str,
+        path_counts: &BTreeMap<&str, usize>,
+    ) {
+        let id = format!("file:{}", file.path);
+        self.add(
+            file,
+            None,
+            Node {
+                id,
+                label: format!("{} (file)", leaf(&file.path)),
+                group: folder(&file.path),
+                source_sites: vec![file.path.clone()],
+                context: !contains(focus, &file.path),
+                internal_relationships: Vec::new(),
+                surface: None,
+            },
+        );
+        for d in file.declarations.iter().filter(|d| !d.test_only) {
+            self.add(
+                file,
+                Some(d),
+                Node {
+                    id: d.id.clone(),
+                    label: format!(
+                        "{} [{}:{}]{}",
+                        d.name,
+                        leaf(&file.path),
+                        d.line,
+                        if path_counts[file.path.as_str()] > 1 {
+                            format!(" @{}", file.crate_name)
+                        } else {
+                            String::new()
+                        }
+                    ),
+                    group: folder(&file.path),
+                    source_sites: vec![d.id.clone()],
+                    context: !contains(focus, &file.path),
+                    internal_relationships: Vec::new(),
+                    surface: None,
+                },
+            );
+        }
     }
     fn add(&mut self, file: &SourceFile, declaration: Option<&Declaration>, node: Node) {
         if let Some(d) = declaration {
@@ -416,6 +337,116 @@ impl Groups {
             .or_insert(node);
     }
 }
+/// The one node a file collapses into at a coarse level, or none when that
+/// level does not show it (a file no declared stage owns).
+fn file_node(
+    file: &SourceFile,
+    profile: Option<&Architecture>,
+    level: Level,
+    focus: &str,
+    focus_module: Option<&Module>,
+) -> Option<Node> {
+    match level {
+        Level::Stages => profile
+            .and_then(|p| p.owner(&file.path))
+            .filter(|m| m.kind == Kind::Stage)
+            .map(|m| profile_node(m, !contains(focus, &file.path), level)),
+        Level::Modules => module_node(file, profile, focus, focus_module),
+        Level::Files => Some(Node {
+            id: file.path.clone(),
+            label: leaf(&file.path).into(),
+            group: folder(&file.path),
+            source_sites: vec![file.path.clone()],
+            context: !contains(focus, &file.path),
+            internal_relationships: Vec::new(),
+            surface: None,
+        }),
+        Level::Declarations => None,
+    }
+}
+
+/// The modules level: a file inside the focused directory module is its own
+/// child; otherwise the declared module that owns it, where a shared layer
+/// outside the focus collapses into one context node; without a profile, its
+/// physical directory.
+fn module_node(
+    file: &SourceFile,
+    profile: Option<&Architecture>,
+    focus: &str,
+    focus_module: Option<&Module>,
+) -> Option<Node> {
+    if let Some(module) = focus_module.filter(|m| m.directory && contains(&m.path, &file.path)) {
+        return Some(child_node(module, file));
+    }
+    let Some(profile) = profile else {
+        let path = folder(&file.path);
+        return Some(Node {
+            id: format!("directory:{path}"),
+            label: leaf(&path).into(),
+            group: folder(&path),
+            source_sites: vec![file.path.clone()],
+            context: !contains(focus, &file.path),
+            internal_relationships: Vec::new(),
+            surface: None,
+        });
+    };
+    profile.owner(&file.path).map(|m| {
+        if !focus.is_empty()
+            && !contains(focus, &file.path)
+            && matches!(m.kind, Kind::Vocabulary | Kind::SharedLaw)
+        {
+            Node {
+                id: "context:shared-layer".into(),
+                label: "shared layer".into(),
+                group: "context".into(),
+                source_sites: vec![file.path.clone()],
+                context: true,
+                internal_relationships: Vec::new(),
+                surface: None,
+            }
+        } else {
+            let mut node = profile_node(m, !contains(focus, &file.path), Level::Modules);
+            node.source_sites = vec![file.path.clone()];
+            if node.context {
+                node.group = "context".into();
+            }
+            node
+        }
+    })
+}
+
+/// A file inside the focused directory module, named by its path below the
+/// module; the module's own root file keeps the module's declared surface.
+fn child_node(module: &Module, file: &SourceFile) -> Node {
+    let suffix = file
+        .path
+        .strip_prefix(&format!("{}/", module.path))
+        .unwrap_or(&file.path)
+        .trim_end_matches(".rs");
+    let suffix = if suffix == "mod" {
+        ""
+    } else {
+        suffix.trim_end_matches("/mod")
+    };
+    let name = if suffix.is_empty() {
+        module.name.clone()
+    } else {
+        format!("{}::{}", module.name, suffix.replace('/', "::"))
+    };
+    Node {
+        id: format!("child:{name}"),
+        label: name,
+        group: module.name.clone(),
+        source_sites: vec![file.path.clone()],
+        context: false,
+        internal_relationships: Vec::new(),
+        surface: if suffix.is_empty() {
+            profile_node(module, false, Level::Modules).surface
+        } else {
+            None
+        },
+    }
+}
 fn leaf(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
@@ -430,10 +461,6 @@ fn hidden(out: &mut Diagram, reason: &str, id: &str) {
         .push(id.into());
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn types(
     graph: &SourceGraph,
     profile: Option<&Architecture>,
@@ -444,131 +471,10 @@ fn types(
     if out.inventory.is_empty() {
         return Err("focus contains no architecture/source files".into());
     }
-    let selected: BTreeSet<_> = out.inventory.iter().cloned().collect();
-    let sites: BTreeMap<_, _> = graph
-        .files
-        .iter()
-        .flat_map(|f| f.declarations.iter().map(move |d| (&d.id, &f.path)))
-        .collect();
     let mut groups = Groups::new(graph, profile, query, focus);
-    let mut visible = BTreeSet::new();
-    for file in &out.inventory {
-        if let Some(ids) = groups.file_nodes.get(file) {
-            visible.extend(ids.iter().cloned());
-        }
-    }
-    // Declared modules/stages without declarations still remain visible.
-    if focus.is_empty()
-        && matches!(query.level, Level::Stages | Level::Modules)
-        && let Some(p) = profile
-    {
-        for module in &p.modules {
-            if query.level != Level::Stages || module.kind == Kind::Stage {
-                let node = profile_node(module, false, query.level);
-                visible.insert(node.id.clone());
-                groups.nodes.entry(node.id.clone()).or_insert(node);
-            }
-        }
-    }
-    let coarse = matches!(query.level, Level::Stages | Level::Modules);
-    let mut edges: BTreeMap<(String, String, String), Edge> = BTreeMap::new();
-    for relation in &graph.relationships {
-        let Some(file) = sites.get(&relation.source) else {
-            return Err("source relationship refers to absent declaration".into());
-        };
-        if !selected.contains(*file) {
-            hidden(&mut out, "outside focus", &relation.id);
-            continue;
-        }
-        let Some(from) = groups.source_nodes.get(&relation.source).cloned() else {
-            hidden(&mut out, "source collapsed at level", &relation.id);
-            continue;
-        };
-        let to = match &relation.target {
-            Resolution::Unique(target) => {
-                let Some(id) = groups.source_nodes.get(target) else {
-                    hidden(&mut out, "target collapsed at level", &relation.id);
-                    continue;
-                };
-                id.clone()
-            }
-            Resolution::Ambiguous(candidates) => {
-                if coarse {
-                    hidden(&mut out, "ambiguous target summarized", &relation.id);
-                    continue;
-                }
-                let id = format!("ambiguous:{}:{}", relation.spelling, candidates.join("|"));
-                groups.nodes.entry(id.clone()).or_insert_with(|| Node {
-                    id: id.clone(),
-                    label: format!("{} ? ({} candidates)", relation.spelling, candidates.len()),
-                    group: "unresolved names".into(),
-                    source_sites: candidates.clone(),
-                    context: true,
-                    internal_relationships: Vec::new(),
-                    surface: None,
-                });
-                id
-            }
-            Resolution::Unresolved(reason) => {
-                if coarse {
-                    hidden(&mut out, "unresolved target summarized", &relation.id);
-                    continue;
-                }
-                let id = format!("unresolved:{}:{reason}", relation.spelling);
-                groups.nodes.entry(id.clone()).or_insert_with(|| Node {
-                    id: id.clone(),
-                    label: format!("{} ? ({reason})", relation.spelling),
-                    group: "unresolved names".into(),
-                    source_sites: Vec::new(),
-                    context: true,
-                    internal_relationships: Vec::new(),
-                    surface: None,
-                });
-                id
-            }
-        };
-        visible.insert(from.clone());
-        visible.insert(to.clone());
-        if from == to && query.level != Level::Declarations {
-            groups
-                .nodes
-                .get_mut(&from)
-                .ok_or("internal source node missing")?
-                .internal_relationships
-                .push(relation.id.clone());
-            continue;
-        }
-        let key = (from.clone(), to.clone(), relation.evidence.label().into());
-        edges
-            .entry(key)
-            .or_insert_with(|| Edge {
-                label: None,
-                from,
-                to,
-                evidence: relation.evidence.into(),
-                relationships: Vec::new(),
-                declarations: Vec::new(),
-            })
-            .relationships
-            .push(relation.id.clone());
-    }
-    for file in graph.physical_files() {
-        let shown = groups
-            .file_nodes
-            .get(&file.path)
-            .is_some_and(|ids| ids.iter().any(|id| visible.contains(id)));
-        if let Some(p) = profile {
-            account_file(&mut out.coverage, p, file, shown);
-        } else if shown {
-            out.coverage.represented_files.push(file.path.clone());
-        } else {
-            out.coverage
-                .collapsed_files
-                .entry("outside focus".into())
-                .or_default()
-                .push(file.path.clone());
-        }
-    }
+    let mut visible = initially_visible(&out, &mut groups, profile, query, focus);
+    let edges = quotient(graph, query.level, &mut out, &mut groups, &mut visible)?;
+    account_shown_files(graph, profile, &groups, &visible, &mut out.coverage);
     out.nodes = groups
         .nodes
         .into_iter()
@@ -592,4 +498,178 @@ fn types(
     ));
     out.validate()?;
     Ok(out)
+}
+
+/// The nodes of the inventory's files. Without a focus, at the stage and
+/// module levels, every declared stage or module also stays visible, even
+/// one without declarations.
+fn initially_visible(
+    out: &Diagram,
+    groups: &mut Groups,
+    profile: Option<&Architecture>,
+    query: &Query,
+    focus: &str,
+) -> BTreeSet<String> {
+    let mut visible = BTreeSet::new();
+    for file in &out.inventory {
+        if let Some(ids) = groups.file_nodes.get(file) {
+            visible.extend(ids.iter().cloned());
+        }
+    }
+    if focus.is_empty()
+        && matches!(query.level, Level::Stages | Level::Modules)
+        && let Some(p) = profile
+    {
+        for module in &p.modules {
+            if query.level != Level::Stages || module.kind == Kind::Stage {
+                let node = profile_node(module, false, query.level);
+                visible.insert(node.id.clone());
+                groups.nodes.entry(node.id.clone()).or_insert(node);
+            }
+        }
+    }
+    visible
+}
+
+/// Each source relationship from a selected file joins one edge between the
+/// nodes its ends collapse into, keyed by evidence, or is internal to one
+/// node above the declarations level. Every relationship left out is
+/// recorded as hidden with its reason; the nodes it reaches become visible.
+fn quotient(
+    graph: &SourceGraph,
+    level: Level,
+    out: &mut Diagram,
+    groups: &mut Groups,
+    visible: &mut BTreeSet<String>,
+) -> Result<BTreeMap<(String, String, String), Edge>> {
+    let selected: BTreeSet<_> = out.inventory.iter().cloned().collect();
+    let sites: BTreeMap<_, _> = graph
+        .files
+        .iter()
+        .flat_map(|f| f.declarations.iter().map(move |d| (&d.id, &f.path)))
+        .collect();
+    let coarse = matches!(level, Level::Stages | Level::Modules);
+    let mut edges: BTreeMap<(String, String, String), Edge> = BTreeMap::new();
+    for relation in &graph.relationships {
+        let Some(file) = sites.get(&relation.source) else {
+            return Err("source relationship refers to absent declaration".into());
+        };
+        if !selected.contains(*file) {
+            hidden(out, "outside focus", &relation.id);
+            continue;
+        }
+        let Some(from) = groups.source_nodes.get(&relation.source).cloned() else {
+            hidden(out, "source collapsed at level", &relation.id);
+            continue;
+        };
+        let to = match target_node(groups, relation, coarse) {
+            Ok(to) => to,
+            Err(reason) => {
+                hidden(out, reason, &relation.id);
+                continue;
+            }
+        };
+        visible.insert(from.clone());
+        visible.insert(to.clone());
+        if from == to && level != Level::Declarations {
+            groups
+                .nodes
+                .get_mut(&from)
+                .ok_or("internal source node missing")?
+                .internal_relationships
+                .push(relation.id.clone());
+            continue;
+        }
+        let key = (from.clone(), to.clone(), relation.evidence.label().into());
+        edges
+            .entry(key)
+            .or_insert_with(|| Edge {
+                label: None,
+                from,
+                to,
+                evidence: relation.evidence.into(),
+                relationships: Vec::new(),
+                declarations: Vec::new(),
+            })
+            .relationships
+            .push(relation.id.clone());
+    }
+    Ok(edges)
+}
+
+/// The node a relationship's target reaches, or the reason it is hidden. A
+/// coarse level summarizes an ambiguous or unresolved target; a finer level
+/// gives it a node of its own and never picks one of its candidates.
+fn target_node(
+    groups: &mut Groups,
+    relation: &Relationship,
+    coarse: bool,
+) -> std::result::Result<String, &'static str> {
+    match &relation.target {
+        Resolution::Unique(target) => groups
+            .source_nodes
+            .get(target)
+            .cloned()
+            .ok_or("target collapsed at level"),
+        Resolution::Ambiguous(candidates) => {
+            if coarse {
+                return Err("ambiguous target summarized");
+            }
+            let id = format!("ambiguous:{}:{}", relation.spelling, candidates.join("|"));
+            groups.nodes.entry(id.clone()).or_insert_with(|| Node {
+                id: id.clone(),
+                label: format!("{} ? ({} candidates)", relation.spelling, candidates.len()),
+                group: "unresolved names".into(),
+                source_sites: candidates.clone(),
+                context: true,
+                internal_relationships: Vec::new(),
+                surface: None,
+            });
+            Ok(id)
+        }
+        Resolution::Unresolved(reason) => {
+            if coarse {
+                return Err("unresolved target summarized");
+            }
+            let id = format!("unresolved:{}:{reason}", relation.spelling);
+            groups.nodes.entry(id.clone()).or_insert_with(|| Node {
+                id: id.clone(),
+                label: format!("{} ? ({reason})", relation.spelling),
+                group: "unresolved names".into(),
+                source_sites: Vec::new(),
+                context: true,
+                internal_relationships: Vec::new(),
+                surface: None,
+            });
+            Ok(id)
+        }
+    }
+}
+
+/// Account each physical file as shown when one of its nodes is visible.
+/// Without a profile, every other file is collapsed as outside the focus.
+fn account_shown_files(
+    graph: &SourceGraph,
+    profile: Option<&Architecture>,
+    groups: &Groups,
+    visible: &BTreeSet<String>,
+    coverage: &mut Coverage,
+) {
+    for file in graph.physical_files() {
+        let shown = groups
+            .file_nodes
+            .get(&file.path)
+            .is_some_and(|ids| ids.iter().any(|id| visible.contains(id)));
+        if let Some(p) = profile {
+            account_file(coverage, p, file, shown);
+        } else if shown {
+            coverage.represented_files.push(file.path.clone());
+        } else {
+            coverage
+                .collapsed_files
+                .entry("outside focus".into())
+                .or_default()
+                .push(file.path.clone());
+        }
+    }
 }

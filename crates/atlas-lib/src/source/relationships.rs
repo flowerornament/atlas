@@ -2,7 +2,7 @@
 //! `Self` counts as the name of the impl's self type, or of the struct or enum
 //! it is written in; a `Self` with neither is a diagnostic.
 use crate::{
-    model::{Diagnostic, Evidence, Relationship, Resolution, SourceGraph},
+    model::{Declaration, Diagnostic, Evidence, Relationship, Resolution, SourceFile, SourceGraph},
     scan::{self, ItemKind},
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -74,17 +74,56 @@ enum MentionScope {
     Declarations,
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn derive_with_bindings(
     graph: &mut SourceGraph,
     imports: &BTreeMap<String, Vec<scan::ImportBinding>>,
     registry_ids: Option<&BTreeSet<String>>,
     mentions: MentionScope,
 ) -> BTreeSet<String> {
-    let mut registry: BTreeMap<&str, Vec<(&str, &str)>> = BTreeMap::new();
+    let registry = registry(graph, registry_ids);
+    let mut derived = Derived::default();
+    for file in graph.files.iter().filter(|f| !f.test_only) {
+        let shadows = Shadows::of(
+            imports.get(&file.path),
+            graph.import_roots.get(&file.crate_name),
+        );
+        if shadows.glob {
+            derived.diagnostics.push(Diagnostic {
+                code: crate::model::DiagnosticCode::ExternalGlob,
+                package: Some(file.crate_name.clone()),
+                file: file.path.clone(),
+                line: None,
+                message:
+                    "external glob: name-only relationship resolution suppressed for this file"
+                        .into(),
+            });
+        }
+        for item in file.declarations.iter().filter(|d| !d.test_only) {
+            derived.item(file, item, &registry, &shadows, mentions);
+        }
+    }
+    let Derived {
+        edges,
+        mentioned,
+        diagnostics,
+    } = derived;
+    graph.relationships = edges;
+    graph.diagnostics.extend(diagnostics);
+    graph.diagnostics.sort_by(|a, b| {
+        (&a.package, &a.file, a.line, &a.message).cmp(&(&b.package, &b.file, b.line, &b.message))
+    });
+    graph.diagnostics.dedup_by(|a, b| {
+        a.package == b.package && a.file == b.file && a.line == b.line && a.message == b.message
+    });
+    mentioned
+}
+
+/// What a bare name may mean: each production struct, enum or trait (only
+/// those in `registry_ids` when given) by name, with its package and id.
+type Registry<'a> = BTreeMap<&'a str, Vec<(&'a str, &'a str)>>;
+
+fn registry<'a>(graph: &'a SourceGraph, registry_ids: Option<&BTreeSet<String>>) -> Registry<'a> {
+    let mut registry = Registry::new();
     for file in &graph.files {
         for item in file.declarations.iter().filter(|d| {
             !d.test_only
@@ -100,14 +139,21 @@ fn derive_with_bindings(
                 .push((&file.crate_name, &item.id));
         }
     }
-    let mut edges = Vec::new();
-    let mut mentioned = BTreeSet::new();
-    let mut diagnostics = Vec::new();
-    for file in graph.files.iter().filter(|f| !f.test_only) {
+    registry
+}
+
+/// The spellings an external import may bind in one file. An import rooted
+/// at `crate`, `self`, `super` or a workspace import root is not external.
+struct Shadows {
+    external: BTreeSet<String>,
+    /// An external glob may bind any name.
+    glob: bool,
+}
+impl Shadows {
+    fn of(bindings: Option<&Vec<scan::ImportBinding>>, roots: Option<&Vec<String>>) -> Self {
         let mut external = BTreeSet::new();
         let mut glob = false;
-        let roots = graph.import_roots.get(&file.crate_name);
-        for binding in imports.get(&file.path).into_iter().flatten() {
+        for binding in bindings.into_iter().flatten() {
             let root = scan::identifiers(&binding.source_path).next().unwrap_or("");
             if matches!(root, "crate" | "self" | "super")
                 || roots.is_some_and(|names| names.iter().any(|name| name == root))
@@ -120,116 +166,125 @@ fn derive_with_bindings(
                 external.insert(binding.local_name.clone());
             }
         }
-        if glob {
-            diagnostics.push(Diagnostic {
-                code: crate::model::DiagnosticCode::ExternalGlob,
-                package: Some(file.crate_name.clone()),
-                file: file.path.clone(),
-                line: None,
-                message:
-                    "external glob: name-only relationship resolution suppressed for this file"
-                        .into(),
-            });
+        Self { external, glob }
+    }
+    fn may_shadow(&self, name: &str) -> bool {
+        self.glob || self.external.contains(name)
+    }
+}
+
+/// Mentions, mentioned registry names and diagnostics, in derivation order.
+#[derive(Default)]
+struct Derived {
+    edges: Vec<Relationship>,
+    mentioned: BTreeSet<String>,
+    diagnostics: Vec<Diagnostic>,
+}
+impl Derived {
+    /// Read one production declaration's mentions of registry names. Only a
+    /// classified item (fn, struct or enum) records relationships; any other
+    /// declaration is read only for the names it mentions.
+    fn item(
+        &mut self,
+        file: &SourceFile,
+        item: &Declaration,
+        registry: &Registry<'_>,
+        shadows: &Shadows,
+        mentions: MentionScope,
+    ) {
+        let classified = matches!(
+            item.item_kind(),
+            Some(ItemKind::Fn | ItemKind::Struct | ItemKind::Enum)
+        );
+        if item.item_kind() == Some(ItemKind::PubUse)
+            || (!classified && matches!(mentions, MentionScope::Classified))
+        {
+            return;
         }
-        for item in file.declarations.iter().filter(|d| !d.test_only) {
-            let classified = matches!(
-                item.item_kind(),
-                Some(ItemKind::Fn | ItemKind::Struct | ItemKind::Enum)
-            );
-            if item.item_kind() == Some(ItemKind::PubUse)
-                || (!classified && matches!(mentions, MentionScope::Classified))
-            {
-                continue;
+        let projection = scan::RustSourceProjection::of(item.block.to_string());
+        let code = projection.code_lines().collect::<Vec<_>>().join("\n");
+        let self_means = self_meaning(item);
+        let mut seen = BTreeSet::new();
+        for (text, evidence) in regions(item, &code) {
+            if classified && self_means.is_none() && scan::identifiers(text).any(|x| x == "Self") {
+                self.diagnostics.push(Diagnostic {
+                    code: crate::model::DiagnosticCode::SelfUnresolved,
+                    package: Some(file.crate_name.clone()),
+                    file: file.path.clone(),
+                    line: Some(item.line),
+                    message: "Self is not resolved to an enclosing impl type".into(),
+                });
             }
-            let projection = scan::RustSourceProjection::of(item.block.to_string());
-            let code = projection.code_lines().collect::<Vec<_>>().join("\n");
-            let regions = if item.item_kind() == Some(ItemKind::Fn) {
-                let (a, b) = split_signature(&code);
-                vec![
-                    (a, Evidence::ParameterMention),
-                    (b, Evidence::ReturnMention),
-                ]
-            } else {
-                vec![(code.as_str(), Evidence::TypeBodyMention)]
-            };
-            // `Self` in a struct or enum is that type; in an impl item, the
-            // impl's self type, read as if its name were written.
-            let self_means = if matches!(item.item_kind(), Some(ItemKind::Struct | ItemKind::Enum))
-            {
-                Some(item.name.as_str())
-            } else {
-                item.self_type.as_deref()
-            };
-            let mut seen = BTreeSet::new();
-            for (text, evidence) in regions {
-                if classified
-                    && self_means.is_none()
-                    && scan::identifiers(text).any(|x| x == "Self")
-                {
-                    diagnostics.push(Diagnostic {
-                        code: crate::model::DiagnosticCode::SelfUnresolved,
-                        package: Some(file.crate_name.clone()),
-                        file: file.path.clone(),
-                        line: Some(item.line),
-                        message: "Self is not resolved to an enclosing impl type".into(),
-                    });
+            for token in scan::identifiers(text) {
+                let name = match (token, self_means) {
+                    ("Self", Some(means)) => means,
+                    ("Self", None) => continue,
+                    _ => token,
+                };
+                if name == item.name || !seen.insert((name, evidence.label())) {
+                    continue;
                 }
-                for token in scan::identifiers(text) {
-                    let name = match (token, self_means) {
-                        ("Self", Some(means)) => means,
-                        ("Self", None) => continue,
-                        _ => token,
-                    };
-                    if name == item.name || !seen.insert((name, evidence.label())) {
-                        continue;
-                    }
-                    let Some(candidates) = registry.get(name) else {
-                        continue;
-                    };
-                    if matches!(mentions, MentionScope::Declarations)
-                        && !glob
-                        && !external.contains(name)
-                    {
-                        mentioned.insert(name.to_owned());
-                    }
-                    if !classified {
-                        continue;
-                    }
-                    let target = if glob || external.contains(name) {
-                        Resolution::Unresolved(
-                            "external import shadows or may shadow this spelling".into(),
-                        )
-                    } else {
-                        let preferred = prefer_local(candidates.iter(), |(package, _)| {
-                            *package == file.crate_name
-                        });
-                        match preferred.as_slice() {
-                            [(_, id)] => Resolution::Unique((*id).to_owned()),
-                            _ => Resolution::Ambiguous(
-                                preferred.iter().map(|(_, id)| (*id).to_owned()).collect(),
-                            ),
-                        }
-                    };
-                    edges.push(Relationship {
-                        id: format!("edge-{}", edges.len()),
-                        source: item.id.clone(),
-                        spelling: token.into(),
-                        evidence,
-                        target,
-                    });
+                let Some(candidates) = registry.get(name) else {
+                    continue;
+                };
+                let shadowed = shadows.may_shadow(name);
+                if matches!(mentions, MentionScope::Declarations) && !shadowed {
+                    self.mentioned.insert(name.to_owned());
                 }
+                if !classified {
+                    continue;
+                }
+                let target = if shadowed {
+                    Resolution::Unresolved(
+                        "external import shadows or may shadow this spelling".into(),
+                    )
+                } else {
+                    candidate_target(candidates, &file.crate_name)
+                };
+                self.edges.push(Relationship {
+                    id: format!("edge-{}", self.edges.len()),
+                    source: item.id.clone(),
+                    spelling: token.into(),
+                    evidence,
+                    target,
+                });
             }
         }
     }
-    graph.relationships = edges;
-    graph.diagnostics.extend(diagnostics);
-    graph.diagnostics.sort_by(|a, b| {
-        (&a.package, &a.file, a.line, &a.message).cmp(&(&b.package, &b.file, b.line, &b.message))
-    });
-    graph.diagnostics.dedup_by(|a, b| {
-        a.package == b.package && a.file == b.file && a.line == b.line && a.message == b.message
-    });
-    mentioned
+}
+
+/// The parts of a declaration's code a mention is read from: a fn's
+/// parameter and return sides, or a type's whole body.
+fn regions<'c>(item: &Declaration, code: &'c str) -> Vec<(&'c str, Evidence)> {
+    if item.item_kind() == Some(ItemKind::Fn) {
+        let (a, b) = split_signature(code);
+        vec![
+            (a, Evidence::ParameterMention),
+            (b, Evidence::ReturnMention),
+        ]
+    } else {
+        vec![(code, Evidence::TypeBodyMention)]
+    }
+}
+
+/// `Self` in a struct or enum is that type; in an impl item, the impl's self
+/// type, read as if its name were written.
+fn self_meaning(item: &Declaration) -> Option<&str> {
+    if matches!(item.item_kind(), Some(ItemKind::Struct | ItemKind::Enum)) {
+        Some(item.name.as_str())
+    } else {
+        item.self_type.as_deref()
+    }
+}
+
+/// The registry candidates for a name, preferring the mentioning package's
+/// own: one is unique, several stay ambiguous.
+fn candidate_target(candidates: &[(&str, &str)], package: &str) -> Resolution {
+    let preferred = prefer_local(candidates.iter(), |(candidate, _)| *candidate == package);
+    match preferred.as_slice() {
+        [(_, id)] => Resolution::Unique((*id).to_owned()),
+        _ => Resolution::Ambiguous(preferred.iter().map(|(_, id)| (*id).to_owned()).collect()),
+    }
 }
 
 /// Split a fn signature block at the depth-0 `->` into (parameter side,

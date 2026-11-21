@@ -94,10 +94,6 @@ impl<'a> Walk<'a> {
             })
             .unwrap_or(end)
     }
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     fn record(
         &mut self,
         kind: ItemKind,
@@ -108,12 +104,7 @@ impl<'a> Walk<'a> {
         header_end: Option<usize>,
     ) -> usize {
         let text = self.projection.text();
-        let syntax_start = attrs
-            .iter()
-            .filter(|a| matches!(a.style, syn::AttrStyle::Outer))
-            .map(|a| a.span().byte_range().end)
-            .max()
-            .map_or(span.byte_range().start, |end| self.after_attributes(end));
+        let syntax_start = self.syntax_start(span, attrs);
         let end = span.byte_range().end;
         let line = self
             .line_offsets
@@ -124,46 +115,8 @@ impl<'a> Walk<'a> {
             .map(|a| a.span().start().line)
             .min()
             .unwrap_or(line);
-        let previous_end = self
-            .item_ends
-            .range(..=syntax_start)
-            .next_back()
-            .map_or(0, |(_, line)| *line);
-        let mut first = attr_line;
-        let mut outer = !attrs.is_empty();
-        let mut crossed_blank = false;
-        while first > previous_end + 1 {
-            let before = self.lines[first - 2];
-            let trimmed = before.trim_start();
-            if self.projection.starts_in_code(first - 2)
-                && trimmed.starts_with("//")
-                && !trimmed.starts_with("//!")
-                && (!crossed_blank || trimmed.starts_with("///"))
-            {
-                outer |= trimmed.starts_with("///");
-                first -= 1;
-            } else if trimmed.is_empty() && outer {
-                crossed_blank = true;
-                first -= 1;
-            } else {
-                break;
-            }
-        }
-        // Do not attach blank lines preceding the first actual annotation.
-        while first < attr_line && self.lines[first - 1].trim().is_empty() {
-            first += 1;
-        }
-        let attached_start = if first == line
-            && syntax_start > 0
-            && text[..syntax_start]
-                .rsplit('\n')
-                .next()
-                .is_some_and(|tail| !tail.trim().is_empty())
-        {
-            span.byte_range().start
-        } else {
-            self.line_offsets[first - 1]
-        };
+        let first = self.first_attached_line(attr_line, syntax_start, !attrs.is_empty());
+        let attached_start = self.attached_start(first, line, syntax_start, span);
         let summary = self.lines[first - 1..line - 1].iter().find_map(|l| {
             l.trim_start()
                 .strip_prefix("///")
@@ -187,17 +140,7 @@ impl<'a> Walk<'a> {
             top_level: self.scopes.is_empty(),
             syntax_span: syntax_start..end,
             byte_span: attached_start..end,
-            attribute_names: attrs
-                .iter()
-                .map(|attr| {
-                    attr.path()
-                        .segments
-                        .iter()
-                        .map(|segment| segment.ident.to_string())
-                        .collect::<Vec<_>>()
-                        .join("::")
-                })
-                .collect(),
+            attribute_names: attribute_names(attrs),
             restricted: fragments::restriction(text, vis),
             trait_name: None,
             self_type: None,
@@ -206,6 +149,74 @@ impl<'a> Walk<'a> {
         self.item_ends.insert(end, end_line);
         self.outline.push(item);
         self.outline.len() - 1
+    }
+    /// The byte where an item's own syntax starts: after its outer
+    /// attributes, or the start of its span when it has none.
+    fn syntax_start(&self, span: Span, attrs: &[syn::Attribute]) -> usize {
+        attrs
+            .iter()
+            .filter(|a| matches!(a.style, syn::AttrStyle::Outer))
+            .map(|a| a.span().byte_range().end)
+            .max()
+            .map_or(span.byte_range().start, |end| self.after_attributes(end))
+    }
+    /// The first line attached to an item, scanning up from its first outer
+    /// attribute line and never into the previous item. Comments directly
+    /// above attach; a blank line attaches only once an attribute or `///`
+    /// has, and past one only `///` attaches. Leading blank lines are
+    /// dropped again.
+    fn first_attached_line(
+        &self,
+        attr_line: usize,
+        syntax_start: usize,
+        attributed: bool,
+    ) -> usize {
+        let previous_end = self
+            .item_ends
+            .range(..=syntax_start)
+            .next_back()
+            .map_or(0, |(_, line)| *line);
+        let mut first = attr_line;
+        let mut outer = attributed;
+        let mut crossed_blank = false;
+        while first > previous_end + 1 {
+            let before = self.lines[first - 2];
+            let trimmed = before.trim_start();
+            if self.projection.starts_in_code(first - 2)
+                && trimmed.starts_with("//")
+                && !trimmed.starts_with("//!")
+                && (!crossed_blank || trimmed.starts_with("///"))
+            {
+                outer |= trimmed.starts_with("///");
+                first -= 1;
+            } else if trimmed.is_empty() && outer {
+                crossed_blank = true;
+                first -= 1;
+            } else {
+                break;
+            }
+        }
+        // Do not attach blank lines preceding the first actual annotation.
+        while first < attr_line && self.lines[first - 1].trim().is_empty() {
+            first += 1;
+        }
+        first
+    }
+    /// The first byte attached to an item: the start of its first attached
+    /// line, or its own span start when nothing is attached and earlier code
+    /// shares its line.
+    fn attached_start(&self, first: usize, line: usize, syntax_start: usize, span: Span) -> usize {
+        if first == line
+            && syntax_start > 0
+            && self.projection.text()[..syntax_start]
+                .rsplit('\n')
+                .next()
+                .is_some_and(|tail| !tail.trim().is_empty())
+        {
+            span.byte_range().start
+        } else {
+            self.line_offsets[first - 1]
+        }
     }
     fn macro_member(&mut self, attrs: &[syn::Attribute], mac: &syn::Macro, span: Span) {
         self.record(
@@ -234,6 +245,140 @@ impl<'a> Walk<'a> {
             block.map(|b| b.brace_token.span.open().byte_range().end),
         );
     }
+    /// Record an item whose declaration block is all of it: there is no
+    /// body for the block to leave out.
+    fn whole(
+        &mut self,
+        kind: ItemKind,
+        ident: &syn::Ident,
+        span: Span,
+        attrs: &[syn::Attribute],
+        vis: &syn::Visibility,
+    ) {
+        self.record(kind, ident.to_string(), span, attrs, vis, None);
+    }
+    fn struct_item(&mut self, n: &syn::ItemStruct) {
+        let i = self.record(
+            ItemKind::Struct,
+            n.ident.to_string(),
+            n.span(),
+            &n.attrs,
+            &n.vis,
+            None,
+        );
+        self.outline[i].fields = fragments::fields(
+            self.projection.text(),
+            &n.fields,
+            n.struct_token.span.start().line,
+        );
+    }
+    /// A `use` item and its import. A public `use` is a re-export
+    /// (`PubUse`); the import keeps every binding the tree writes.
+    fn use_item(&mut self, n: &syn::ItemUse) {
+        let bindings = imports::item_use_bindings(n);
+        let name = use_name(self.projection.text(), n, &bindings);
+        let kind = if fragments::visibility(&n.vis) == Visibility::Private {
+            ItemKind::Use
+        } else {
+            ItemKind::PubUse
+        };
+        let i = self.record(kind, name, n.span(), &n.attrs, &n.vis, None);
+        let item = &self.outline[i];
+        self.imports.push(Import {
+            line: item.line,
+            end_line: *item.span.end(),
+            top_level: item.top_level,
+            target: self.projection.text()
+                [n.use_token.span.byte_range().end..n.span().byte_range().end]
+                .trim_start()
+                .into(),
+            statement: std::sync::Arc::clone(&item.declaration_block),
+            bindings: Ok(bindings),
+            bytes: item.syntax_span.clone(),
+        });
+    }
+    /// A module item. A test-gated inline module is a test region; a file
+    /// module declared where every enclosing item is an inline module is a
+    /// module declaration, test-gated when it lies in gated bytes.
+    fn mod_item(&mut self, n: &syn::ItemMod) {
+        let index = self.record(
+            ItemKind::Mod,
+            n.ident.to_string(),
+            n.span(),
+            &n.attrs,
+            &n.vis,
+            n.content
+                .as_ref()
+                .map(|(b, _)| b.span.open().byte_range().end),
+        );
+        if n.content.is_some() && attributes::requires(&n.attrs, &[]) {
+            let gate = n
+                .attrs
+                .iter()
+                .find(|attr| attributes::requires(std::slice::from_ref(attr), &[]))
+                .map_or(n.mod_token.span.start().line, |attr| {
+                    attr.span().start().line
+                });
+            self.regions.push(gate..=n.span().end().line);
+            self.module_bytes.push(n.span().byte_range());
+        }
+        if n.content.is_none() && self.scopes.iter().all(Option::is_some) {
+            self.modules.push(super::ModuleDeclaration {
+                name: n.ident.to_string(),
+                path: path_attribute(&n.attrs),
+                alternatives: conditional_paths(&n.attrs),
+                test_gated: self
+                    .gated_bytes
+                    .iter()
+                    .any(|range| range.contains(&n.span().byte_range().start)),
+                inline: self.scopes.iter().flatten().cloned().collect(),
+                item: self.outline[index].syntax_span.start,
+            });
+        }
+    }
+    /// An impl block, named by its self type's head, else its trait's last
+    /// segment, else `impl`.
+    fn impl_item(&mut self, n: &syn::ItemImpl) {
+        let trait_name = n
+            .trait_
+            .as_ref()
+            .and_then(|(p, _)| p.segments.last())
+            .map(|p| p.ident.to_string());
+        let name = type_head(&n.self_ty)
+            .or_else(|| trait_name.clone())
+            .unwrap_or_else(|| "impl".into());
+        let i = self.record(
+            ItemKind::Impl,
+            name,
+            n.span(),
+            &n.attrs,
+            &syn::Visibility::Inherited,
+            Some(n.brace_token.span.open().byte_range().end),
+        );
+        self.outline[i].trait_name = trait_name;
+        self.outline[i].self_type = type_head(&n.self_ty);
+    }
+    /// A `macro_rules!` definition or an item macro call, named by its
+    /// identifier when it has one, else by its written macro path.
+    fn macro_item(&mut self, n: &syn::ItemMacro) {
+        let kind = if n.mac.path.is_ident("macro_rules") {
+            ItemKind::MacroRules
+        } else {
+            ItemKind::MacroCall
+        };
+        let name = n.ident.as_ref().map_or_else(
+            || self.projection.text()[n.mac.path.span().byte_range()].to_owned(),
+            ToString::to_string,
+        );
+        self.record(
+            kind,
+            name,
+            n.span(),
+            &n.attrs,
+            &syn::Visibility::Inherited,
+            None,
+        );
+    }
 }
 impl<'ast> Visit<'ast> for Walk<'_> {
     fn visit_file(&mut self, file: &'ast syn::File) {
@@ -243,48 +388,14 @@ impl<'ast> Visit<'ast> for Walk<'_> {
         }
         visit::visit_file(self, file);
     }
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     fn visit_item(&mut self, item: &'ast syn::Item) {
         let private = syn::Visibility::Inherited;
         match item {
             syn::Item::Fn(n) => self.function(&n.attrs, &n.vis, &n.sig, n.span(), Some(&n.block)),
-            syn::Item::Struct(n) => {
-                let i = self.record(
-                    ItemKind::Struct,
-                    n.ident.to_string(),
-                    n.span(),
-                    &n.attrs,
-                    &n.vis,
-                    None,
-                );
-                self.outline[i].fields = fragments::fields(
-                    self.projection.text(),
-                    &n.fields,
-                    n.struct_token.span.start().line,
-                );
-            }
-            syn::Item::Enum(n) => {
-                self.record(
-                    ItemKind::Enum,
-                    n.ident.to_string(),
-                    n.span(),
-                    &n.attrs,
-                    &n.vis,
-                    None,
-                );
-            }
+            syn::Item::Struct(n) => self.struct_item(n),
+            syn::Item::Enum(n) => self.whole(ItemKind::Enum, &n.ident, n.span(), &n.attrs, &n.vis),
             syn::Item::Union(n) => {
-                self.record(
-                    ItemKind::Union,
-                    n.ident.to_string(),
-                    n.span(),
-                    &n.attrs,
-                    &n.vis,
-                    None,
-                );
+                self.whole(ItemKind::Union, &n.ident, n.span(), &n.attrs, &n.vis);
             }
             syn::Item::Trait(n) => {
                 self.record(
@@ -298,161 +409,20 @@ impl<'ast> Visit<'ast> for Walk<'_> {
             }
             syn::Item::TraitAlias(n) => self.unsupported(n.span(), "trait alias"),
             syn::Item::Type(n) => {
-                self.record(
-                    ItemKind::TypeAlias,
-                    n.ident.to_string(),
-                    n.span(),
-                    &n.attrs,
-                    &n.vis,
-                    None,
-                );
+                self.whole(ItemKind::TypeAlias, &n.ident, n.span(), &n.attrs, &n.vis);
             }
             syn::Item::Const(n) => {
-                self.record(
-                    ItemKind::Const,
-                    n.ident.to_string(),
-                    n.span(),
-                    &n.attrs,
-                    &n.vis,
-                    None,
-                );
+                self.whole(ItemKind::Const, &n.ident, n.span(), &n.attrs, &n.vis);
             }
             syn::Item::Static(n) => {
-                self.record(
-                    ItemKind::Static,
-                    n.ident.to_string(),
-                    n.span(),
-                    &n.attrs,
-                    &n.vis,
-                    None,
-                );
+                self.whole(ItemKind::Static, &n.ident, n.span(), &n.attrs, &n.vis);
             }
-            syn::Item::Use(n) => {
-                let text = self.projection.text();
-                let bindings = imports::item_use_bindings(n);
-                let name = if !matches!(n.tree, syn::UseTree::Group(_) | syn::UseTree::Glob(_))
-                    && bindings.len() == 1
-                {
-                    // A path leading to a group still retains the written group label.
-                    if text[n.tree.span().byte_range()].contains(['{', '*']) {
-                        text[n.tree.span().byte_range()]
-                            .lines()
-                            .next()
-                            .unwrap_or("")
-                            .trim_end()
-                            .to_owned()
-                    } else {
-                        bindings[0].local_name.clone()
-                    }
-                } else {
-                    text[n.tree.span().byte_range()]
-                        .lines()
-                        .next()
-                        .unwrap_or("")
-                        .trim_end()
-                        .to_owned()
-                };
-                let kind = if fragments::visibility(&n.vis) == Visibility::Private {
-                    ItemKind::Use
-                } else {
-                    ItemKind::PubUse
-                };
-                let i = self.record(kind, name, n.span(), &n.attrs, &n.vis, None);
-                let item = &self.outline[i];
-                self.imports.push(Import {
-                    line: item.line,
-                    end_line: *item.span.end(),
-                    top_level: item.top_level,
-                    target: self.projection.text()
-                        [n.use_token.span.byte_range().end..n.span().byte_range().end]
-                        .trim_start()
-                        .into(),
-                    statement: std::sync::Arc::clone(&item.declaration_block),
-                    bindings: Ok(bindings),
-                    bytes: item.syntax_span.clone(),
-                });
-            }
-            syn::Item::Mod(n) => {
-                let index = self.record(
-                    ItemKind::Mod,
-                    n.ident.to_string(),
-                    n.span(),
-                    &n.attrs,
-                    &n.vis,
-                    n.content
-                        .as_ref()
-                        .map(|(b, _)| b.span.open().byte_range().end),
-                );
-                if n.content.is_some() && attributes::requires(&n.attrs, &[]) {
-                    let gate = n
-                        .attrs
-                        .iter()
-                        .find(|attr| attributes::requires(std::slice::from_ref(attr), &[]))
-                        .map_or(n.mod_token.span.start().line, |attr| {
-                            attr.span().start().line
-                        });
-                    self.regions.push(gate..=n.span().end().line);
-                    self.module_bytes.push(n.span().byte_range());
-                }
-                if n.content.is_none() && self.scopes.iter().all(Option::is_some) {
-                    self.modules.push(super::ModuleDeclaration {
-                        name: n.ident.to_string(),
-                        path: path_attribute(&n.attrs),
-                        alternatives: conditional_paths(&n.attrs),
-                        test_gated: self
-                            .gated_bytes
-                            .iter()
-                            .any(|range| range.contains(&n.span().byte_range().start)),
-                        inline: self.scopes.iter().flatten().cloned().collect(),
-                        item: self.outline[index].syntax_span.start,
-                    });
-                }
-            }
-            syn::Item::Impl(n) => {
-                let name = type_head(&n.self_ty)
-                    .or_else(|| {
-                        n.trait_
-                            .as_ref()
-                            .and_then(|(p, _)| p.segments.last())
-                            .map(|p| p.ident.to_string())
-                    })
-                    .unwrap_or_else(|| "impl".into());
-                let i = self.record(
-                    ItemKind::Impl,
-                    name,
-                    n.span(),
-                    &n.attrs,
-                    &private,
-                    Some(n.brace_token.span.open().byte_range().end),
-                );
-                self.outline[i].trait_name = n
-                    .trait_
-                    .as_ref()
-                    .and_then(|(p, _)| p.segments.last())
-                    .map(|p| p.ident.to_string());
-                self.outline[i].self_type = type_head(&n.self_ty);
-            }
-            syn::Item::Macro(n) => {
-                let kind = if n.mac.path.is_ident("macro_rules") {
-                    ItemKind::MacroRules
-                } else {
-                    ItemKind::MacroCall
-                };
-                let name = n.ident.as_ref().map_or_else(
-                    || self.projection.text()[n.mac.path.span().byte_range()].to_owned(),
-                    ToString::to_string,
-                );
-                self.record(kind, name, n.span(), &n.attrs, &private, None);
-            }
+            syn::Item::Use(n) => self.use_item(n),
+            syn::Item::Mod(n) => self.mod_item(n),
+            syn::Item::Impl(n) => self.impl_item(n),
+            syn::Item::Macro(n) => self.macro_item(n),
             syn::Item::ExternCrate(n) => {
-                self.record(
-                    ItemKind::Extern,
-                    n.ident.to_string(),
-                    n.span(),
-                    &n.attrs,
-                    &n.vis,
-                    None,
-                );
+                self.whole(ItemKind::Extern, &n.ident, n.span(), &n.attrs, &n.vis);
             }
             syn::Item::ForeignMod(n) => {
                 self.record(
@@ -486,24 +456,10 @@ impl<'ast> Visit<'ast> for Walk<'_> {
                 self.function(&n.attrs, &n.vis, &n.sig, n.span(), Some(&n.block));
             }
             syn::ImplItem::Const(n) => {
-                self.record(
-                    ItemKind::Const,
-                    n.ident.to_string(),
-                    n.span(),
-                    &n.attrs,
-                    &n.vis,
-                    None,
-                );
+                self.whole(ItemKind::Const, &n.ident, n.span(), &n.attrs, &n.vis);
             }
             syn::ImplItem::Type(n) => {
-                self.record(
-                    ItemKind::TypeAlias,
-                    n.ident.to_string(),
-                    n.span(),
-                    &n.attrs,
-                    &n.vis,
-                    None,
-                );
+                self.whole(ItemKind::TypeAlias, &n.ident, n.span(), &n.attrs, &n.vis);
             }
             syn::ImplItem::Macro(node) => self.macro_member(&node.attrs, &node.mac, node.span()),
             _ => self.unsupported(item.span(), "unsupported impl member"),
@@ -519,24 +475,10 @@ impl<'ast> Visit<'ast> for Walk<'_> {
                 self.function(&n.attrs, &private, &n.sig, n.span(), n.default.as_ref());
             }
             syn::TraitItem::Const(n) => {
-                self.record(
-                    ItemKind::Const,
-                    n.ident.to_string(),
-                    n.span(),
-                    &n.attrs,
-                    &private,
-                    None,
-                );
+                self.whole(ItemKind::Const, &n.ident, n.span(), &n.attrs, &private);
             }
             syn::TraitItem::Type(n) => {
-                self.record(
-                    ItemKind::TypeAlias,
-                    n.ident.to_string(),
-                    n.span(),
-                    &n.attrs,
-                    &private,
-                    None,
-                );
+                self.whole(ItemKind::TypeAlias, &n.ident, n.span(), &n.attrs, &private);
             }
             syn::TraitItem::Macro(node) => self.macro_member(&node.attrs, &node.mac, node.span()),
             _ => self.unsupported(item.span(), "unsupported trait member"),
@@ -549,30 +491,53 @@ impl<'ast> Visit<'ast> for Walk<'_> {
         match item {
             syn::ForeignItem::Fn(n) => self.function(&n.attrs, &n.vis, &n.sig, n.span(), None),
             syn::ForeignItem::Static(n) => {
-                self.record(
-                    ItemKind::Static,
-                    n.ident.to_string(),
-                    n.span(),
-                    &n.attrs,
-                    &n.vis,
-                    None,
-                );
+                self.whole(ItemKind::Static, &n.ident, n.span(), &n.attrs, &n.vis);
             }
             syn::ForeignItem::Type(n) => {
-                self.record(
-                    ItemKind::TypeAlias,
-                    n.ident.to_string(),
-                    n.span(),
-                    &n.attrs,
-                    &n.vis,
-                    None,
-                );
+                self.whole(ItemKind::TypeAlias, &n.ident, n.span(), &n.attrs, &n.vis);
             }
             syn::ForeignItem::Macro(node) => self.macro_member(&node.attrs, &node.mac, node.span()),
             _ => self.unsupported(item.span(), "unsupported extern member"),
         }
         visit::visit_foreign_item(self, item);
     }
+}
+/// A `use` item's outline name: the one local name a single binding
+/// introduces, else the first written line of its tree. A path leading to a
+/// group still retains the written group label.
+fn use_name(text: &str, n: &syn::ItemUse, bindings: &[imports::ImportBinding]) -> String {
+    let written = || {
+        text[n.tree.span().byte_range()]
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim_end()
+            .to_owned()
+    };
+    if !matches!(n.tree, syn::UseTree::Group(_) | syn::UseTree::Glob(_)) && bindings.len() == 1 {
+        if text[n.tree.span().byte_range()].contains(['{', '*']) {
+            written()
+        } else {
+            bindings[0].local_name.clone()
+        }
+    } else {
+        written()
+    }
+}
+
+/// The written path of each attribute, `::`-joined.
+fn attribute_names(attrs: &[syn::Attribute]) -> BTreeSet<String> {
+    attrs
+        .iter()
+        .map(|attr| {
+            attr.path()
+                .segments
+                .iter()
+                .map(|segment| segment.ident.to_string())
+                .collect::<Vec<_>>()
+                .join("::")
+        })
+        .collect()
 }
 fn type_head(ty: &syn::Type) -> Option<String> {
     match ty {

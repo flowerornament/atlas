@@ -96,10 +96,6 @@ enum LexicalState {
 /// This is deliberately smaller than a parser: it recognizes only comments
 /// and string literals, the two lexical forms that can counterfeit declaration
 /// lines or braces for the line grammar.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn code_projection(text: &str) -> Vec<ProjectedLine> {
     let bytes = text.as_bytes();
     let mut state = LexicalState::Code;
@@ -108,8 +104,7 @@ fn code_projection(text: &str) -> Vec<ProjectedLine> {
     let mut lines = Vec::new();
     let mut index = 0usize;
     while index < bytes.len() {
-        let byte = bytes[index];
-        if byte == b'\n' {
+        if bytes[index] == b'\n' {
             lines.push(ProjectedLine {
                 code: String::from_utf8(line).expect("masked source remains UTF-8"),
                 starts_in_code,
@@ -119,83 +114,7 @@ fn code_projection(text: &str) -> Vec<ProjectedLine> {
             index += 1;
             continue;
         }
-        match state {
-            LexicalState::Code if bytes[index..].starts_with(b"//") => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    line.push(b' ');
-                    index += 1;
-                }
-            }
-            LexicalState::Code if bytes[index..].starts_with(b"/*") => {
-                line.extend_from_slice(b"  ");
-                state = LexicalState::BlockComment(1);
-                index += 2;
-            }
-            LexicalState::Code => {
-                if let Some((prefix_len, hashes)) = raw_string_open(&bytes[index..]) {
-                    line.extend(std::iter::repeat_n(b' ', prefix_len));
-                    state = LexicalState::RawString { hashes };
-                    index += prefix_len;
-                } else if let Some(literal_len) = (byte == b'\'')
-                    .then(|| char_literal_len(&text[index..]))
-                    .flatten()
-                {
-                    line.extend(std::iter::repeat_n(b' ', literal_len));
-                    index += literal_len;
-                } else if byte == b'"' {
-                    line.push(b' ');
-                    state = LexicalState::String { escaped: false };
-                    index += 1;
-                } else {
-                    line.push(byte);
-                    index += 1;
-                }
-            }
-            LexicalState::BlockComment(depth) if bytes[index..].starts_with(b"/*") => {
-                line.extend_from_slice(b"  ");
-                state = LexicalState::BlockComment(depth + 1);
-                index += 2;
-            }
-            LexicalState::BlockComment(depth) if bytes[index..].starts_with(b"*/") => {
-                line.extend_from_slice(b"  ");
-                state = if depth == 1 {
-                    LexicalState::Code
-                } else {
-                    LexicalState::BlockComment(depth - 1)
-                };
-                index += 2;
-            }
-            LexicalState::BlockComment(_) => {
-                line.push(b' ');
-                index += 1;
-            }
-            LexicalState::String { escaped } => {
-                line.push(b' ');
-                state = if escaped {
-                    LexicalState::String { escaped: false }
-                } else if byte == b'\\' {
-                    LexicalState::String { escaped: true }
-                } else if byte == b'"' {
-                    LexicalState::Code
-                } else {
-                    state
-                };
-                index += 1;
-            }
-            LexicalState::RawString { hashes } => {
-                let closes = byte == b'"'
-                    && bytes
-                        .get(index + 1..index + 1 + hashes)
-                        .is_some_and(|suffix| suffix.iter().all(|byte| *byte == b'#'));
-                line.push(b' ');
-                index += 1;
-                if closes {
-                    line.extend(std::iter::repeat_n(b' ', hashes));
-                    index += hashes;
-                    state = LexicalState::Code;
-                }
-            }
-        }
+        (state, index) = state.mask(text, index, &mut line);
     }
     if !line.is_empty() {
         lines.push(ProjectedLine {
@@ -204,6 +123,95 @@ fn code_projection(text: &str) -> Vec<ProjectedLine> {
         });
     }
     lines
+}
+
+impl LexicalState {
+    /// Mask the lexical step at `index` (never a newline) onto `line`: code
+    /// bytes are copied, comment and string bytes become spaces, one output
+    /// byte per input byte. Returns the next state and index.
+    fn mask(self, text: &str, index: usize, line: &mut Vec<u8>) -> (Self, usize) {
+        let bytes = text.as_bytes();
+        let byte = bytes[index];
+        match self {
+            Self::Code => mask_code(text, index, line),
+            Self::BlockComment(depth) if bytes[index..].starts_with(b"/*") => {
+                line.extend_from_slice(b"  ");
+                (Self::BlockComment(depth + 1), index + 2)
+            }
+            Self::BlockComment(depth) if bytes[index..].starts_with(b"*/") => {
+                line.extend_from_slice(b"  ");
+                let state = if depth == 1 {
+                    Self::Code
+                } else {
+                    Self::BlockComment(depth - 1)
+                };
+                (state, index + 2)
+            }
+            Self::BlockComment(_) => {
+                line.push(b' ');
+                (self, index + 1)
+            }
+            Self::String { escaped } => {
+                line.push(b' ');
+                let state = if escaped {
+                    Self::String { escaped: false }
+                } else if byte == b'\\' {
+                    Self::String { escaped: true }
+                } else if byte == b'"' {
+                    Self::Code
+                } else {
+                    self
+                };
+                (state, index + 1)
+            }
+            Self::RawString { hashes } => {
+                let closes = byte == b'"'
+                    && bytes
+                        .get(index + 1..index + 1 + hashes)
+                        .is_some_and(|suffix| suffix.iter().all(|byte| *byte == b'#'));
+                line.push(b' ');
+                if closes {
+                    line.extend(std::iter::repeat_n(b' ', hashes));
+                    (Self::Code, index + 1 + hashes)
+                } else {
+                    (self, index + 1)
+                }
+            }
+        }
+    }
+}
+
+/// One step in code: a line comment is masked to the end of its line; a
+/// block comment, string or raw string opens; a char literal is masked
+/// whole; any other byte is copied.
+fn mask_code(text: &str, mut index: usize, line: &mut Vec<u8>) -> (LexicalState, usize) {
+    let bytes = text.as_bytes();
+    let byte = bytes[index];
+    if bytes[index..].starts_with(b"//") {
+        while index < bytes.len() && bytes[index] != b'\n' {
+            line.push(b' ');
+            index += 1;
+        }
+        (LexicalState::Code, index)
+    } else if bytes[index..].starts_with(b"/*") {
+        line.extend_from_slice(b"  ");
+        (LexicalState::BlockComment(1), index + 2)
+    } else if let Some((prefix_len, hashes)) = raw_string_open(&bytes[index..]) {
+        line.extend(std::iter::repeat_n(b' ', prefix_len));
+        (LexicalState::RawString { hashes }, index + prefix_len)
+    } else if let Some(literal_len) = (byte == b'\'')
+        .then(|| char_literal_len(&text[index..]))
+        .flatten()
+    {
+        line.extend(std::iter::repeat_n(b' ', literal_len));
+        (LexicalState::Code, index + literal_len)
+    } else if byte == b'"' {
+        line.push(b' ');
+        (LexicalState::String { escaped: false }, index + 1)
+    } else {
+        line.push(byte);
+        (LexicalState::Code, index + 1)
+    }
 }
 
 fn raw_string_open(bytes: &[u8]) -> Option<(usize, usize)> {
