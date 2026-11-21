@@ -6,6 +6,13 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- A glob over the crate root (`use crate::*`, or `use super::*` reaching
+ it) is read through each root name it brings in, where the name is used,
+ in stage readings and seams test coupling alike, instead of making the
+ file's paths unjudged and the crate's seams unavailable. Production
+ root globs are now judged too, so a stage reading may newly refuse a read
+ that was unjudged before. When lib.rs itself re-exports a glob, the root's
+ names cannot be listed, and the glob stays unjudged.
 - `[concentration] function_population`: the crates whose functions
  `function_lines` and `function_nesting` measure, when they differ from
  `population` (absent: `population`), checked as `population` is.

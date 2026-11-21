@@ -3,7 +3,7 @@
 //! This native textual grammar is distinct from qualified call resolution.
 use super::paths::{
     PathForm, SourceLine, crate_paths, identifier_paths, inline_paths, logical_lines, read_path,
-    root_aliases,
+    root_aliases, walk,
 };
 use super::{CrateMap, Edge, FileMap, ItemKind, Unjudged, UnjudgedPath};
 use crate::{discovery::module_path_of, population::TestSelection};
@@ -460,7 +460,12 @@ impl RootTable {
         let mut unjudged = unreadable_uses(file, lines);
         let import_aliases = import_aliases(lines);
         let mut module_aliases: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        for (line, path, form) in crate_paths(lines, &aliases) {
+        let globbed = self.root_glob_names(module, lines);
+        let paths = crate_paths(lines, &aliases)
+            .into_iter()
+            .filter(|(_, path, _)| globbed.is_empty() || !root_glob(module, path, &self.self_names))
+            .chain(glob_paths(lines, &globbed, &self.modules));
+        for (line, path, form) in paths {
             match read_path(module, &path, form, self, &aliases) {
                 Ok(targets) => {
                     if form != PathForm::Inline
@@ -541,4 +546,74 @@ fn through_module_aliases<'a>(
         }
     }
     found
+}
+
+impl RootTable {
+    /// The root names a glob over the crate root (`use crate::*`, or
+    /// `use super::*` that reaches it) brings into a file, less the names
+    /// the file binds itself; empty without such a glob, and when lib.rs
+    /// itself re-exports a glob, whose names cannot be listed (the glob
+    /// then stays unjudged).
+    fn root_glob_names(&self, module: &[&str], lines: &[SourceLine<'_>]) -> BTreeSet<String> {
+        if !self.globs.is_empty() {
+            return BTreeSet::new();
+        }
+        let mut bound = BTreeSet::new();
+        let mut globbed = false;
+        for line in lines {
+            let SourceLine::Use { bindings, .. } = line else {
+                continue;
+            };
+            for binding in *bindings {
+                if binding.local_name != "*" {
+                    bound.insert(binding.local_name.as_str());
+                } else if root_glob(module, &binding.source_path, &self.self_names) {
+                    globbed = true;
+                }
+            }
+        }
+        if !globbed {
+            return BTreeSet::new();
+        }
+        self.modules
+            .iter()
+            .chain(self.bindings.keys())
+            .chain(&self.items)
+            .filter(|name| !bound.contains(name.as_str()))
+            .cloned()
+            .collect()
+    }
+}
+/// Whether `path` is a glob over the crate root.
+fn root_glob(module: &[&str], path: &str, self_names: &BTreeSet<String>) -> bool {
+    path.strip_suffix("::*")
+        .map(|base| format!("{base}::_"))
+        .and_then(|probe| {
+            walk(module, &probe, self_names).map(|(base, rest)| base.is_empty() && rest == ["_"])
+        })
+        .unwrap_or(false)
+}
+/// Each use of a glob-imported root name, as the crate path it reads. A
+/// module is read only through a path below it (`front::check::x`): a bare
+/// word that spells a module is more likely a local name.
+fn glob_paths(
+    lines: &[SourceLine<'_>],
+    globbed: &BTreeSet<String>,
+    modules: &BTreeSet<String>,
+) -> Vec<(usize, String, PathForm)> {
+    let mut paths = Vec::new();
+    for source in lines {
+        let SourceLine::Code { line, code } = source else {
+            continue;
+        };
+        for path in identifier_paths(code) {
+            let (head, below) = path
+                .split_once("::")
+                .map_or((path, false), |(head, _)| (head, true));
+            if globbed.contains(head) && (below || !modules.contains(head)) {
+                paths.push((*line, format!("crate::{path}"), PathForm::Inline));
+            }
+        }
+    }
+    paths
 }

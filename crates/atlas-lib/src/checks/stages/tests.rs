@@ -288,31 +288,43 @@ fn a_root_re_export_cannot_hide_a_forward_edge() {
     assert_eq!(forward(&report), vec![("load", "engine")]);
 }
 
+/// A glob over the crate root brings the root's names in, and each use of
+/// one is read where it is written; with a lib.rs glob, whose names cannot
+/// be listed, it stays unjudged (each_unjudged_refusal_names_its_own_remedy).
 #[test]
-fn a_root_glob_is_reported_not_skipped() {
+fn a_root_glob_is_read_through_the_names_it_brings() {
     let report = StageReport::of(
         &crate_map(&[
-            ("load.rs", "use crate::*;\n"),
-            ("schedule/plan.rs", "use super::super::*;\nuse super::*;\n"),
+            (
+                "lib.rs",
+                "mod engine;
+mod load;
+",
+            ),
+            (
+                "load.rs",
+                "use crate::*;
+pub fn go() { engine::run(); }
+",
+            ),
+            (
+                "engine.rs",
+                "pub fn run() {}
+",
+            ),
         ]),
         &order(),
     );
-    let sites: Vec<_> = report
-        .unjudged
-        .iter()
-        .map(|path| (path.file.as_str(), path.line, path.why))
-        .collect();
-    assert_eq!(
-        sites,
-        vec![
-            ("crates/demo-fix/src/load.rs", 1, Unjudged::RootGlob),
-            (
-                "crates/demo-fix/src/schedule/plan.rs",
-                1,
-                Unjudged::RootGlob
-            ),
-        ]
+    assert!(
+        report.unjudged.is_empty(),
+        "{:?}",
+        report
+            .unjudged
+            .iter()
+            .map(|p| (&p.file, p.line, p.why))
+            .collect::<Vec<_>>()
     );
+    assert_eq!(forward(&report), vec![("load", "engine")]);
 }
 
 #[test]

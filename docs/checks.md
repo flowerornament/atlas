@@ -641,7 +641,10 @@ instead of passing a rule it cannot check. See the
 
 - Stage checks follow written paths and `use` statements. This is close to,
   but not the same as, the compiler's name resolution. Paths Atlas cannot
-  place are reported as unjudged, never as allowed.
+  place are reported as unjudged, never as allowed. A glob over the crate
+  root (`use crate::*`) is read through each root name it brings in, where
+  that name is used; when lib.rs itself re-exports a glob, the root's names
+  cannot be listed, and the glob is unjudged.
 - Checks measure how code is written. They do not prove it compiles or
   behaves the same.
 - Revisions are read from the repository in the workspace root (`.git` or

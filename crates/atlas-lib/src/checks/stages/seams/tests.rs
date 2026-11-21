@@ -1146,3 +1146,20 @@ fn a_listed_module_exposes_its_public_items() {
     let found = listed.refusals(None, &report, &published(POLICY, SEAMS));
     assert!(!found.iter().any(|r| r.contains("interior")), "{found:#?}");
 }
+
+/// A glob over the crate root in a test file brings the root's names in:
+/// each use of one is read where it is written, so the file is judged, not
+/// unavailable (atlas-3n1.4).
+#[test]
+fn a_root_glob_in_a_test_file_is_read_through_its_names() {
+    for glob in ["use crate::*;\n", "use super::super::*;\n"] {
+        let files = with(6, &format!("{glob}fn t() {{ front::check::helper(); }}\n"));
+        let (reading, _) = read_supported(&files, POLICY, SEAMS, &[])
+            .unwrap_or_else(|unavailable| panic!("{glob}: {unavailable:#?}"));
+        let pairs: Vec<&str> = reading.tests["back"]
+            .keys()
+            .map(|(_, item)| item.as_str())
+            .collect();
+        assert_eq!(pairs, ["front::helper"], "{glob}");
+    }
+}
