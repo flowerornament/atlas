@@ -695,7 +695,7 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
 
 /// A unit enum's serialized name: the stable code of a diagnostic or reason
 /// kind, such as `self-unresolved`.
-pub(crate) fn code(value: &impl Serialize) -> String {
+pub fn code(value: &impl Serialize) -> String {
     match serde_json::to_value(value) {
         Ok(serde_json::Value::String(name)) => name,
         _ => String::new(),

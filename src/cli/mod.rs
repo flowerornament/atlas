@@ -121,16 +121,16 @@ fn with_scope_hint(
     {
         // A bare word becomes `--in`; a flag's value is replaced in place.
         candidates.first().and_then(|first| {
-            args::this_command_with(word, first)
+            args::this_command_with(word, &[first])
                 .filter(|_| args::follows_flag(word))
-                .or_else(|| args::this_command_with(word, &format!("--in {first}")))
+                .or_else(|| args::this_command_with(word, &["--in", first]))
         })
     } else if let Some(cargo_atlas::discovery::ScopeError::Ambiguous { scope, candidates }) =
         error.downcast_ref::<cargo_atlas::discovery::ScopeError>()
     {
         candidates
             .first()
-            .and_then(|first| args::this_command_with(scope, first))
+            .and_then(|first| args::this_command_with(scope, &[first]))
     } else {
         return error;
     };

@@ -196,28 +196,14 @@ fn selector(
 /// This run's command line with the first comma-separated element equal to
 /// `word` replaced by `with`: the other types and every flag stay as given.
 fn respelled(word: &str, with: &str) -> String {
-    let mut args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().is_some_and(|arg| arg == "atlas") {
-        args.remove(0);
-    }
-    let mut done = false;
-    for arg in &mut args {
-        if done {
-            break;
-        }
+    let mut words = crate::cli::output::rows::this_run();
+    for arg in &mut words {
         let mut parts: Vec<&str> = arg.split(',').collect();
         if let Some(part) = parts.iter_mut().find(|part| **part == word) {
             *part = with;
             *arg = parts.join(",");
-            done = true;
+            return crate::cli::output::rows::command(&words);
         }
     }
-    if !done {
-        return format!("cargo atlas types {with}");
-    }
-    let words: Vec<String> = args
-        .iter()
-        .map(|arg| crate::cli::output::rows::quoted(arg))
-        .collect();
-    format!("cargo atlas {}", words.join(" "))
+    format!("cargo atlas types {with}")
 }

@@ -93,7 +93,7 @@ pub(crate) fn run(
                     }
                 }
                 if changed.len() > limit {
-                    println!("{}", tail("", changed.len() - limit, &rerun_all(None)));
+                    println!("{}", tail("", changed.len() - limit, &rerun_all()));
                 }
                 same_shape_note(content_only);
             }
@@ -131,13 +131,9 @@ pub(crate) fn run(
                     ("rescoped", &report.rescoped),
                     ("narrowed", &report.narrowed),
                 ] {
-                    print_bounded(
-                        rows,
-                        options.rows.limit(15),
-                        "",
-                        || rerun_all(None),
-                        |row| pair(label, row),
-                    );
+                    print_bounded(rows, options.rows.limit(15), "", rerun_all, |row| {
+                        pair(label, row);
+                    });
                 }
                 for limit in &report.limits {
                     println!("limit: {limit}");
@@ -170,25 +166,19 @@ pub(crate) fn run(
                     ("rerooted (review)", &report.rerooted),
                     ("changed", &report.changed),
                 ] {
-                    print_bounded(rows, limit, "", || rerun_all(None), |row| pair(label, row));
+                    print_bounded(rows, limit, "", rerun_all, |row| pair(label, row));
                 }
                 for (label, rows) in [
                     ("only before", &report.only_before),
                     ("only after", &report.only_after),
                     ("unreadable", &report.unreadable),
                 ] {
-                    print_bounded(
-                        rows,
-                        limit,
-                        "",
-                        || rerun_all(None),
-                        |row| {
-                            println!(
-                                "{label}: {} {} {} at {}:{}",
-                                row.crate_name, row.class, row.name, row.site.file, row.site.line
-                            );
-                        },
-                    );
+                    print_bounded(rows, limit, "", rerun_all, |row| {
+                        println!(
+                            "{label}: {} {} {} at {}:{}",
+                            row.crate_name, row.class, row.name, row.site.file, row.site.line
+                        );
+                    });
                 }
                 for limit in &report.limits {
                     println!("limit: {limit}");
@@ -304,15 +294,9 @@ pub(crate) fn diff(
         .iter()
         .filter(|c| c.shape_changed)
         .collect();
-    print_bounded(
-        &shaped,
-        rows.limit(10),
-        "",
-        || rerun_all(None),
-        |module| {
-            println!("module shape: {}", module.file);
-        },
-    );
+    print_bounded(&shaped, rows.limit(10), "", rerun_all, |module| {
+        println!("module shape: {}", module.file);
+    });
     let content_only = report
         .shapes
         .changes
@@ -349,32 +333,22 @@ pub(crate) fn diff(
     if report.items.declarations.len() > limit {
         println!(
             "{}",
-            tail(
-                "",
-                report.items.declarations.len() - limit,
-                &rerun_all(None)
-            )
+            tail("", report.items.declarations.len() - limit, &rerun_all())
         );
     }
     if let Some(relationships) = &report.items.relationships {
-        print_bounded(
-            relationships,
-            rows.limit(5),
-            "",
-            || rerun_all(None),
-            |incident| {
-                println!(
-                    "{:?}: {}:{} {} -{}-> {} [{:?}]",
-                    incident.side,
-                    incident.edge.source.file,
-                    incident.edge.source.line,
-                    incident.edge.source.name,
-                    incident.edge.evidence.label(),
-                    incident.edge.target,
-                    incident.edge.resolution
-                );
-            },
-        );
+        print_bounded(relationships, rows.limit(5), "", rerun_all, |incident| {
+            println!(
+                "{:?}: {}:{} {} -{}-> {} [{:?}]",
+                incident.side,
+                incident.edge.source.file,
+                incident.edge.source.line,
+                incident.edge.source.name,
+                incident.edge.evidence.label(),
+                incident.edge.target,
+                incident.edge.resolution
+            );
+        });
     }
     println!("{}", report.items.limits);
     for (side, basis) in [
@@ -395,10 +369,7 @@ fn source_limits(side: &str, diagnostics: &[atlas_lib::model::Diagnostic], rows:
     let mut kinds: std::collections::BTreeMap<String, Vec<&atlas_lib::model::Diagnostic>> =
         std::collections::BTreeMap::new();
     for diagnostic in diagnostics {
-        let code = serde_json::to_value(diagnostic.code)
-            .ok()
-            .and_then(|code| code.as_str().map(str::to_owned))
-            .unwrap_or_else(|| "unclassified".to_owned());
+        let code = atlas_lib::relations::code(&diagnostic.code);
         kinds.entry(code).or_default().push(diagnostic);
     }
     let mut kinds: Vec<_> = kinds.into_iter().collect();
@@ -409,21 +380,15 @@ fn source_limits(side: &str, diagnostics: &[atlas_lib::model::Diagnostic], rows:
         kinds.len(),
         if kinds.len() == 1 { "" } else { "s" }
     );
-    print_bounded(
-        &kinds,
-        rows.limit(5),
-        "  ",
-        || rerun_all(None),
-        |(kind, cases)| {
-            let example = cases[0];
-            println!(
-                "  {:>4}  {kind}  e.g. {}: {}",
-                cases.len(),
-                example.file,
-                example.message
-            );
-        },
-    );
+    print_bounded(&kinds, rows.limit(5), "  ", rerun_all, |(kind, cases)| {
+        let example = cases[0];
+        println!(
+            "  {:>4}  {kind}  e.g. {}: {}",
+            cases.len(),
+            example.file,
+            example.message
+        );
+    });
 }
 
 #[derive(Args)]
@@ -508,7 +473,7 @@ pub(super) fn source_review(
             }
         }
         if report.files.len() > shown {
-            println!("{}", tail("", report.files.len() - shown, &rerun_all(None)));
+            println!("{}", tail("", report.files.len() - shown, &rerun_all()));
         }
     }
     Ok(())

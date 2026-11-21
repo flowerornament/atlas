@@ -90,10 +90,7 @@ fn schema_text() -> String {
             .max()
             .unwrap_or(0);
         for column in relation.columns {
-            let kind = serde_json::to_value(column.kind)
-                .ok()
-                .and_then(|kind| kind.as_str().map(str::to_owned))
-                .unwrap_or_default();
+            let kind = atlas_lib::relations::code(&column.kind);
             let _ = writeln!(
                 out,
                 "  {:width$}  {kind:7}  {}",

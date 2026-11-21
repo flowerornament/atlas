@@ -120,34 +120,25 @@ impl Within {
         graph: &SourceGraph,
         metadata: &cargo_metadata::Metadata,
     ) -> Result<impl Fn(&str) -> bool> {
-        let chosen = match (&self.in_path, &self.package) {
-            (Some(path), _) => match path_or_basename(graph, metadata, path)? {
-                Some(path) => Chosen::Path(path),
-                None => {
-                    return Err(format!(
-                        "no path or file name {path:?} in this project; cargo atlas orient lists them"
-                    )
-                    .into());
-                }
-            },
-            (None, Some(package)) => package_named(metadata, package)?,
-            (None, None) => Chosen::Workspace,
-        };
-        let packages: std::collections::BTreeSet<String> = match &chosen {
-            Chosen::Package(name) => graph
-                .files
-                .iter()
-                .filter(|file| file.crate_name == *name)
-                .map(|file| file.path.clone())
-                .collect(),
-            _ => std::collections::BTreeSet::new(),
-        };
-        Ok(move |file: &str| match &chosen {
-            Chosen::Workspace => true,
-            Chosen::Path(path) | Chosen::Written(path) => {
-                cargo_atlas::architecture::contains(path, file)
+        // A path keeps the files under it, a package the files it reads.
+        let (path, packages) = match (&self.in_path, &self.package) {
+            (Some(path), _) => (Some(chosen_path(graph, metadata, path)?), None),
+            (None, Some(package)) => {
+                package_named(metadata, package)?;
+                let files: std::collections::BTreeSet<String> = graph
+                    .files
+                    .iter()
+                    .filter(|file| file.crate_name == *package)
+                    .map(|file| file.path.clone())
+                    .collect();
+                (None, Some(files))
             }
-            Chosen::Package(_) => packages.contains(file),
+            (None, None) => (None, None),
+        };
+        Ok(move |file: &str| match (&path, &packages) {
+            (Some(path), _) => cargo_atlas::architecture::contains(path, file),
+            (None, Some(files)) => files.contains(file),
+            (None, None) => true,
         })
     }
 }
@@ -185,6 +176,8 @@ impl Function {
         }
     }
 }
+
+const TYPES_ONCE: &str = "give the types once: a bare TYPES or --type/--query";
 
 /// What the bare words may hold besides a project root.
 #[derive(Clone, Copy)]
@@ -240,13 +233,7 @@ impl Scope {
             return package_named(metadata, package);
         }
         if let Some(path) = &self.in_path {
-            return match path_or_basename(graph, metadata, path)? {
-                Some(path) => Ok(Chosen::Path(path)),
-                None => Err(format!(
-                    "no path or file name {path:?} in this project; cargo atlas orient lists them"
-                )
-                .into()),
-            };
+            return chosen_path(graph, metadata, path).map(Chosen::Path);
         }
         let Some(word) = self.subject.as_deref() else {
             return Ok(Chosen::Workspace);
@@ -365,7 +352,7 @@ fn split(
         }
         reader.notices.superseded("positional ROOT", "--root");
         if matches!(kind, Kind::Types { flagged: true }) {
-            return Err("give the types once: a bare TYPES or --type/--query".into());
+            return Err(TYPES_ONCE.into());
         }
         if matches!(kind, Kind::None) {
             return Err(format!(
@@ -389,7 +376,7 @@ fn split(
         // `types ROOT --type X`, the 0.18 spelling.
         Kind::Types { flagged: true } if Path::new(first).is_dir() => return root(reader),
         Kind::Types { flagged: true } => {
-            return Err("give the types once: a bare TYPES or --type/--query".into());
+            return Err(TYPES_ONCE.into());
         }
         Kind::Scope | Kind::None | Kind::Anchor { .. } | Kind::Focus => {}
     }
@@ -414,7 +401,6 @@ fn split(
         (Project::No, _) => subject,
     }
 }
-#[derive(PartialEq, Eq)]
 enum Project {
     /// Not a project directory, or one inside the workspace being read.
     No,
@@ -496,7 +482,8 @@ impl Chosen {
                     .map(|package| package_dir(metadata, package))
                     .ok_or_else(|| format!("no package {name:?} in this workspace"))?;
                 let nested = packages.iter().find(|other| {
-                    other.name.as_str() != name && inside(&dir, &package_dir(metadata, other))
+                    other.name.as_str() != name
+                        && cargo_atlas::architecture::contains(&dir, &package_dir(metadata, other))
                 });
                 match nested {
                     Some(other) => Err(format!(
@@ -511,13 +498,17 @@ impl Chosen {
         }
     }
 }
-/// Whether relative directory `inner` is `outer` or below it ("" is the root).
-fn inside(outer: &str, inner: &str) -> bool {
-    outer.is_empty()
-        || inner == outer
-        || inner
-            .strip_prefix(outer)
-            .is_some_and(|rest| rest.starts_with('/'))
+/// `--in PATH`: a discovered path or a unique file or directory name, never a
+/// package.
+fn chosen_path(
+    graph: &SourceGraph,
+    metadata: &cargo_metadata::Metadata,
+    path: &str,
+) -> Result<String> {
+    path_or_basename(graph, metadata, path)?.ok_or_else(|| {
+        format!("no path or file name {path:?} in this project; cargo atlas orient lists them")
+            .into()
+    })
 }
 /// The package's directory, relative to the workspace root ("" for the root).
 fn package_dir(metadata: &cargo_metadata::Metadata, package: &cargo_metadata::Package) -> String {

@@ -181,7 +181,7 @@ fn render(cell: &Cell) -> String {
 /// `standing` are the facts' fixed limitations, the same on every run: the
 /// text folds them into one line, and JSON keeps each.
 fn text(answer: &query::Answer, source: &str, show: usize, standing: &[String]) -> String {
-    let more = crate::cli::output::rows::rerun_all(None);
+    let more = crate::cli::output::rows::rerun_all();
     let mut out = String::new();
     for (i, table) in answer.tables.iter().enumerate() {
         if i > 0 {

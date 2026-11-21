@@ -249,6 +249,10 @@ impl Census {
         out
     }
 }
+/// The last line of a list that left `hidden` rows out: `… 12 more; COMMAND`.
+pub(crate) fn cut_line(indent: &str, hidden: usize, command: &str) -> String {
+    format!("{indent}… {hidden} more; {command}")
+}
 /// Where a bounded text list sends the reader for the rows it left out: the
 /// command for the whole list (`None`), or for one entry (`Some(id or path)`).
 pub type More<'a> = &'a dyn Fn(Option<&str>) -> String;
@@ -269,11 +273,7 @@ impl Names<'_> {
         more: More<'_>,
     ) -> String {
         let mut out = self.render(related, cards, relations, &|id, hidden| {
-            format!(
-                "{}… {hidden} more; {}",
-                if id.is_some() { "  " } else { "" },
-                more(id)
-            )
+            cut_line(if id.is_some() { "  " } else { "" }, hidden, &more(id))
         });
         // A co-mention is not a call: say where calls are answered.
         if related {
@@ -388,11 +388,7 @@ impl ModuleCard<'_> {
     /// names (`Some(path)` for one file's declarations).
     pub fn text_bounded(&self, files: usize, declarations: usize, more: More<'_>) -> String {
         self.render(files, declarations, &|path, hidden| {
-            format!(
-                "{}… {hidden} more; {}",
-                if path.is_some() { "  " } else { "" },
-                more(path)
-            )
+            cut_line(if path.is_some() { "  " } else { "" }, hidden, &more(path))
         })
     }
     fn render(

@@ -35,36 +35,38 @@ impl Rows {
 pub(crate) fn tail(indent: &str, hidden: usize, command: &str) -> String {
     format!("{indent}… {hidden} more; {command}")
 }
-/// This run's command line with `--rows N` dropped and `--all` added; when
-/// `subject` is given, its first bare word `from` is replaced by `to` first.
-pub(crate) fn rerun_all(subject: Option<(&str, &str)>) -> String {
-    let mut args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().is_some_and(|arg| arg == "atlas") {
-        args.remove(0);
+/// This run's words after `cargo atlas`: Cargo's own `atlas` argument is
+/// removed, as `cli::run` removes it before parsing.
+pub(crate) fn this_run() -> Vec<String> {
+    let mut words: Vec<String> = std::env::args().skip(1).collect();
+    if words.first().is_some_and(|word| word == "atlas") {
+        words.remove(0);
     }
-    let mut kept = Vec::with_capacity(args.len() + 1);
-    let mut words = args.into_iter();
-    while let Some(arg) = words.next() {
+    words
+}
+/// `cargo atlas WORDS`, each word quoted as a shell reads it back.
+pub(crate) fn command(words: &[String]) -> String {
+    let words: Vec<String> = words.iter().map(|word| quoted(word)).collect();
+    format!("cargo atlas {}", words.join(" "))
+}
+/// This run's command line with `--rows N` dropped and `--all` added.
+pub(crate) fn rerun_all() -> String {
+    let mut kept = Vec::new();
+    let mut words = this_run().into_iter();
+    while let Some(word) = words.next() {
         // `--show` is query's 0.18 spelling of `--rows`.
-        if arg == "--rows" || arg == "--show" {
+        if word == "--rows" || word == "--show" {
             words.next();
-        } else if !arg.starts_with("--rows=") && !arg.starts_with("--show=") && arg != "--all" {
-            kept.push(arg);
-        }
-    }
-    if let Some((from, to)) = subject {
-        match kept.iter_mut().find(|arg| **arg == from) {
-            Some(arg) => to.clone_into(arg),
-            None => kept.push(to.to_owned()),
+        } else if !word.starts_with("--rows=") && !word.starts_with("--show=") && word != "--all" {
+            kept.push(word);
         }
     }
     kept.push("--all".to_owned());
-    let words: Vec<String> = kept.iter().map(|word| quoted(word)).collect();
-    format!("cargo atlas {}", words.join(" "))
+    command(&kept)
 }
 /// `word` as a shell reads it back: as is when it is plain, otherwise in
 /// single quotes (a query program has spaces, quotes and braces).
-pub(crate) fn quoted(word: &str) -> String {
+fn quoted(word: &str) -> String {
     // `~` is plain inside a word (`HEAD~1`); only a leading one expands.
     let plain = !word.is_empty()
         && !word.starts_with('~')
@@ -79,24 +81,26 @@ pub(crate) fn quoted(word: &str) -> String {
 }
 /// `cargo atlas COMMAND SUBJECT [FLAGS] --all`, keeping this run's
 /// `--root`: the narrower command a nested list's tail names.
-pub(crate) fn narrower(command: &str, subject: &str, flags: &[&str]) -> String {
-    let args: Vec<String> = std::env::args().collect();
-    let root = args
+pub(crate) fn narrower(question: &str, subject: &str, flags: &[&str]) -> String {
+    let run = this_run();
+    let root = run
         .iter()
-        .position(|arg| arg == "--root")
-        .and_then(|at| args.get(at + 1))
-        .map(|root| format!(" --root {}", quoted(root)))
+        .position(|word| word == "--root")
+        .and_then(|at| run.get(at + 1).cloned())
         .or_else(|| {
-            args.iter()
-                .find_map(|arg| arg.strip_prefix("--root="))
-                .map(|root| format!(" --root {}", quoted(root)))
-        })
-        .unwrap_or_default();
-    let flags: String = flags.iter().flat_map(|flag| [" ", flag]).collect();
-    format!(
-        "cargo atlas {command} {}{flags}{root} --all",
-        quoted(subject)
-    )
+            run.iter()
+                .find_map(|word| word.strip_prefix("--root=").map(str::to_owned))
+        });
+    let mut words: Vec<String> = [question, subject]
+        .into_iter()
+        .chain(flags.iter().copied())
+        .map(str::to_owned)
+        .collect();
+    if let Some(root) = root {
+        words.extend(["--root".to_owned(), root]);
+    }
+    words.push("--all".to_owned());
+    command(&words)
 }
 /// Print up to `limit` of `rows` with `line`, then the tail if any were left
 /// out.

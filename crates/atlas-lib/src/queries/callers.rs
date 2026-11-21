@@ -21,7 +21,7 @@ use crate::{
 };
 use serde::Serialize;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt::Write as _,
 };
 
@@ -134,12 +134,11 @@ pub struct Report<A> {
 /// `Trait::method`; `module::name`, by the end of its module path; a bare
 /// name, every function with that name. With `file`, only functions in it.
 fn select<'a>(
-    graph: &'a SourceGraph,
+    declarations: &Declarations<'_>,
     facts: &'a Facts,
     selector: &str,
     file: Option<&str>,
 ) -> Result<Vec<&'a Function>> {
-    let declarations = Declarations::new(graph);
     let functions: Vec<&Function> = facts
         .functions
         .iter()
@@ -203,48 +202,136 @@ fn select<'a>(
 /// The deepest `depth` a call question follows.
 pub const MAX_DEPTH: u32 = 16;
 
-/// The resolved calls `depth` steps out from `start`, by level: at level k,
-/// the calls between a function first reached at k-1 and one not reached
-/// before k (every call at level 1), and the functions first reached at k.
-/// `backward` walks from callee to caller.
-fn levels<'a>(
-    facts: &'a Facts,
-    start: &'a str,
-    depth: u32,
-    backward: bool,
-) -> Vec<(Vec<&'a ResolvedCall>, BTreeSet<&'a str>)> {
-    let ends = |call: &'a ResolvedCall| {
-        if backward {
-            (call.to.as_str(), call.from.as_str())
-        } else {
-            (call.from.as_str(), call.to.as_str())
+/// The calls a question reads, indexed once so each step touches only its
+/// own rows: resolved calls by either end, unresolved calls by the last
+/// segment of their spelling and by the function they are in, each in facts
+/// order.
+struct Calls<'a> {
+    to: HashMap<&'a str, Vec<&'a ResolvedCall>>,
+    from: HashMap<&'a str, Vec<&'a ResolvedCall>>,
+    written: HashMap<&'a str, Vec<&'a UnknownCall>>,
+    inside: HashMap<&'a str, Vec<&'a UnknownCall>>,
+}
+impl<'a> Calls<'a> {
+    fn new(facts: &'a Facts) -> Self {
+        let mut calls = Self {
+            to: HashMap::new(),
+            from: HashMap::new(),
+            written: HashMap::new(),
+            inside: HashMap::new(),
+        };
+        for call in &facts.calls {
+            calls.to.entry(call.to.as_str()).or_default().push(call);
+            calls.from.entry(call.from.as_str()).or_default().push(call);
         }
-    };
-    let mut seen = BTreeSet::from([start]);
-    let mut frontier = BTreeSet::from([start]);
-    let mut out = Vec::new();
-    for level in 1..=depth {
-        let calls: Vec<&ResolvedCall> = facts
-            .calls
-            .iter()
-            .filter(|call| {
-                let (near, far) = ends(call);
-                frontier.contains(near) && (level == 1 || !seen.contains(far))
-            })
-            .collect();
-        let reached: BTreeSet<&str> = calls
-            .iter()
-            .map(|call| ends(call).1)
-            .filter(|far| !seen.contains(far))
-            .collect();
-        seen.extend(&reached);
-        out.push((calls, reached.clone()));
-        if reached.is_empty() {
-            break;
+        for unknown in &facts.unknown_calls {
+            calls
+                .written
+                .entry(last(&unknown.call.spelling))
+                .or_default()
+                .push(unknown);
+            calls
+                .inside
+                .entry(unknown.from.as_str())
+                .or_default()
+                .push(unknown);
         }
-        frontier = reached;
+        calls
     }
-    out
+    /// The resolved calls `depth` steps out from `start`, by level: at level
+    /// k, the calls between a function first reached at k-1 and one not
+    /// reached before k (every call at level 1), and the functions first
+    /// reached at k. `backward` walks from callee to caller.
+    fn levels(
+        &self,
+        start: &'a str,
+        depth: u32,
+        backward: bool,
+    ) -> Vec<(Vec<&'a ResolvedCall>, BTreeSet<&'a str>)> {
+        let (index, far): (_, fn(&'a ResolvedCall) -> &'a str) = if backward {
+            (&self.to, |call| call.from.as_str())
+        } else {
+            (&self.from, |call| call.to.as_str())
+        };
+        let mut seen = BTreeSet::from([start]);
+        let mut frontier = BTreeSet::from([start]);
+        let mut out = Vec::new();
+        for level in 1..=depth {
+            let calls: Vec<&ResolvedCall> = frontier
+                .iter()
+                .flat_map(|near| index.get(near).into_iter().flatten().copied())
+                .filter(|call| level == 1 || !seen.contains(far(call)))
+                .collect();
+            let reached: BTreeSet<&str> = calls
+                .iter()
+                .map(|call| far(call))
+                .filter(|id| !seen.contains(id))
+                .collect();
+            seen.extend(&reached);
+            out.push((calls, reached.clone()));
+            if reached.is_empty() {
+                break;
+            }
+            frontier = reached;
+        }
+        out
+    }
+    /// The unresolved calls written with one of `names`, in facts order.
+    fn written_as(&self, names: &BTreeSet<&str>) -> Vec<&'a UnknownCall> {
+        let mut calls: Vec<&UnknownCall> = names
+            .iter()
+            .flat_map(|name| self.written.get(name).into_iter().flatten().copied())
+            .collect();
+        if names.len() > 1 {
+            calls.sort_by_key(|call| std::ptr::from_ref(*call));
+        }
+        calls
+    }
+    fn inside(&self, function: &str) -> &[&'a UnknownCall] {
+        self.inside.get(function).map_or(&[], Vec::as_slice)
+    }
+}
+/// One resolved row of either direction: the function at the far end, the
+/// call's site, its depth, and beyond depth 1 the function one level nearer.
+struct Row<'a> {
+    far: &'a Function,
+    site: Site,
+    depth: u32,
+    via: Option<&'a Function>,
+}
+/// The rows of `levels` whose far end `within` keeps, sorted by depth and site.
+fn rows<'a>(
+    names: &Names<'a>,
+    levels: &[(Vec<&'a ResolvedCall>, BTreeSet<&'a str>)],
+    backward: bool,
+    within: &dyn Fn(&str) -> bool,
+) -> Vec<Row<'a>> {
+    let mut rows = Vec::new();
+    for (level, (calls, _)) in (1..).zip(levels) {
+        for call in calls {
+            let (near, far) = if backward {
+                (&call.to, &call.from)
+            } else {
+                (&call.from, &call.to)
+            };
+            let Some(far) = names.functions.get(far.as_str()).copied() else {
+                continue;
+            };
+            if !within(&far.file) {
+                continue;
+            }
+            rows.push(Row {
+                far,
+                site: site(&call.site),
+                depth: level,
+                via: (level > 1)
+                    .then(|| names.functions.get(near.as_str()).copied())
+                    .flatten(),
+            });
+        }
+    }
+    rows.sort_by(|a, b| (a.depth, &a.site).cmp(&(b.depth, &b.site)));
+    rows
 }
 /// The functions that call what `selector` names, up to `depth` calls away
 /// (1 to [`MAX_DEPTH`]). `within` keeps the calling functions in a part of
@@ -259,51 +346,33 @@ pub fn callers(
 ) -> Result<Report<CallerAnswer>> {
     let depth = checked_depth(depth)?;
     let names = Names::new(graph, facts);
-    let kept = |id: &str| {
+    let calls = Calls::new(facts);
+    let kept = |unknown: &&UnknownCall| {
         names
             .functions
-            .get(id)
+            .get(unknown.from.as_str())
             .is_some_and(|function| within(&function.file))
     };
-    let answers = select(graph, facts, selector, file)?
+    let answers = select(&names.declarations, facts, selector, file)?
         .into_iter()
         .map(|function| {
-            let levels = levels(facts, &function.id, depth, true);
-            let mut resolved: Vec<Caller> = Vec::new();
-            for (level, (calls, _)) in (1..).zip(&levels) {
-                for call in calls {
-                    let Some(from) = names.functions.get(call.from.as_str()) else {
-                        continue;
-                    };
-                    if !within(&from.file) {
-                        continue;
-                    }
-                    let via = (level > 1)
-                        .then(|| names.functions.get(call.to.as_str()))
-                        .flatten();
-                    resolved.push(Caller {
-                        from: call.from.clone(),
-                        from_name: names.display(from),
-                        site: site(&call.site),
-                        depth: level,
-                        reading: "qualified",
-                        via: via.map(|via| via.id.clone()),
-                        via_name: via.map(|via| names.display(via)),
-                    });
-                }
-            }
-            resolved.sort_by(|a, b| (a.depth, &a.site).cmp(&(b.depth, &b.site)));
-            let written = |wanted: &BTreeSet<&str>| -> Vec<&UnknownCall> {
-                facts
-                    .unknown_calls
-                    .iter()
-                    .filter(|unknown| {
-                        wanted.contains(last(&unknown.call.spelling)) && kept(&unknown.from)
-                    })
-                    .collect()
-            };
-            let possibly: Vec<Unresolved> = written(&BTreeSet::from([last(&function.name)]))
+            let levels = calls.levels(&function.id, depth, true);
+            let resolved = rows(&names, &levels, true, within)
                 .into_iter()
+                .map(|row| Caller {
+                    from: row.far.id.clone(),
+                    from_name: names.display(row.far),
+                    site: row.site,
+                    depth: row.depth,
+                    reading: "qualified",
+                    via: row.via.map(|via| via.id.clone()),
+                    via_name: row.via.map(|via| names.display(via)),
+                })
+                .collect();
+            let possibly: Vec<Unresolved> = calls
+                .written_as(&BTreeSet::from([last(&function.name)]))
+                .into_iter()
+                .filter(kept)
                 .map(unresolved)
                 .collect();
             // Beyond depth 1, the calls written as the name of a caller
@@ -317,7 +386,10 @@ pub fn callers(
                         .filter_map(|id| names.functions.get(id))
                         .map(|function| last(&function.name))
                         .collect();
-                    (level, written(&wanted).len())
+                    (
+                        level,
+                        calls.written_as(&wanted).into_iter().filter(kept).count(),
+                    )
                 })
                 .filter(|(_, count)| *count > 0)
                 .collect();
@@ -352,38 +424,27 @@ pub fn callees(
 ) -> Result<Report<CalleeAnswer>> {
     let depth = checked_depth(depth)?;
     let names = Names::new(graph, facts);
-    let answers = select(graph, facts, selector, file)?
+    let calls = Calls::new(facts);
+    let answers = select(&names.declarations, facts, selector, file)?
         .into_iter()
         .map(|function| {
-            let levels = levels(facts, &function.id, depth, false);
-            let mut resolved: Vec<Callee> = Vec::new();
-            for (level, (calls, _)) in (1..).zip(&levels) {
-                for call in calls {
-                    let Some(to) = names.functions.get(call.to.as_str()) else {
-                        continue;
-                    };
-                    if !within(&to.file) {
-                        continue;
-                    }
-                    let via = (level > 1)
-                        .then(|| names.functions.get(call.from.as_str()))
-                        .flatten();
-                    resolved.push(Callee {
-                        to: call.to.clone(),
-                        to_name: names.display(to),
-                        site: site(&call.site),
-                        depth: level,
-                        reading: "qualified",
-                        via: via.map(|via| via.id.clone()),
-                        via_name: via.map(|via| names.display(via)),
-                    });
-                }
-            }
-            resolved.sort_by(|a, b| (a.depth, &a.site).cmp(&(b.depth, &b.site)));
-            let unresolved: Vec<Unresolved> = facts
-                .unknown_calls
+            let levels = calls.levels(&function.id, depth, false);
+            let resolved = rows(&names, &levels, false, within)
+                .into_iter()
+                .map(|row| Callee {
+                    to: row.far.id.clone(),
+                    to_name: names.display(row.far),
+                    site: row.site,
+                    depth: row.depth,
+                    reading: "qualified",
+                    via: row.via.map(|via| via.id.clone()),
+                    via_name: row.via.map(|via| names.display(via)),
+                })
+                .collect();
+            let unresolved: Vec<Unresolved> = calls
+                .inside(&function.id)
                 .iter()
-                .filter(|unknown| unknown.from == function.id)
+                .copied()
                 .map(unresolved)
                 .collect();
             // Beyond depth 1, the calls inside the functions one level nearer
@@ -392,12 +453,7 @@ pub fn callees(
                 .zip(&levels)
                 .take_while(|(level, _)| *level <= depth)
                 .map(|(level, (_, reached))| {
-                    let count = facts
-                        .unknown_calls
-                        .iter()
-                        .filter(|unknown| reached.contains(unknown.from.as_str()))
-                        .count();
-                    (level, count)
+                    (level, reached.iter().map(|id| calls.inside(id).len()).sum())
                 })
                 .filter(|(_, count)| *count > 0)
                 .collect();
@@ -691,7 +747,11 @@ fn kinds(
 }
 fn tail(out: &mut String, indent: &str, total: usize, rows: usize, more: More<'_>) {
     if total > rows {
-        let _ = writeln!(out, "{indent}… {} more; {}", total - rows, more(None));
+        let _ = writeln!(
+            out,
+            "{}",
+            super::cut_line(indent, total - rows, &more(None))
+        );
     }
 }
 fn plural(n: usize) -> &'static str {

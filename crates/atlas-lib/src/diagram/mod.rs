@@ -100,7 +100,7 @@ pub struct Node {
 /// reader can rank edges without counting the witness lists.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Edge {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub label: Option<String>,
     pub from: String,
     pub to: String,

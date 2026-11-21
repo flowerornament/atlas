@@ -6,6 +6,7 @@ use crate::{
     architecture::Kind,
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Bound;
 use syn::Type;
 
 pub(super) fn path(text: &str) -> Option<Vec<String>> {
@@ -313,20 +314,26 @@ impl Index {
         }
         let mut key = f.scope.clone();
         key.push(first.to_owned());
+        // The first key at or after `key` is under it when any key is.
+        let from = (Bound::Included(key.as_slice()), Bound::Unbounded);
         let under = |k: &Vec<String>| k.starts_with(&key);
         self.names
-            .range(key.clone()..)
+            .range::<[String], _>(from)
             .next()
             .is_some_and(|(k, _)| under(k))
-            || self.types.range(key.clone()..).next().is_some_and(under)
+            || self
+                .types
+                .range::<[String], _>(from)
+                .next()
+                .is_some_and(under)
             || self
                 .aliases
-                .range(key.clone()..)
+                .range::<[String], _>(from)
                 .next()
                 .is_some_and(|(k, _)| under(k))
             || self
                 .exports
-                .range(key.clone()..)
+                .range::<[String], _>(from)
                 .next()
                 .is_some_and(|(k, _)| under(k))
     }

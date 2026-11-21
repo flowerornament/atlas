@@ -204,10 +204,7 @@ fn plan(rule: &Rule, first: Option<usize>) -> Vec<Step> {
 }
 
 fn under(path: &str, dir: &str) -> bool {
-    let dir = dir.trim_end_matches('/');
-    dir.is_empty()
-        || path == dir
-        || (path.starts_with(dir) && path.as_bytes().get(dir.len()) == Some(&b'/'))
+    crate::architecture::contains(dir.trim_end_matches('/'), path)
 }
 
 struct Engine<'c> {

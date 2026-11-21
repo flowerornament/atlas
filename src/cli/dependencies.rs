@@ -155,9 +155,10 @@ fn ranked(
             } else {
                 format!(", under(A, \"{scope}\"), under(B, \"{scope}\")")
             };
-            format!(
-                "cargo atlas query '?- file_calls{{from: A, to: B, calls: N}}{within} order by N desc.'"
-            )
+            crate::cli::output::rows::command(&[
+                "query".to_owned(),
+                format!("?- file_calls{{from: A, to: B, calls: N}}{within} order by N desc."),
+            ])
         } else {
             "cargo atlas dependencies --as json (each edge's count)".to_owned()
         };

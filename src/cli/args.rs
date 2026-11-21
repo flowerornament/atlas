@@ -69,22 +69,20 @@ pub(super) fn command_word(args: &[std::ffi::OsString]) -> Option<&std::ffi::OsS
 }
 /// Whether the first argument equal to `word` is the value of a flag.
 pub(super) fn follows_flag(word: &str) -> bool {
-    let args: Vec<String> = std::env::args().collect();
-    args.iter()
+    let run = super::output::rows::this_run();
+    run.iter()
         .position(|arg| arg == word)
         .and_then(|at| at.checked_sub(1))
-        .is_some_and(|before| args[before].starts_with('-'))
+        .is_some_and(|before| run[before].starts_with('-'))
 }
 /// This run's command line, as `cargo atlas ...`, with the first argument
-/// equal to `from` replaced by `to`; `None` when no argument is `from`.
-pub(super) fn this_command_with(from: &str, to: &str) -> Option<String> {
-    let mut args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().is_some_and(|arg| arg == "atlas") {
-        args.remove(0);
-    }
-    let at = args.iter().position(|arg| arg == from)?;
-    to.clone_into(&mut args[at]);
-    Some(format!("cargo atlas {}", args.join(" ")))
+/// equal to `from` replaced by the words `to`; `None` when no argument is
+/// `from`.
+pub(super) fn this_command_with(from: &str, to: &[&str]) -> Option<String> {
+    let mut words = super::output::rows::this_run();
+    let at = words.iter().position(|word| word == from)?;
+    words.splice(at..=at, to.iter().map(|word| (*word).to_owned()));
+    Some(super::output::rows::command(&words))
 }
 #[derive(Subcommand)]
 pub(super) enum Command {

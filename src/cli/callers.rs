@@ -1,4 +1,4 @@
-//! Who calls a function and what it calls, one level, from the qualified
+//! Who calls a function and what it calls, to `--depth` levels, from the qualified
 //! calls `queries::callers` reads. Unresolved calls are reported as possible
 //! callers or as calls out Atlas could not follow, never dropped.
 use super::{
@@ -51,7 +51,7 @@ pub(crate) fn run(
     let graph = snapshot.graph();
     let facts = atlas_lib::analysis::Analysis::new(&snapshot)?.representations()?;
     let within = options.within.filter(graph, metadata)?;
-    let more = |_: Option<&str>| rerun_all(None);
+    let more = |_: Option<&str>| rerun_all();
     match direction {
         Direction::Callers => {
             let report = callers::callers(graph, &facts, selector, file, options.depth, &within)?;

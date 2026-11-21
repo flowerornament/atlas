@@ -254,7 +254,7 @@ fn edges(text: &mut String, edges: &[navigation::Edge], rows: Rows) -> Result<()
 /// The tail of a text list of `total` rows that showed `limit`.
 fn more(text: &mut String, indent: &str, total: usize, limit: usize) -> Result<()> {
     if total > limit {
-        writeln!(text, "{}", tail(indent, total - limit, &rerun_all(None)))?;
+        writeln!(text, "{}", tail(indent, total - limit, &rerun_all()))?;
     }
     Ok(())
 }
@@ -483,10 +483,7 @@ fn legacy(
                 let cards = rows.limit(if relations { 4 } else { 10 });
                 let shown = cards.min(result.matches.len());
                 result.text_bounded(relations, cards, rows.nested(shown, 40), &|id| {
-                    id.map_or_else(
-                        || rerun_all(None),
-                        |id| narrower("name", id, &["--relations"]),
-                    )
+                    id.map_or_else(rerun_all, |id| narrower("name", id, &["--relations"]))
                 })
             }
         }
@@ -499,7 +496,7 @@ fn legacy(
                 let shown = files.min(result.files.len());
                 // 8 files of 3 declarations, or one file of 24, fill a page.
                 result.text_bounded(files, rows.nested(shown, 24), &|file| {
-                    file.map_or_else(|| rerun_all(None), |file| narrower("module", file, &[]))
+                    file.map_or_else(rerun_all, |file| narrower("module", file, &[]))
                 })
             }
         }

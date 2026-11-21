@@ -71,29 +71,22 @@ pub(crate) struct Options {
 }
 
 pub(crate) fn run(options: &Options) -> Result<()> {
-    let mut cli = Cli::command();
-    // Building names each subcommand `cargo atlas NAME` in its usage line.
-    cli.build();
-    let mut stdout = std::io::stdout().lock();
-    if let Some(name) = &options.topic {
-        let text = topic(name).ok_or_else(|| unknown(name))?;
-        stdout.write_all(text.as_bytes())?;
-        return Ok(());
-    }
-    let Some(name) = options.name.as_deref() else {
-        return as_flag(&[]);
+    let name = match (&options.topic, options.name.as_deref()) {
+        (Some(topic), _) => topic.as_str(),
+        (None, None) => return as_flag(&[]),
+        (None, Some("topics")) => {
+            std::io::stdout().lock().write_all(listing().as_bytes())?;
+            return Ok(());
+        }
+        // A command's help comes first: `help X` meaning `X --help` is the
+        // convention. A guide of the same name is `--topic X`.
+        (None, Some(name)) if Cli::command().find_subcommand(name).is_some() => {
+            return as_flag(&[name]);
+        }
+        (None, Some(name)) => name,
     };
-    if name == "topics" {
-        stdout.write_all(listing().as_bytes())?;
-        return Ok(());
-    }
-    // A command's help comes first: `help X` meaning `X --help` is the
-    // convention. A guide of the same name is `--topic X`.
-    if cli.find_subcommand_mut(name).is_some() {
-        return as_flag(&[name]);
-    }
     let text = topic(name).ok_or_else(|| unknown(name))?;
-    stdout.write_all(text.as_bytes())?;
+    std::io::stdout().lock().write_all(text.as_bytes())?;
     Ok(())
 }
 /// Print what `--help` after `words` prints, by asking the parser for it.

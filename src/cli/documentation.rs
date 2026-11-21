@@ -101,7 +101,7 @@ pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Res
                 crate::cli::output::rows::tail(
                     "",
                     report.findings.len() - limit,
-                    &crate::cli::output::rows::rerun_all(None)
+                    &crate::cli::output::rows::rerun_all()
                 )
             );
         }
