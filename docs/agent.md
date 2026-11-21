@@ -23,6 +23,10 @@ tell them apart and counts the callers it adds.
   macros, through traits Atlas cannot follow, or through function values are
   not recorded.
 - Unknown is not absent. An empty list is an observation, not a proof.
+- **Production by default.** Calls from tests are not read unless asked:
+  `callers X --with-tests` (also `callees`, `facts`, `query`) adds test
+  targets, the modules they declare (`tests/common/mod.rs`), `#[cfg(test)]`
+  modules and test-gated items, each marked `[test]` / `test_only`.
 - Ambiguity is never resolved by a guess: several matches are each shown.
 - **Semantic** readings come from rust-analyzer (SCIP), as separate
   evidence: `--scip FILE` reads an index you made; `--semantic` runs

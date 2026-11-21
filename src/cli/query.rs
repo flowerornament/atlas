@@ -42,6 +42,8 @@ pub(crate) struct Options {
     /// Query a saved `cargo atlas facts` export instead of capturing now.
     #[arg(long, value_name = "FILE")]
     facts: Option<PathBuf>,
+    #[command(flatten)]
+    tests: super::tests::Tests,
     /// Read the semantic family (`semantic_call`, `semantic_unknown`) from
     /// this SCIP index, for example from `rust-analyzer scip`. A relative
     /// path is resolved against the workspace root. Atlas runs no indexer.
@@ -178,7 +180,7 @@ fn capture(
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let graph = snapshot.graph();
     let analysis = (families.contains(&Family::Qualified) || semantic)
-        .then(|| Analysis::new(&snapshot))
+        .then(|| Analysis::new(&snapshot).map(|a| a.with_tests(options.tests.selection())))
         .transpose()?;
     let facts = analysis
         .as_ref()
@@ -334,6 +336,9 @@ pub(crate) fn run(
     }
     let root = metadata.workspace_root.as_std_path();
     let (relations, checked, source, mut notes) = if let Some(path) = &options.facts {
+        if options.tests.asked() {
+            return Err("--with-tests captures now; a saved export has the population it was exported with (cargo atlas facts --with-tests)".into());
+        }
         let text = std::fs::read_to_string(path)
             .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
         let relations = Relations::read(&text).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -359,7 +364,16 @@ pub(crate) fn run(
         let source = if families.is_empty() {
             "none read".to_owned()
         } else {
-            format!("captured now ({})", families.join(", "))
+            let tests = options.tests.asked()
+                && checked
+                    .families()
+                    .iter()
+                    .any(|family| *family != Family::Lexical);
+            format!(
+                "captured now ({}{})",
+                families.join(", "),
+                if tests { "; test code included" } else { "" }
+            )
         };
         (relations, checked, source, Vec::new())
     };

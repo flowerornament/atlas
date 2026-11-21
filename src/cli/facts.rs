@@ -55,6 +55,8 @@ pub(crate) struct Options {
     scip: Option<PathBuf>,
     #[command(flatten)]
     indexer: super::semantic::IndexerArgs,
+    #[command(flatten)]
+    tests: super::tests::Tests,
     /// Write to this file instead of standard output.
     #[arg(long)]
     out: Option<PathBuf>,
@@ -166,7 +168,7 @@ pub(crate) fn run(
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let graph = snapshot.graph();
     let analysis = (options.families.contains(&FamilyArg::Qualified) || semantic)
-        .then(|| Analysis::new(&snapshot))
+        .then(|| Analysis::new(&snapshot).map(|a| a.with_tests(options.tests.selection())))
         .transpose()?;
     let facts = analysis
         .as_ref()

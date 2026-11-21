@@ -43,6 +43,8 @@ pub fn module_path_of(src_rel: &str, rel: &str) -> Option<String> {
 }
 
 /// Adapted from native outside_mounts: start at explicit mounts leaving src,
+/// and at the module declarations of target roots outside it (a test
+/// target's `mod common;` is `tests/common.rs` or `tests/common/mod.rs`),
 /// then follow their declarations. Each physical source is captured once.
 pub(super) fn outside_mounts(
     root: &Path,
@@ -53,6 +55,26 @@ pub(super) fn outside_mounts(
 ) -> Result<MountedSources> {
     let inside = format!("{src_rel}/");
     let mut pending = Vec::new();
+    // A target root outside src reads its modules beside it, as a crate root.
+    for file in files.iter().filter(|file| !file.rel.starts_with(&inside)) {
+        let Some(source) = file.source.facts() else {
+            continue;
+        };
+        for declaration in source.file_module_declarations() {
+            let name = declaration.qualified_name();
+            // A module with no file here is reported by mark_test_files.
+            for child in module_files(&file.rel, true, declaration) {
+                if capture_optional(root, &child, sources, diagnostics)?.is_some() {
+                    pending.push((
+                        child,
+                        name.clone(),
+                        file.rel.clone(),
+                        BTreeSet::from([file.rel.clone()]),
+                    ));
+                }
+            }
+        }
+    }
     for file in files.iter().filter(|file| file.rel.starts_with(&inside)) {
         let parent = module_path_of(src_rel, &file.rel);
         let Some(source) = file.source.facts() else {

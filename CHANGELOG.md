@@ -6,6 +6,23 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `--with-tests` on `callers`, `callees`, `facts` and `query` reads the
+ test population beside production code: test targets, the module files
+ they declare, `#[cfg(test)]` modules and test-gated items. Every row from
+ them is marked: `function`, `type` and `constant` get a `test_only`
+ column, and `call`, `unknown_call`, `reference`, `unknown_type`,
+ `construction` and `default_call` one that is their `from` item's (schema
+ v1, appended columns). `callers` marks test rows `[test]` and counts them
+ ("; 10 in test code"); JSON rows carry `test_only`. The default stays
+ production code. `query --facts FILE --with-tests` is refused: an export
+ has the population it was exported with. On Atlas, the test population
+ adds 805 functions and 2,479 resolved calls (5,768 unresolved).
+- Test targets outside `src` now have the module files they declare read
+ (`tests/common/mod.rs` and what it declares), mounted under every target
+ that declares them. Mount-missing diagnostics: Atlas 35 to 0, and two
+ private workspaces 52 to 0 and 197 to 0.
+ **Library:** `representations::{Function, Type, Constant}::test_only`;
+ the qualified relations' `test_only` columns.
 - `orient` no longer gives a share of call sites resolved: most unresolved
  calls are into other packages, which Atlas does not resolve, so a ratio
  over all call sites read as poor coverage. It gives the resolved and

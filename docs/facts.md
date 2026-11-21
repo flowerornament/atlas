@@ -43,8 +43,11 @@ There are no nulls. A column that can be empty says which value means
 - **Qualified** relations hold what the analysis resolved by following `use`
   statements and modules: functions, types, fields, calls, type references,
   constructions and constants, and everything it could not resolve.
-  Identity is `path:line:column`. This family covers production source only;
-  `limitations` in the export says what else it leaves out.
+  Identity is `path:line:column`. This family covers production source
+  unless the export or query is given `--with-tests`, which adds test
+  targets (and the module files they declare), test modules and test-gated
+  items, each row from them marked `test_only`; `limitations` in the export
+  says which population was read and what else it leaves out.
 
 - **Semantic** relations hold what a compiler front end's SCIP index
   (rust-analyzer's) says each recorded call names: `semantic_call` when it is
@@ -292,14 +295,14 @@ Lexical. An observation Atlas could not complete while reading the source.
 
 ### `qualified_file`
 
-Qualified. A production file the qualified analysis read.
+Qualified. A file the qualified analysis read.
 
 | column | kind | meaning |
 |---|---|---|
 | `path` | text | The file. |
 | `fingerprint` | text | Content fingerprint of the bytes analyzed. |
 
-- Production source only: test targets and test modules are outside the qualified population.
+- Production source by default: test targets, test modules and test-gated items are read only with --with-tests, and each row from them is marked test_only.
 
 ### `function`
 
@@ -316,6 +319,7 @@ Qualified. A function body the qualified analysis selected.
 | `public` | boolean | Written `pub` with no restriction. `pub(crate)`, `pub(super)`, `pub(in path)` and private are false, and so is a trait impl's method, which has the trait's visibility. |
 | `trait_impl` | boolean | Declared in a trait impl. |
 | `declaration` | text | The lexical `declaration.id` at the same file, line and name; empty if none matched. |
+| `test_only` | boolean | In a test-only file, a test module, or behind a test gate. Always false unless the capture includes tests (`--with-tests`). |
 
 ### `type`
 
@@ -330,6 +334,7 @@ Qualified. A workspace struct, enum or type alias.
 | `qualified` | text | The name with the inline `mod` blocks that enclose it; the file's own module path is `mount.module_path`, one per Cargo target that reaches the file. |
 | `alias` | text | For a type alias, its right-hand side as written; empty for a struct or enum. |
 | `declaration` | text | The lexical `declaration.id` at the same file, line and name; empty if none matched. |
+| `test_only` | boolean | In a test-only file, a test module, or behind a test gate. Always false unless the capture includes tests (`--with-tests`). |
 
 - An alias is never expanded.
 
@@ -356,6 +361,7 @@ Qualified. A call whose target Atlas resolved to exactly one workspace function.
 | `path` | text | File of the call site. |
 | `line` | integer | Line of the call site. |
 | `column` | integer | Column of the call site. |
+| `test_only` | boolean | The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`). |
 
 Unknowns: [`unknown_call`](#unknown_call) holds what this relation could not resolve.
 
@@ -378,6 +384,7 @@ Qualified. A call Atlas could not resolve to exactly one workspace function: ext
 | `column` | integer | Column of the call site. |
 | `kind` | text | Each reason's stable kind, such as `unresolved-path`, joined with `; ` like `reason`. |
 | `subject` | text | Each reason's path, name, receiver, type or module, or empty, joined the same way. |
+| `test_only` | boolean | The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`). |
 
 - Includes calls into other crates and the standard library; an unknown call is not a missing call.
 
@@ -395,6 +402,7 @@ Qualified. A signature or field type that names exactly one workspace type.
 | `expression` | text | The entire written type, such as `Arc<Graph>`. |
 | `line` | integer | Line of the written type. |
 | `borrow` | boolean | The written type is a reference. |
+| `test_only` | boolean | The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`). |
 
 Unknowns: [`unknown_type`](#unknown_type) holds what this relation could not resolve.
 
@@ -414,6 +422,7 @@ Qualified. A type spelling in a signature or field that Atlas did not resolve to
 | `slot` | text | The parameter, return or field it occupies. |
 | `line` | integer | Line of the spelling. |
 | `column` | integer | Column of the spelling, 1-based. |
+| `test_only` | boolean | The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`). |
 
 - Includes external and primitive types.
 - Each mention is its own row: a generic argument such as the `u32` in `Vec<u32>` is a row of its own beside `Vec<u32>`.
@@ -428,6 +437,7 @@ Qualified. A struct literal or enum variant of a workspace type built in a funct
 | `from` | text | The function (`function.id`). |
 | `to` | text | The type built (`type.id`). |
 | `line` | integer | Line of the construction. |
+| `test_only` | boolean | The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`). |
 
 ### `default_call`
 
@@ -439,6 +449,7 @@ Qualified. An explicit zero-argument `Type::default()` call for a workspace type
 | `from` | text | The function (`function.id`). |
 | `to` | text | The type (`type.id`). |
 | `line` | integer | Line of the call. |
+| `test_only` | boolean | The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`). |
 
 - No trait dispatch is followed.
 
@@ -454,6 +465,7 @@ Qualified. A written `const` item and its value as syntax; nothing is evaluated.
 | `name` | text | The constant's name. |
 | `inline_modules` | text | Enclosing inline `mod` blocks, joined with `::`; empty at file level. |
 | `value` | text | The value as JSON: `{"kind": ..., "value": ...}` with kind string, array, tuple, path, call or opaque. |
+| `test_only` | boolean | In a test-only file, a test module, or behind a test gate. Always false unless the capture includes tests (`--with-tests`). |
 
 ### `semantic_call`
 

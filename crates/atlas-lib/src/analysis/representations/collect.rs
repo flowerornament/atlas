@@ -21,9 +21,13 @@ pub(super) struct Record {
     pub(super) fields: Vec<(String, syn::Type)>,
     pub(super) alias: Option<syn::Type>,
     pub(super) text: String,
+    /// In a test-only file, a test module, or behind a test gate.
+    pub(super) test_only: bool,
 }
 pub(super) struct Collector<'a> {
     pub(super) file: &'a str,
+    /// The file is read only by test targets.
+    pub(super) test_file: bool,
     pub(super) source: &'a str,
     pub(super) selection: crate::population::SyntaxSelection<'a>,
     pub(super) trait_impl: bool,
@@ -49,7 +53,9 @@ impl Collector<'_> {
     ) -> String {
         let p = span.start();
         let id = format!("{}:{}:{}", self.file, p.line, p.column);
+        let test_only = self.test_file || self.selection.test_site(span);
         self.records.push(Record {
+            test_only,
             id: id.clone(),
             name,
             file: self.file.into(),
@@ -100,6 +106,7 @@ impl<'ast> Visit<'ast> for Collector<'_> {
                 module: self.module.clone(),
                 site: crate::workflow::Site::at(self.file, c.span()),
                 value: literal(self.source, &c.expr),
+                test_only: self.test_file || self.selection.test_site(c.span()),
             });
         }
         // Const evaluation is not execution of its enclosing function.

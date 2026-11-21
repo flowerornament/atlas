@@ -84,7 +84,8 @@ impl<'a> Analysis<'a> {
             self.tests,
         )
     }
-    /// Every production call of this capture's qualified index, read against a
+    /// Every call of this capture's qualified index (the selected test
+    /// population, production code by default), read against a
     /// supplied semantic index and compared with its qualified target. The
     /// reading is a separate evidence family; the index is unchanged.
     pub fn semantic(&self, semantic: &semantic::SemanticIndex) -> Result<semantic::Reading> {

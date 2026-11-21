@@ -332,12 +332,15 @@ fn package_queries_do_not_inherit_another_packages_mount_diagnostics() {
             "left/Cargo.toml",
             "[package]\nname='left'\nversion='0.0.0'\nedition='2024'\n[lib]\npath='src/shared.rs'\n",
         ),
+        // right's root is outside its src, and its `mod child;` has no file
+        // beside it; left's has one.
         (
             "right/Cargo.toml",
-            "[package]\nname='right'\nversion='0.0.0'\nedition='2024'\n[lib]\npath='../left/src/shared.rs'\n",
+            "[package]\nname='right'\nversion='0.0.0'\nedition='2024'\n[lib]\npath='../shared/lib.rs'\n",
         ),
         ("left/src/shared.rs", "mod child;\n"),
         ("left/src/child.rs", "pub struct Child;\n"),
+        ("shared/lib.rs", "mod child;\n"),
     ]);
     let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
     assert_eq!(

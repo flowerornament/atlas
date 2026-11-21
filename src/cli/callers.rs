@@ -30,6 +30,8 @@ pub(crate) struct Options {
     #[command(flatten)]
     indexer: super::semantic::IndexerArgs,
     #[command(flatten)]
+    tests: super::tests::Tests,
+    #[command(flatten)]
     rows: Rows,
     #[command(flatten)]
     output: super::output::form::Report,
@@ -58,7 +60,8 @@ pub(crate) fn run(
     )?;
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let graph = snapshot.graph();
-    let analysis = atlas_lib::analysis::Analysis::new(&snapshot)?;
+    let analysis =
+        atlas_lib::analysis::Analysis::new(&snapshot)?.with_tests(options.tests.selection());
     let facts = analysis.representations()?;
     let reading = if semantic {
         let (index, _) = super::semantic::obtain(

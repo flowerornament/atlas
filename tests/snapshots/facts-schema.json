@@ -289,7 +289,7 @@
     {
       "name": "qualified_file",
       "family": "qualified",
-      "description": "A production file the qualified analysis read.",
+      "description": "A file the qualified analysis read.",
       "columns": [
         {
           "name": "path",
@@ -305,7 +305,7 @@
       "basis": null,
       "unknowns": null,
       "notes": [
-        "Production source only: test targets and test modules are outside the qualified population."
+        "Production source by default: test targets, test modules and test-gated items are read only with --with-tests, and each row from them is marked test_only."
       ]
     },
     {
@@ -357,6 +357,11 @@
           "name": "declaration",
           "kind": "text",
           "description": "The lexical `declaration.id` at the same file, line and name; empty if none matched."
+        },
+        {
+          "name": "test_only",
+          "kind": "boolean",
+          "description": "In a test-only file, a test module, or behind a test gate. Always false unless the capture includes tests (`--with-tests`)."
         }
       ],
       "basis": null,
@@ -402,6 +407,11 @@
           "name": "declaration",
           "kind": "text",
           "description": "The lexical `declaration.id` at the same file, line and name; empty if none matched."
+        },
+        {
+          "name": "test_only",
+          "kind": "boolean",
+          "description": "In a test-only file, a test module, or behind a test gate. Always false unless the capture includes tests (`--with-tests`)."
         }
       ],
       "basis": null,
@@ -474,6 +484,11 @@
           "name": "column",
           "kind": "integer",
           "description": "Column of the call site."
+        },
+        {
+          "name": "test_only",
+          "kind": "boolean",
+          "description": "The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`)."
         }
       ],
       "basis": null,
@@ -537,6 +552,11 @@
           "name": "subject",
           "kind": "text",
           "description": "Each reason's path, name, receiver, type or module, or empty, joined the same way."
+        },
+        {
+          "name": "test_only",
+          "kind": "boolean",
+          "description": "The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`)."
         }
       ],
       "basis": null,
@@ -589,6 +609,11 @@
           "name": "borrow",
           "kind": "boolean",
           "description": "The written type is a reference."
+        },
+        {
+          "name": "test_only",
+          "kind": "boolean",
+          "description": "The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`)."
         }
       ],
       "basis": null,
@@ -641,6 +666,11 @@
           "name": "column",
           "kind": "integer",
           "description": "Column of the spelling, 1-based."
+        },
+        {
+          "name": "test_only",
+          "kind": "boolean",
+          "description": "The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`)."
         }
       ],
       "basis": null,
@@ -674,6 +704,11 @@
           "name": "line",
           "kind": "integer",
           "description": "Line of the construction."
+        },
+        {
+          "name": "test_only",
+          "kind": "boolean",
+          "description": "The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`)."
         }
       ],
       "basis": null,
@@ -704,6 +739,11 @@
           "name": "line",
           "kind": "integer",
           "description": "Line of the call."
+        },
+        {
+          "name": "test_only",
+          "kind": "boolean",
+          "description": "The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`)."
         }
       ],
       "basis": null,
@@ -746,6 +786,11 @@
           "name": "value",
           "kind": "text",
           "description": "The value as JSON: `{\"kind\": ..., \"value\": ...}` with kind string, array, tuple, path, call or opaque."
+        },
+        {
+          "name": "test_only",
+          "kind": "boolean",
+          "description": "In a test-only file, a test module, or behind a test gate. Always false unless the capture includes tests (`--with-tests`)."
         }
       ],
       "basis": null,

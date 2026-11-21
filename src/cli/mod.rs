@@ -24,6 +24,7 @@ mod review;
 mod semantic;
 mod stages;
 mod subject;
+mod tests;
 mod types;
 use args::{Cli, Command};
 use cargo_atlas::Result;

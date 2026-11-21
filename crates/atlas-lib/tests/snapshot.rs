@@ -354,3 +354,59 @@ fn qualified_capture_keeps_bytes_and_cargo_context_after_external_changes() {
     diagram.validate().expect("captured source-control graph");
     assert!(!snapshot.metadata().workspace_members.is_empty());
 }
+
+/// A test target's `mod common;` is read beside it, as from a crate root,
+/// and the modules that file declares are followed too; two targets that
+/// declare it both mount it.
+#[test]
+fn modules_declared_by_test_targets_outside_src_are_discovered() {
+    let f = Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[package]\nname=\"probe\"\nversion=\"0.0.0\"\nedition=\"2024\"\n",
+        ),
+        ("src/lib.rs", "pub fn helper() {}\n"),
+        (
+            "tests/it.rs",
+            "mod common;\n#[test]\nfn it() { common::setup(); }\n",
+        ),
+        (
+            "tests/other.rs",
+            "mod common;\n#[test]\nfn other() { common::setup(); }\n",
+        ),
+        (
+            "tests/common/mod.rs",
+            "pub mod deep;\npub fn setup() { probe::helper(); deep::d(); }\n",
+        ),
+        ("tests/common/deep.rs", "pub fn d() {}\n"),
+    ]);
+    let metadata = MetadataCommand::new()
+        .current_dir(f.path())
+        .no_deps()
+        .exec()
+        .unwrap();
+    let snapshot = discovery::snapshot_metadata(&metadata).unwrap();
+    let graph = snapshot.graph();
+    for (path, modules) in [
+        ("tests/common/mod.rs", vec!["common"]),
+        ("tests/common/deep.rs", vec!["common", "deep"]),
+    ] {
+        let file = graph
+            .files
+            .iter()
+            .find(|file| file.path == path)
+            .unwrap_or_else(|| panic!("{path} discovered"));
+        assert!(file.test_only, "{path}");
+        let roots: Vec<_> = file.mounts.iter().map(|m| m.root.as_str()).collect();
+        assert_eq!(roots, ["tests/it.rs", "tests/other.rs"], "{path}");
+        assert!(file.mounts.iter().all(|m| m.modules == modules), "{path}");
+    }
+    assert!(
+        !graph
+            .diagnostics
+            .iter()
+            .any(|d| d.code == atlas_lib::model::DiagnosticCode::MountMissing),
+        "{:?}",
+        graph.diagnostics
+    );
+}

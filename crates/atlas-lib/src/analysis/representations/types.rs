@@ -14,6 +14,9 @@ pub struct Type {
     /// Written RHS of a named alias; never expanded or treated as retained fields.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
+    /// As [`Function::test_only`].
+    #[serde(default)]
+    pub test_only: bool,
 }
 impl Type {
     /// Declaration label preserves the distinction between an alias and a nominal type.
@@ -36,6 +39,10 @@ pub struct Function {
     pub signature: String,
     pub public: bool,
     pub trait_impl: bool,
+    /// In a test-only file, a test module, or behind a test gate; only a
+    /// selection that includes tests has such functions.
+    #[serde(default)]
+    pub test_only: bool,
 }
 impl Function {
     /// Unqualified impl-target type named by this written method name, not a retention claim.
@@ -144,6 +151,9 @@ pub struct Constant {
     pub module: Vec<String>,
     pub site: Site,
     pub value: Literal,
+    /// As [`Function::test_only`].
+    #[serde(default)]
+    pub test_only: bool,
 }
 impl Constant {
     /// Source-qualified identity within one snapshot; line numbers remain witnesses.

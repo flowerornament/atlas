@@ -265,3 +265,92 @@ fn evidence_is_reserved_and_names_what_to_run() {
     );
     assert!(help.contains("Add --as json"), "{help}");
 }
+
+/// A production function called from a unit test module and from a test
+/// target with a shared `tests/common` module.
+fn with_tests() -> Fixture {
+    Fixture::new(&[
+        (
+            "src/lib.rs",
+            "pub fn helper() {}\npub fn prod() { helper(); }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn unit() { crate::helper(); }\n}\n",
+        ),
+        (
+            "tests/it.rs",
+            "mod common;\n#[test]\nfn it() { common::setup(); }\n",
+        ),
+        (
+            "tests/common/mod.rs",
+            "pub fn setup() { fixture::helper(); }\n",
+        ),
+    ])
+}
+
+#[test]
+fn with_tests_adds_test_callers_and_marks_them() {
+    let f = with_tests();
+    let production = json(&f, &["callers", "helper", "--json"]);
+    let rows = production["answers"][0]["resolved"]
+        .as_array()
+        .expect("rows");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert!(rows[0].get("test_only").is_none());
+    let tested = json(&f, &["callers", "helper", "--with-tests", "--json"]);
+    let rows = tested["answers"][0]["resolved"].as_array().expect("rows");
+    let mut test_callers: Vec<_> = rows
+        .iter()
+        .filter(|row| row["test_only"] == true)
+        .map(|row| row["site"]["path"].as_str().expect("path"))
+        .collect();
+    test_callers.sort_unstable();
+    assert_eq!(
+        test_callers,
+        ["src/lib.rs", "tests/common/mod.rs"],
+        "{rows:?}"
+    );
+    let text = text(&f, &["callers", "helper", "--with-tests"]);
+    assert!(text.contains("; 2 in test code (marked [test])"), "{text}");
+    assert!(text.contains("tests::unit  [test]"), "{text}");
+    // callees of the test helper: a test function, its calls test code.
+    let callees = json(&f, &["callees", "setup", "--with-tests", "--json"]);
+    assert_eq!(callees["answers"][0]["resolved"][0]["to_name"], "helper");
+}
+
+#[test]
+fn with_tests_marks_query_and_facts_rows() {
+    let f = with_tests();
+    let program = "?- function{name: N, test_only: T}.";
+    let (_, production, _) = atlas(&f, &["query", program]);
+    assert!(!production.contains("true"), "{production}");
+    let (ok, tested, stderr) = atlas(&f, &["query", "--with-tests", program]);
+    assert!(ok, "{stderr}");
+    for name in ["unit", "setup", "it"] {
+        assert!(
+            tested
+                .lines()
+                .any(|line| line.contains(name) && line.contains("true")),
+            "{name}: {tested}"
+        );
+    }
+    assert!(tested.contains("test code included"), "{tested}");
+    let facts = json(&f, &["facts", "--with-tests", "--families", "qualified"]);
+    let calls = &facts["relations"]["call"];
+    let column = calls["columns"]
+        .as_array()
+        .expect("columns")
+        .iter()
+        .position(|c| c == "test_only")
+        .expect("test_only column");
+    assert!(
+        calls["rows"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .any(|row| row[column] == true)
+    );
+    let (ok, _, stderr) = atlas(&f, &["query", "--with-tests", "--facts", "x.json", program]);
+    assert!(!ok);
+    assert!(
+        stderr.contains("a saved export has the population it was exported with"),
+        "{stderr}"
+    );
+}

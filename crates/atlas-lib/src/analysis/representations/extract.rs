@@ -228,6 +228,7 @@ pub(in crate::analysis) fn from_selected_sources(
         let c = parsed.visit_once(&file.path, tests, |ast| {
             let mut c = Collector {
                 file: &file.path,
+                test_file: file.test_only,
                 source,
                 selection,
                 parameters: BTreeSet::new(),
@@ -318,6 +319,7 @@ pub(in crate::analysis) fn from_selected_sources(
                 signature: r.text.clone(),
                 public: r.public,
                 trait_impl: r.trait_impl,
+                test_only: r.test_only,
             });
         } else {
             facts.types.push(Type {
@@ -338,6 +340,7 @@ pub(in crate::analysis) fn from_selected_sources(
                     .iter()
                     .map(|(name, t)| (name.clone(), text(source, t.span())))
                     .collect(),
+                test_only: r.test_only,
             });
         }
         facts.references.extend(refs.out);

@@ -108,6 +108,16 @@ pub(crate) enum SyntaxSelection<'a> {
     },
 }
 impl SyntaxSelection<'_> {
+    /// Whether the site is test code: inside a test module or test-gated.
+    /// A whole test-only file is the caller's to add; `All` knows no source.
+    pub fn test_site(self, span: proc_macro2::Span) -> bool {
+        match self {
+            Self::All => false,
+            Self::Selected { source, .. } => {
+                !TestSelection::Production.admits_offset(source, span.byte_range().start)
+            }
+        }
+    }
     pub fn admits(self, span: proc_macro2::Span) -> bool {
         match self {
             Self::All => true,

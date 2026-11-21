@@ -143,7 +143,8 @@ pub enum DiagnosticCode {
     SymlinkExcluded,
     /// A source path outside the workspace, or reached through a symlink.
     SourceExcluded,
-    /// A target root outside `src`; files beside it are not discovered.
+    /// A target root outside `src`; the module files it declares are
+    /// followed from it, other files beside it are not read.
     TargetOutsideSrc,
     /// A `mod` declaration whose file is not among the discovered files.
     MountMissing,

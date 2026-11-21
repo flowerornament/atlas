@@ -663,6 +663,21 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
     for (path, fingerprint) in &facts.fingerprints {
         file.push([path.into(), fingerprint.into()]);
     }
+    // Each observation is test code when the item it is in is.
+    let test_items: BTreeSet<&str> = facts
+        .functions
+        .iter()
+        .filter(|f| f.test_only)
+        .map(|f| f.id.as_str())
+        .chain(
+            facts
+                .types
+                .iter()
+                .filter(|t| t.test_only)
+                .map(|t| t.id.as_str()),
+        )
+        .collect();
+    let in_test = |from: &str| test_items.contains(from).into();
     let mut function = Relation::new("function");
     for f in &facts.functions {
         function.push([
@@ -675,6 +690,7 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
             f.public.into(),
             f.trait_impl.into(),
             functions.find(&f.file, f.line, &f.name),
+            f.test_only.into(),
         ]);
     }
     let mut ty = Relation::new("type");
@@ -688,6 +704,7 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
             (&t.qualified).into(),
             t.alias.clone().unwrap_or_default().into(),
             types.find(&t.file, t.line, &t.name),
+            t.test_only.into(),
         ]);
         for (position, (name, written)) in t.fields.iter().enumerate() {
             field.push([(&t.id).into(), position.into(), name.into(), written.into()]);
@@ -702,6 +719,7 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
             (&c.site.path).into(),
             c.site.line.into(),
             c.site.column.into(),
+            in_test(&c.from),
         ]);
     }
     let mut unknown_call = Relation::new("unknown_call");
@@ -722,6 +740,7 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
                     .map(|r| r.subject.clone().unwrap_or_default()),
             )
             .into(),
+            in_test(&u.from),
         ]);
     }
     let mut reference = Relation::new("reference");
@@ -735,6 +754,7 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
             (&r.expression).into(),
             r.line.into(),
             r.borrow.into(),
+            in_test(&r.from),
         ]);
     }
     let mut unknown_type = Relation::new("unknown_type");
@@ -748,6 +768,7 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
             (&u.slot).into(),
             u.line.into(),
             u.column.into(),
+            in_test(&u.from),
         ]);
     }
     let built = |name: &str, list: &[crate::representations::Constructor]| {
@@ -758,6 +779,7 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
                 (&c.from).into(),
                 (&c.to).into(),
                 c.line.into(),
+                in_test(&c.from),
             ]);
         }
         relation
@@ -773,6 +795,7 @@ fn qualified(graph: &SourceGraph, facts: &Facts) -> Vec<Relation> {
             (&c.name).into(),
             c.module.join("::").into(),
             serde_json::to_string(&c.value).unwrap_or_default().into(),
+            c.test_only.into(),
         ]);
     }
     vec![

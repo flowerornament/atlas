@@ -16,6 +16,10 @@
 //! that is no captured function), or left open, which alone stay listed.
 //! It never removes a qualified row.
 //!
+//! The population is the facts': production code, or with the test
+//! population (`Analysis::with_tests`) test code too, each row from it
+//! marked `test_only`.
+//!
 //! Limits: calls inside macro input, through a function passed elsewhere as a
 //! value, and trait dispatch Atlas cannot follow are not recorded, so an
 //! empty answer never means "unused". A closure's calls are recorded as
@@ -62,6 +66,9 @@ pub struct Caller {
     pub site: Site,
     pub depth: u32,
     pub reading: &'static str,
+    /// The calling function is test code (with the test population).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub test_only: bool,
     /// Beyond depth 1: the function one level nearer that this call reaches.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub via: Option<String>,
@@ -77,6 +84,9 @@ pub struct Callee {
     pub site: Site,
     pub depth: u32,
     pub reading: &'static str,
+    /// The called function is test code (with the test population).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub test_only: bool,
     /// Beyond depth 1: the function one level nearer that makes this call.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub via: Option<String>,
@@ -97,6 +107,9 @@ pub struct Unresolved {
     /// function (`trait-method`, `local`, `no-definition`, `not-indexed`, ...).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub semantic: Option<&'static str>,
+    /// The function the call is in is test code (with the test population).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub test_only: bool,
     /// How the call is written, for examples: `receiver.name()` or `path()`.
     #[serde(skip)]
     pub written: String,
@@ -599,11 +612,12 @@ fn callers_by(
                     site: row.site,
                     depth: row.depth,
                     reading: row.reading,
+                    test_only: row.far.test_only,
                     via: row.via.map(|via| via.id.clone()),
                     via_name: row.via.map(|via| names.display(via)),
                 })
                 .collect();
-            let (possibly, semantic) = calls.settle(
+            let (mut possibly, semantic) = calls.settle(
                 calls
                     .written_as(&BTreeSet::from([last(&function.name)]))
                     .into_iter()
@@ -634,6 +648,12 @@ fn callers_by(
                 })
                 .filter(|(_, count)| *count > 0)
                 .collect();
+            for row in &mut possibly {
+                row.test_only = names
+                    .functions
+                    .get(row.from.as_str())
+                    .is_some_and(|from| from.test_only);
+            }
             CallerAnswer {
                 function: subject(&names, function),
                 resolved,
@@ -709,11 +729,12 @@ fn callees_by(
                     site: row.site,
                     depth: row.depth,
                     reading: row.reading,
+                    test_only: row.far.test_only,
                     via: row.via.map(|via| via.id.clone()),
                     via_name: row.via.map(|via| names.display(via)),
                 })
                 .collect();
-            let (unresolved, semantic) = calls.settle(
+            let (mut unresolved, semantic) = calls.settle(
                 calls.inside(&function.id).iter().copied(),
                 None,
                 reading.is_some(),
@@ -733,6 +754,10 @@ fn callees_by(
                 })
                 .filter(|(_, count)| *count > 0)
                 .collect();
+            // Inside one function: all test code or none.
+            for row in &mut unresolved {
+                row.test_only = function.test_only;
+            }
             CalleeAnswer {
                 function: subject(&names, function),
                 resolved,
@@ -813,14 +838,15 @@ impl Report<CallerAnswer> {
             }
             let _ = writeln!(
                 out,
-                "  resolved: {calling} calling function{}, {} call site{}{}",
+                "  resolved: {calling} calling function{}, {} call site{}{}{}",
                 plural(calling),
                 answer.resolved.len(),
                 plural(answer.resolved.len()),
                 by_reading(
                     answer.semantic.as_ref(),
                     answer.resolved.iter().map(|row| row.reading)
-                )
+                ),
+                in_tests(answer.resolved.iter().filter(|row| row.test_only).count())
             );
             let width = answer
                 .resolved
@@ -839,7 +865,7 @@ impl Report<CallerAnswer> {
                     out,
                     "      {}{at:width$}  {name}{}",
                     level(self.depth, row.depth),
-                    marker(row.reading)
+                    marker(row.reading, row.test_only)
                 );
             }
             tail(&mut out, "    ", answer.resolved.len(), rows, more);
@@ -913,14 +939,15 @@ impl Report<CalleeAnswer> {
                 .len();
             let _ = writeln!(
                 out,
-                "  resolved: {} call{} to {called} function{}{}",
+                "  resolved: {} call{} to {called} function{}{}{}",
                 answer.resolved.len(),
                 plural(answer.resolved.len()),
                 plural(called),
                 by_reading(
                     answer.semantic.as_ref(),
                     answer.resolved.iter().map(|row| row.reading)
-                )
+                ),
+                in_tests(answer.resolved.iter().filter(|row| row.test_only).count())
             );
             let width = answer
                 .resolved
@@ -939,7 +966,7 @@ impl Report<CalleeAnswer> {
                     out,
                     "      {}{at:width$}  {name}{}",
                     level(self.depth, row.depth),
-                    marker(row.reading)
+                    marker(row.reading, row.test_only)
                 );
             }
             tail(&mut out, "    ", answer.resolved.len(), rows, more);
@@ -998,12 +1025,22 @@ fn by_reading<'r>(settled: Option<&Settled>, readings: impl Iterator<Item = &'r 
     }
     format!(" (qualified {qualified}, semantic only {semantic})")
 }
-/// A resolved row's mark when only the semantic reading names it.
-fn marker(reading: &str) -> &'static str {
-    if reading == "semantic" {
-        "  [semantic]"
+/// `; 10 in test code (marked [test])` after a resolved count, when any are.
+fn in_tests(count: usize) -> String {
+    if count == 0 {
+        String::new()
     } else {
-        ""
+        format!("; {count} in test code (marked [test])")
+    }
+}
+/// A resolved row's marks: only the semantic reading names it, and the
+/// function at its far end is test code.
+fn marker(reading: &str, test_only: bool) -> &'static str {
+    match (reading == "semantic", test_only) {
+        (true, true) => "  [semantic] [test]",
+        (true, false) => "  [semantic]",
+        (false, true) => "  [test]",
+        (false, false) => "",
     }
 }
 /// What the semantic reading settled, after an answer's unresolved list.
@@ -1198,6 +1235,7 @@ fn unresolved(unknown: &crate::representations::UnknownCall) -> Unresolved {
             .iter()
             .find_map(|reason| reason.subject.clone()),
         semantic: None,
+        test_only: false,
         written: match &call.receiver {
             Some(receiver) => format!("{receiver}.{}()", call.spelling),
             None => format!("{}()", call.spelling),

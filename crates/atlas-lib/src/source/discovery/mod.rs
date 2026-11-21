@@ -184,7 +184,7 @@ fn package_sources(package: &cargo_metadata::Package, root: &Path) -> Result<Pac
                 package: Some(package.name.to_string()),
                 file: rel_display(root, path),
                 line: None,
-                message: "target root outside src included; sibling modules outside src are not recursively discovered".into(),
+                message: "target root outside src included; the module files it declares are followed from it".into(),
             });
             paths.insert(path.to_path_buf());
         }

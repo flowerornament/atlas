@@ -296,7 +296,7 @@ pub const RELATIONS: &[Relation] = &[
     Relation {
         name: "qualified_file",
         family: Family::Qualified,
-        description: "A production file the qualified analysis read.",
+        description: "A file the qualified analysis read.",
         columns: &[
             text("path", "The file."),
             text("fingerprint", "Content fingerprint of the bytes analyzed."),
@@ -304,7 +304,7 @@ pub const RELATIONS: &[Relation] = &[
         basis: None,
         unknowns: None,
         notes: &[
-            "Production source only: test targets and test modules are outside the qualified population.",
+            "Production source by default: test targets, test modules and test-gated items are read only with --with-tests, and each row from them is marked test_only.",
         ],
     },
     Relation {
@@ -333,6 +333,10 @@ pub const RELATIONS: &[Relation] = &[
                 "declaration",
                 "The lexical `declaration.id` at the same file, line and name; empty if none matched.",
             ),
+            boolean(
+                "test_only",
+                "In a test-only file, a test module, or behind a test gate. Always false unless the capture includes tests (`--with-tests`).",
+            ),
         ],
         basis: None,
         unknowns: None,
@@ -358,6 +362,10 @@ pub const RELATIONS: &[Relation] = &[
             text(
                 "declaration",
                 "The lexical `declaration.id` at the same file, line and name; empty if none matched.",
+            ),
+            boolean(
+                "test_only",
+                "In a test-only file, a test module, or behind a test gate. Always false unless the capture includes tests (`--with-tests`).",
             ),
         ],
         basis: None,
@@ -389,6 +397,10 @@ pub const RELATIONS: &[Relation] = &[
             text("path", "File of the call site."),
             integer("line", "Line of the call site."),
             integer("column", "Column of the call site."),
+            boolean(
+                "test_only",
+                "The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`).",
+            ),
         ],
         basis: None,
         unknowns: Some("unknown_call"),
@@ -421,6 +433,10 @@ pub const RELATIONS: &[Relation] = &[
                 "subject",
                 "Each reason's path, name, receiver, type or module, or empty, joined the same way.",
             ),
+            boolean(
+                "test_only",
+                "The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`).",
+            ),
         ],
         basis: None,
         unknowns: None,
@@ -447,6 +463,10 @@ pub const RELATIONS: &[Relation] = &[
             ),
             integer("line", "Line of the written type."),
             boolean("borrow", "The written type is a reference."),
+            boolean(
+                "test_only",
+                "The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`).",
+            ),
         ],
         basis: None,
         unknowns: Some("unknown_type"),
@@ -468,6 +488,10 @@ pub const RELATIONS: &[Relation] = &[
             text("slot", "The parameter, return or field it occupies."),
             integer("line", "Line of the spelling."),
             integer("column", "Column of the spelling, 1-based."),
+            boolean(
+                "test_only",
+                "The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`).",
+            ),
         ],
         basis: None,
         unknowns: None,
@@ -485,6 +509,10 @@ pub const RELATIONS: &[Relation] = &[
             text("from", "The function (`function.id`)."),
             text("to", "The type built (`type.id`)."),
             integer("line", "Line of the construction."),
+            boolean(
+                "test_only",
+                "The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`).",
+            ),
         ],
         basis: None,
         unknowns: None,
@@ -499,6 +527,10 @@ pub const RELATIONS: &[Relation] = &[
             text("from", "The function (`function.id`)."),
             text("to", "The type (`type.id`)."),
             integer("line", "Line of the call."),
+            boolean(
+                "test_only",
+                "The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`).",
+            ),
         ],
         basis: None,
         unknowns: None,
@@ -520,6 +552,10 @@ pub const RELATIONS: &[Relation] = &[
             text(
                 "value",
                 "The value as JSON: `{\"kind\": ..., \"value\": ...}` with kind string, array, tuple, path, call or opaque.",
+            ),
+            boolean(
+                "test_only",
+                "In a test-only file, a test module, or behind a test gate. Always false unless the capture includes tests (`--with-tests`).",
             ),
         ],
         basis: None,
