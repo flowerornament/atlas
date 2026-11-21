@@ -75,21 +75,40 @@ pub(crate) fn run(
         candidate: candidate_id.clone(),
     };
     let description = store.description(&candidate_id)?;
-    let inputs = inputs(options, &before, &after, &policy, basis, description)?;
+    let inputs = inputs(
+        options,
+        (&before, &after),
+        (&published, &policy),
+        basis,
+        description,
+    )?;
     let report = delta::check(&before, &after, &published, &policy, &inputs)?;
-    let stats = Stats::read(&report, &policy)?;
+    emit(&report, &policy, options, &policy_bytes, started)
+}
+
+/// Present the report (JSON or text) and turn its verdict into the exit:
+/// JSON is printed whatever it says, and fails only when unavailable;
+/// text is printed on a pass and is the error otherwise.
+fn emit(
+    report: &delta::Report,
+    policy: &Policy,
+    options: &Options,
+    policy_bytes: &[u8],
+    started: Instant,
+) -> Result<()> {
+    let stats = Stats::read(report, policy)?;
     let display = presentation::display(
-        &report,
-        &policy,
+        report,
+        policy,
         stats.as_ref(),
         started.elapsed().as_millis(),
     )?;
     let output = presentation::json(
-        &report,
-        &policy,
+        report,
+        policy,
         stats.as_ref(),
         &options.policy,
-        &sha256(&policy_bytes)?,
+        &sha256(policy_bytes)?,
         &display,
         started.elapsed().as_millis(),
     );
@@ -110,19 +129,20 @@ pub(crate) fn run(
     }
 }
 
-/// The checker's explicit inputs: candidate policy observations, header
+/// The checker's explicit inputs: policy observations on both sides (the
+/// base under the published policy), header
 /// citations on both sides only when the caller names markers, and the
 /// features the caller permits as test support.
 fn inputs(
     options: &Options,
-    before: &Snapshot,
-    after: &Snapshot,
-    policy: &Policy,
+    (before, after): (&Snapshot, &Snapshot),
+    (published, policy): (&Policy, &Policy),
     basis: Basis,
     description: String,
 ) -> Result<delta::Inputs> {
     let mut inputs = delta::Inputs::new(after, basis, description);
     inputs.policy = policy::observe(after, policy);
+    inputs.before_policy = policy::observe_spellings(before, published);
     if !options.citation_markers.is_empty() {
         let markers = options
             .citation_markers

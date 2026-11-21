@@ -16,9 +16,14 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  debt refuses. `delta::Report::spellings` gives each fact's debt on both
  sides and the files with macro invocations a pattern cannot see into.
  **Library:** `delta::Inputs::before_policy`, `policy::Inputs::{new_patterns,
- observed}`, `SpellingState`, `Occurrence`, `Census`. The command line
- observes these in the next change; until then `delta` reports them
- unavailable.
+ observed}`, `SpellingState`, `Occurrence`, `Census`, `policy::observe_spellings`.
+ `cargo atlas delta` observes `forbid_new_pattern` on both sides (the base
+ under the published policy) and shows each fact's debt; a
+ `forbid_new_observed` class is supplied by a wrapper (see the library
+ guide) and is unavailable otherwise. `authority.amended_by = { bead,
+ covers }`, cited in the description, is the one way to remove a spelling
+ or change its pattern while the base holds debt under it; removing an
+ authority entry that held debt refuses.
 - `authority.allowed_readers` is judged: the only files whose production
  code may read a home, each with its exact count of reading sites (each
  `use` leaf and each written path leading into the home, re-exports, glob

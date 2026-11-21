@@ -76,6 +76,18 @@ fn judge(
     before: &[(&str, &str)],
     after: &[(&str, &str)],
 ) -> delta::Report {
+    judge_citing(published, policy, before, after, &[])
+}
+/// As `judge`, with a description citing `cited` (parsed as the project's
+/// citation reader would).
+fn judge_citing(
+    published: &Policy,
+    policy: &Policy,
+    before: &[(&str, &str)],
+    after: &[(&str, &str)],
+    cited: &[&str],
+) -> delta::Report {
+    let description = format!("change ({})", cited.join(", "));
     let (_b, base) = capture(before);
     let (_a, now) = capture(after);
     let mut inputs = Inputs::new(
@@ -84,14 +96,17 @@ fn judge(
             baseline: "b".into(),
             candidate: "a".into(),
         },
-        "d".into(),
+        description.clone(),
     );
     inputs.policy.observed = observed(&now);
     inputs.before_policy.observed = observed(&base);
     inputs.concentration = concentration::Inputs {
         before_headers: concentration::observe_headers(&base, &["fix"]).expect("headers"),
         after_headers: concentration::observe_headers(&now, &["fix"]).expect("headers"),
-        citations: None,
+        citations: Some(concentration::Citations {
+            description_fingerprint: atlas_lib::discovery::fingerprint(description.as_bytes()),
+            beads: cited.iter().map(|bead| (*bead).to_owned()).collect(),
+        }),
         test_support_features: Vec::new(),
     };
     delta::check(&base, &now, published, policy, &inputs).expect("delta")
@@ -266,7 +281,52 @@ fn allowances_raise_exactly_and_a_guard_stays() {
         removed
             .violations
             .iter()
-            .any(|v| v.contains("`narrow` removed while the base holds 2")),
+            .any(|v| v.contains("`narrow` removed or its pattern changed while the base holds 2")),
+        "{:?}",
+        removed.violations
+    );
+}
+
+#[test]
+fn a_cited_amendment_is_the_one_way_to_drop_a_guard_holding_debt() {
+    let held = policy("");
+    let with = |amendment: &str| {
+        Policy::parse(&POLICY.replace(
+            ",forbid_new_observed=['narrow']ALLOWED",
+            &format!(",amended_by={{bead='x-1',covers=[{amendment}]}}"),
+        ))
+        .expect("policy")
+    };
+    let tree = [("a.rs", RENDER)];
+    let amended = judge_citing(&held, &with("'narrow'"), &tree, &tree, &["x-1"]);
+    assert!(amended.violations.is_empty(), "{:?}", amended.violations);
+    let uncited = judge_citing(&held, &with("'narrow'"), &tree, &tree, &[]);
+    assert!(
+        uncited.violations.iter().any(|v| v
+            .contains("amended_by names `x-1`, which this landing's description does not cite")),
+        "{:?}",
+        uncited.violations
+    );
+    let wide = judge_citing(&held, &with("'narrow','other'"), &tree, &tree, &["x-1"]);
+    assert!(
+        wide.violations
+            .iter()
+            .any(|v| v.contains("covers `other`, which this landing neither changes nor removes")),
+        "{:?}",
+        wide.violations
+    );
+    // Removing the authority entry removes its guards: nowhere to amend.
+    let gone = Policy::parse(&POLICY.replace(
+        "authority=[{fact='narrowing',home='src/width.rs::Width',forbid_new_observed=['narrow']ALLOWED}]\n",
+        "authority=[{fact='other',home='src/width.rs::Width'}]\n",
+    ))
+    .expect("policy");
+    let removed = judge(&held, &gone, &tree, &tree);
+    assert!(
+        removed
+            .violations
+            .iter()
+            .any(|v| v.contains("`narrow` removed or its pattern changed while the base holds 2")),
         "{:?}",
         removed.violations
     );

@@ -198,3 +198,55 @@ fn forbidden_path_observations_read_the_real_project_root() {
         "ignored but forbidden"
     );
 }
+#[test]
+fn forbid_new_pattern_counts_both_sides_with_their_own_policies() {
+    let guarded = POLICY.replace(
+        "home='src/lib.rs::Home'",
+        "home='src/lib.rs::Home',forbid_new_pattern=[{name='narrow',pattern='$X as u8'}]",
+    );
+    let fixture = fixture();
+    fixture.write(".config/architecture.toml", &guarded);
+    let one =
+        "//! fixture: meaning\npub struct Home;\npub fn render(x: u32) -> u8 {\n    x as u8\n}\n";
+    fixture.write("src/lib.rs", one);
+    let base = commit(&fixture);
+    fixture.write("src/lib.rs", &format!("{one}\n"));
+    let same = commit(&fixture);
+    let held = run(&fixture, &base, &same, true);
+    let result: serde_json::Value = serde_json::from_slice(&held.stdout).unwrap();
+    let violations = result["violations"].to_string();
+    assert!(!violations.contains("narrow"), "{violations}");
+    assert!(
+        result["unavailable"]
+            .to_string()
+            .matches("forbid_new")
+            .count()
+            == 0,
+        "{}",
+        result["unavailable"]
+    );
+    assert_eq!(result["spellings"]["home"]["debt_after"], 1, "{result}");
+    assert!(
+        result["display"]
+            .as_str()
+            .unwrap()
+            .contains("spelling  home: debt 1 -> 1"),
+        "{}",
+        result["display"]
+    );
+    fixture.write(
+        "src/lib.rs",
+        &one.replace("    x as u8\n", "    (x as u8).wrapping_add(x as u8)\n"),
+    );
+    let grown = commit(&fixture);
+    let output = run(&fixture, &same, &grown, true);
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["verdict"], "REFUSE", "{result}");
+    assert!(
+        result["violations"]
+            .to_string()
+            .contains("`src/lib.rs::render` holds 2 `narrow` outside its home (base 1)"),
+        "{}",
+        result["violations"]
+    );
+}

@@ -1,5 +1,5 @@
 //! Host observations for fixed policy inputs, over a private replica of captured Rust.
-use super::{Inputs, Match, PathState, PatternState, Policy, anchor};
+use super::{Inputs, Match, Occurrence, PathState, PatternState, Policy, SpellingState, anchor};
 use crate::{
     architecture::{contains, relative_path},
     discovery::Snapshot,
@@ -22,17 +22,12 @@ pub fn observe(snapshot: &Snapshot, policy: &Policy) -> Inputs {
 /// Source is copied from the snapshot; the helper never rereads the inspected tree.
 pub fn observe_with_helper(snapshot: &Snapshot, policy: &Policy, helper: &Path) -> Inputs {
     let mut inputs = Inputs::new(snapshot);
-    let members = snapshot
-        .metadata()
-        .workspace_packages()
-        .into_iter()
-        .map(|package| package.name.as_str())
-        .collect();
     // This independently callable I/O boundary must not launch helpers from
     // malformed configuration. The validator remains safe without this preflight.
-    if policy.validate_configuration(&members).is_err() {
+    if !well_formed(snapshot, policy) {
         return inputs;
     }
+    observe_new_patterns(snapshot, policy, helper, &mut inputs);
     for path in policy.authority.iter().flat_map(|rule| &rule.forbid_path) {
         if inputs.paths.contains_key(path) {
             continue;
@@ -124,20 +119,26 @@ fn replica(
 #[derive(Deserialize)]
 struct Hit {
     file: String,
+    text: String,
     range: Range,
 }
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Range {
     start: Position,
+    byte_offset: Offsets,
 }
 #[derive(Deserialize)]
 struct Position {
     line: usize,
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
+#[derive(Deserialize)]
+struct Offsets {
+    start: usize,
+    end: usize,
+}
+
+/// One `forbid_pattern` query's matches over its scope's captured files.
 fn query_pattern(
     root: &Path,
     query: &str,
@@ -151,11 +152,37 @@ fn query_pattern(
         .filter(|file| contains(scope, &file.path))
         .map(|file| (file.path.clone(), file.content_fingerprint.clone()))
         .collect();
+    let mut matches = Vec::new();
+    for hit in run_helper(root, helper, pattern, &sources)? {
+        let file = hit_file(root, &hit)?;
+        let line = hit
+            .range
+            .start
+            .line
+            .checked_add(1)
+            .ok_or("syntax-helper source line overflow")?;
+        if !sources.contains_key(&file)
+            || line_counts
+                .get(file.as_str())
+                .is_none_or(|lines| line > *lines)
+        {
+            return Err("syntax-helper match is outside captured input".into());
+        }
+        matches.push(Match { file, line });
+    }
+    Ok(PatternState::Read { sources, matches })
+}
+
+/// Run the helper's `pattern` over the replica's copies of `sources`
+/// (none when there are no sources).
+fn run_helper(
+    root: &Path,
+    helper: &Path,
+    pattern: &str,
+    sources: &BTreeMap<String, String>,
+) -> crate::Result<Vec<Hit>> {
     if sources.is_empty() {
-        return Ok(PatternState::Read {
-            sources,
-            matches: Vec::new(),
-        });
+        return Ok(Vec::new());
     }
     let helper = if helper.is_relative() && helper.components().count() > 1 {
         std::path::absolute(helper)?
@@ -184,36 +211,97 @@ fn query_pattern(
         )
         .into());
     }
-    let hits: Vec<Hit> = serde_json::from_slice(&output.stdout)?;
-    let mut matches = Vec::new();
-    for hit in hits {
-        let path = Path::new(&hit.file);
-        let relative = if path.is_absolute() {
-            path.strip_prefix(root)?
-        } else {
-            path
+    Ok(serde_json::from_slice(&output.stdout)?)
+}
+/// A hit's file as a captured path key; a path leaving the replica fails.
+fn hit_file(root: &Path, hit: &Hit) -> crate::Result<String> {
+    let path = Path::new(&hit.file);
+    let relative = if path.is_absolute() {
+        path.strip_prefix(root)?
+    } else {
+        path
+    };
+    if relative
+        .components()
+        .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err("syntax-helper path escaped its input".into());
+    }
+    Ok(crate::source::discovery::path_key(relative))
+}
+
+/// Only the `forbid_new_pattern` observations, as `delta` needs them for
+/// its base side (observe it under the published policy).
+pub fn observe_spellings(snapshot: &Snapshot, policy: &Policy) -> Inputs {
+    let mut inputs = Inputs::new(snapshot);
+    if well_formed(snapshot, policy) {
+        observe_new_patterns(snapshot, policy, Path::new("ast-grep"), &mut inputs);
+    }
+    inputs
+}
+fn well_formed(snapshot: &Snapshot, policy: &Policy) -> bool {
+    let members = snapshot
+        .metadata()
+        .workspace_packages()
+        .into_iter()
+        .map(|package| package.name.as_str())
+        .collect();
+    policy.validate_configuration(&members).is_ok()
+}
+/// Each `forbid_new_pattern`'s occurrences over the capture's production
+/// files, by byte range and text, per authority fact and pattern name.
+fn observe_new_patterns(snapshot: &Snapshot, policy: &Policy, helper: &Path, inputs: &mut Inputs) {
+    let wanted: Vec<_> = policy
+        .authority
+        .iter()
+        .flat_map(|rule| rule.forbid_new_pattern.iter().map(move |p| (&rule.fact, p)))
+        .collect();
+    if wanted.is_empty() {
+        return;
+    }
+    let files: BTreeMap<_, _> = snapshot
+        .graph()
+        .files
+        .iter()
+        .filter(|file| !file.test_only)
+        .map(|file| (file.path.as_str(), file))
+        .collect();
+    let sources: BTreeMap<String, String> = files
+        .values()
+        .map(|file| (file.path.clone(), file.content_fingerprint.clone()))
+        .collect();
+    let replica = replica(snapshot, &files);
+    for (fact, pattern) in wanted {
+        let state = match &replica {
+            Ok(replica) => new_pattern(replica.path(), helper, &pattern.pattern, &sources),
+            Err(error) => Err(format!("cannot prepare captured syntax input: {error}").into()),
         };
-        if relative
-            .components()
-            .any(|component| !matches!(component, Component::Normal(_)))
-        {
-            return Err("syntax-helper path escaped its input".into());
-        }
-        let file = crate::source::discovery::path_key(relative);
-        let line = hit
-            .range
-            .start
-            .line
-            .checked_add(1)
-            .ok_or("syntax-helper source line overflow")?;
-        if !sources.contains_key(&file)
-            || line_counts
-                .get(file.as_str())
-                .is_none_or(|lines| line > *lines)
-        {
+        let state = state.unwrap_or_else(|error| SpellingState::Unavailable(error.to_string()));
+        inputs
+            .new_patterns
+            .entry(fact.clone())
+            .or_default()
+            .insert(pattern.name.clone(), state);
+    }
+}
+fn new_pattern(
+    root: &Path,
+    helper: &Path,
+    pattern: &str,
+    sources: &BTreeMap<String, String>,
+) -> crate::Result<SpellingState> {
+    let mut occurrences = Vec::new();
+    for hit in run_helper(root, helper, pattern, sources)? {
+        let file = hit_file(root, &hit)?;
+        if !sources.contains_key(&file) {
             return Err("syntax-helper match is outside captured input".into());
         }
-        matches.push(Match { file, line });
+        let line = hit.range.start.line.saturating_add(1);
+        let Offsets { start, end } = hit.range.byte_offset;
+        occurrences.push(Occurrence::new(file, start, end, line, hit.text));
     }
-    Ok(PatternState::Read { sources, matches })
+    Ok(SpellingState::Read {
+        sources: sources.clone(),
+        occurrences,
+    })
 }

@@ -9,7 +9,7 @@
 //! item that stays pays for nothing, so unrelated items of one name never
 //! trade debt. A key whose debt rises draws from that pool; any remainder
 //! refuses. A guard removed, or a pattern changed, while the base holds
-//! debt under it refuses. A new or raised `allowed_in` bound is a raise for
+//! debt under it refuses unless a cited `amended_by` covers it. A new or raised `allowed_in` bound is a raise for
 //! the host, refused unless it equals what the candidate uses.
 use super::super::policy::{
     AuthorityRule, Census, Key, MissingInput, Occurrence, Policy, Raise, SpellingState,
@@ -26,50 +26,81 @@ pub(super) struct Side<'a> {
     pub inputs: &'a super::super::policy::Inputs,
 }
 
-/// Judge every authority of the candidate that writes `forbid_new_*`.
+/// The landing's description and its parsed citations, for amendments.
+pub(super) struct Citing<'a> {
+    pub description: &'a str,
+    pub citations: Option<&'a crate::checks::concentration::Citations>,
+}
+
+fn writes(rule: &AuthorityRule) -> bool {
+    !rule.forbid_new_pattern.is_empty() || !rule.forbid_new_observed.is_empty()
+}
+
+/// Judge every authority that writes `forbid_new_*` on either side: one
+/// the candidate still guards is counted on both sides; one whose guards
+/// the candidate dropped (or whose entry it removed) is held to what the
+/// base holds.
 pub(super) fn judge(
-    published: &Policy,
-    policy: &Policy,
-    before: &Side<'_>,
-    after: &Side<'_>,
+    (published, policy): (&Policy, &Policy),
+    (before, after): (&Side<'_>, &Side<'_>),
+    citing: &Citing<'_>,
     out: &mut Report,
 ) {
-    let writes = |rule: &AuthorityRule| {
-        !rule.forbid_new_pattern.is_empty() || !rule.forbid_new_observed.is_empty()
-    };
-    for authority in &policy.authority {
-        let base_rule = published
+    let base_rule = |fact: &str| published.authority.iter().find(|rule| rule.fact == fact);
+    for authority in policy.authority.iter().filter(|rule| writes(rule)) {
+        judge_guarded(base_rule(&authority.fact), authority, (before, after), out);
+        if let Some(published) = base_rule(&authority.fact).filter(|rule| writes(rule)) {
+            judge_guards(published, Some(authority), before, citing, out);
+        }
+    }
+    for published in published.authority.iter().filter(|rule| writes(rule)) {
+        let now = policy
             .authority
             .iter()
-            .find(|rule| rule.fact == authority.fact);
-        if !writes(authority) {
-            // A guard the published policy had: the base says what it held.
-            if let Some(base_rule) = base_rule.filter(|rule| writes(rule))
-                && let Some(base) = side_census(before, base_rule, base_rule, out)
-            {
-                guards(Some(base_rule), authority, &base, out);
-            }
-            continue;
+            .find(|rule| rule.fact == published.fact);
+        if !now.is_some_and(writes) {
+            judge_guards(published, now, before, citing, out);
         }
-        let (Some(base), Some(now)) = (
-            side_census(before, base_rule.unwrap_or(authority), authority, out),
-            side_census(after, authority, authority, out),
-        ) else {
-            continue;
-        };
-        for (census, side) in [(&base, before), (&now, after)] {
-            if census.files == 0 {
-                out.violations.push(format!(
-                    "authority `{}` forbid_new: the {} has no production source; held debt cannot be established from an empty population",
-                    authority.fact, side.name
-                ));
-            }
+    }
+}
+
+/// The ratchet and raises of an authority the candidate guards.
+fn judge_guarded(
+    base_rule: Option<&AuthorityRule>,
+    authority: &AuthorityRule,
+    (before, after): (&Side<'_>, &Side<'_>),
+    out: &mut Report,
+) {
+    let (Some(base), Some(now)) = (
+        side_census(before, base_rule.unwrap_or(authority), authority, out),
+        side_census(after, authority, authority, out),
+    ) else {
+        return;
+    };
+    for (census, side) in [(&base, before), (&now, after)] {
+        if census.files == 0 {
+            out.violations.push(format!(
+                "authority `{}` forbid_new: the {} has no production source; held debt cannot be established from an empty population",
+                authority.fact, side.name
+            ));
         }
-        out.spellings
-            .insert(authority.fact.clone(), summary(&base, &now, after.snapshot));
-        ratchet(&authority.fact, &base, &now, after.snapshot, out);
-        guards(base_rule, authority, &base, out);
-        raises(base_rule, authority, &now, out);
+    }
+    out.spellings
+        .insert(authority.fact.clone(), summary(&base, &now, after.snapshot));
+    ratchet(&authority.fact, &base, &now, after.snapshot, out);
+    raises(base_rule, authority, &now, out);
+}
+
+/// The published guards' law, on the base's count under them.
+fn judge_guards(
+    published: &AuthorityRule,
+    now: Option<&AuthorityRule>,
+    before: &Side<'_>,
+    citing: &Citing<'_>,
+    out: &mut Report,
+) {
+    if let Some(base) = side_census(before, published, published, out) {
+        guards(published, now, &base, citing, out);
     }
 }
 
@@ -302,45 +333,86 @@ fn item_in_file(snapshot: &Snapshot, file: &str, item: &str) -> bool {
         })
 }
 
-/// A published spelling removed, or a pattern changed, while the base holds
-/// debt under it.
+/// The published spellings the candidate removed or whose pattern it
+/// changed (an entry removed removes them all).
+fn changed(published: &AuthorityRule, now: Option<&AuthorityRule>) -> Vec<String> {
+    let patterns = published.forbid_new_pattern.iter().filter(|pattern| {
+        now.and_then(|now| {
+            now.forbid_new_pattern
+                .iter()
+                .find(|p| p.name == pattern.name)
+        })
+        .is_none_or(|now| now.pattern != pattern.pattern)
+    });
+    let classes = published
+        .forbid_new_observed
+        .iter()
+        .filter(|class| now.is_none_or(|now| !now.forbid_new_observed.contains(class)));
+    patterns
+        .map(|pattern| pattern.name.clone())
+        .chain(classes.cloned())
+        .collect()
+}
+
+/// A published spelling removed, or its pattern changed, while the base
+/// holds debt under it refuses, unless the candidate's new `amended_by`
+/// covers it and the description cites it. An amendment covering what
+/// this landing does not change refuses.
 fn guards(
-    published: Option<&AuthorityRule>,
-    rule: &AuthorityRule,
+    published: &AuthorityRule,
+    now: Option<&AuthorityRule>,
     base: &Census,
+    citing: &Citing<'_>,
     out: &mut Report,
 ) {
-    let Some(published) = published else {
-        return;
-    };
+    let fact = &published.fact;
     let held = |name: &str| -> usize {
         base.keys
             .iter()
             .filter(|(key, _)| {
-                key.spelling == name || key.spelling.starts_with(&format!("{name}:"))
+                key.spelling
+                    .split_once(':')
+                    .map_or(key.spelling.as_str(), |(class, _)| class)
+                    == name
             })
             .map(|(_, held)| held.debt())
             .sum()
     };
-    for pattern in &published.forbid_new_pattern {
-        let now = rule
-            .forbid_new_pattern
-            .iter()
-            .find(|p| p.name == pattern.name);
-        let n = held(&pattern.name);
-        if n > 0 && now.is_none_or(|now| now.pattern != pattern.pattern) {
+    let changed = changed(published, now);
+    let amendment = now
+        .and_then(|now| now.amended_by.as_ref())
+        .filter(|amendment| published.amended_by.as_ref() != Some(*amendment));
+    if let Some(amendment) = amendment {
+        let section = format!("authority.{fact}");
+        if crate::checks::concentration::known_uncited(
+            &section,
+            &amendment.bead,
+            citing.description,
+            citing.citations,
+            &mut out.unavailable,
+        ) {
             out.violations.push(format!(
-                "authority `{}`: forbid_new spelling `{}` removed or its pattern changed while the base holds {n}; retain its guard (a changed pattern could hide held debt)",
-                rule.fact, pattern.name
+                "authority `{fact}`: amended_by names `{}`, which this landing's description does not cite; cite it as ({})",
+                amendment.bead, amendment.bead
+            ));
+        }
+        for name in amendment
+            .covers
+            .iter()
+            .filter(|name| !changed.contains(name))
+        {
+            out.violations.push(format!(
+                "authority `{fact}`: amended_by covers `{name}`, which this landing neither changes nor removes; list only what it changes"
             ));
         }
     }
-    for class in &published.forbid_new_observed {
-        let n = held(class);
-        if n > 0 && !rule.forbid_new_observed.contains(class) {
+    let covered =
+        |name: &String| amendment.is_some_and(|amendment| amendment.covers.contains(name));
+    for name in changed.iter().filter(|name| !covered(name)) {
+        let n = held(name);
+        if n > 0 {
             out.violations.push(format!(
-                "authority `{}`: forbid_new spelling `{class}` removed while the base holds {n}; retain its guard",
-                rule.fact
+                "authority `{fact}`: forbid_new spelling `{name}` removed or its pattern changed while the base holds {n}; retain its guard (a changed pattern could hide held debt), or name the ruling with `amended_by = {{ bead = \"<reference>\", covers = [\"{name}\"] }}` in this authority and cite it"
             ));
         }
     }

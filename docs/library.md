@@ -294,6 +294,23 @@ citations into `checks::delta::check`, and
 Atlas checks these inputs against the snapshot (for example, that a
 declaration's file has not changed) but leaves their meaning to your project.
 
+**Held spellings.** `delta` counts `forbid_new_*` on both sides, so it needs
+each side's occurrences: `delta::Inputs::policy` for the candidate and
+`delta::Inputs::before_policy` for the base. Atlas fills the
+`forbid_new_pattern` entries (`new_patterns`) with `policy::observe` and, for
+the base under the published policy, `policy::observe_spellings`. A wrapper
+fills `observed` for each `forbid_new_observed` class, per authority fact and
+class name, on both sides. Each entry is a `SpellingState::Read` whose
+`sources` maps every production file of that side's snapshot to its content
+fingerprint, and whose `Occurrence`s give the file, byte range, line and the
+exact text there. The text is the spelling (`class:text` is its key), so
+supply the written form you mean to count. Atlas, not the wrapper, decides
+which item owns each occurrence and drops test code and literals. If the
+sources differ from the snapshot's production files, or an occurrence's text
+is not the bytes at its range, the class is unavailable on that side. A
+class you cannot observe is `SpellingState::Unavailable` with the reason;
+leaving it out reports the same.
+
 Other check functions:
 
 - `checks::typed_errors::read(&analysis, packages)` finds `Result<_, String>`

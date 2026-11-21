@@ -260,10 +260,15 @@ fn judge_landing(
         inputs,
     };
     spellings::judge(
-        published,
-        policy,
-        &side("before", before, &inputs.before_policy),
-        &side("after", after, &inputs.policy),
+        (published, policy),
+        (
+            &side("before", before, &inputs.before_policy),
+            &side("after", after, &inputs.policy),
+        ),
+        &spellings::Citing {
+            description: &inputs.description,
+            citations: inputs.concentration.citations.as_ref(),
+        },
         out,
     );
 }

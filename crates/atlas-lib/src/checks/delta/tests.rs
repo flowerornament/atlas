@@ -37,6 +37,7 @@ fn fixture_policy() -> Policy {
                 forbid_new_pattern: vec![],
                 forbid_new_observed: vec![],
                 allowed_in: vec![],
+                amended_by: None,
             }],
             stage_order: vec![],
             stage_reads: BTreeMap::new(),

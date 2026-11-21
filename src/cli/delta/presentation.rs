@@ -68,6 +68,7 @@ pub(super) fn json(
         "concentration": report.concentration,
         "surface": surface,
         "seams": seams,
+        "spellings": report.spellings,
         "violations": report.violations,
         "unavailable": report.unavailable,
         "verdict": verdict(report.status()),
@@ -93,6 +94,13 @@ pub(super) fn display(
     write_tree(&mut out, report)?;
     write_coupling_and_surface(&mut out, report, policy, stats)?;
     write_seams(&mut out, report)?;
+    for (fact, held) in &report.spellings {
+        write!(
+            out,
+            "\nspelling  {fact}: debt {} -> {} outside the home ({} in tests or literals left out; {} files invoke macros a pattern cannot see into)",
+            held.debt_before, held.debt_after, held.dropped, held.files_with_macros
+        )?;
+    }
     write!(out, "\nverdict   {}", verdict(report.status()))?;
     for hint in report
         .concentration

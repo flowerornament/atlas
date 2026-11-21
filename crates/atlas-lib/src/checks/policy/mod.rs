@@ -1,7 +1,7 @@
 //! Native schema-1 policy data; project authority references remain opaque.
 mod configuration;
 mod observations;
-pub use observations::{observe, observe_with_helper};
+pub use observations::{observe, observe_spellings, observe_with_helper};
 mod readers;
 pub use readers::ReaderReading;
 mod spellings;
@@ -344,6 +344,20 @@ pub struct AuthorityRule {
     /// Items that may hold up to these counts of a `forbid_new` spelling.
     #[serde(default)]
     pub allowed_in: Vec<Allowance>,
+    /// The ruling that lets a landing change or remove the `forbid_new`
+    /// spellings it covers (by name) while the base holds debt under them;
+    /// the landing's description must cite it.
+    #[serde(default)]
+    pub amended_by: Option<SpellingAmendment>,
+}
+
+/// A bead that rules a change to `forbid_new` spellings, and which ones.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct SpellingAmendment {
+    pub bead: String,
+    pub covers: BTreeSet<String>,
 }
 
 /// A file allowed to read an authority's home, and how many times.
@@ -641,6 +655,16 @@ impl Policy {
                         owner,
                     );
                 }
+            }
+        }
+        for (index, rule) in self.authority.iter().enumerate() {
+            if let Some(amendment) = &rule.amended_by {
+                let index = index.to_string();
+                push(
+                    out,
+                    &["authority", &index, "amended_by", "bead"],
+                    &amendment.bead,
+                );
             }
         }
         if let Some(amendment) = &self.population.amended_by {

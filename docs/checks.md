@@ -292,7 +292,14 @@ the project to approve and must equal what the item uses. Removing a
 spelling, or changing its pattern, while the base holds it refuses. A
 pattern cannot see inside a macro's input; `delta` reports how many files
 invoke macros, and a project that needs them counted supplies those
-spellings as an observed class.
+spellings as an observed class. `amended_by = { bead, covers }` in the
+authority entry, naming the spellings it covers and cited in the landing's
+description, is the one way to remove a spelling or change its pattern
+while the base holds it; it may cover only what the landing changes.
+Removing the whole authority entry removes its spellings, with no place to
+amend, so it refuses while the base holds any. The command line observes
+`forbid_new_pattern` on both sides; a `forbid_new_observed` class needs a
+wrapper to supply it, and is unavailable from the plain command line.
 
 ### Crate graph
 

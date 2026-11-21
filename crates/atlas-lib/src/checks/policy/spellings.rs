@@ -294,6 +294,13 @@ pub(super) fn validate(authority: &AuthorityRule) -> crate::Result<()> {
     {
         return fail("a forbid_new_pattern needs a pattern".into());
     }
+    if authority
+        .amended_by
+        .as_ref()
+        .is_some_and(|amendment| amendment.covers.is_empty())
+    {
+        return fail("amended_by must name the spellings it covers".into());
+    }
     if !authority.allowed_in.is_empty() && names.is_empty() {
         return fail("allowed_in grants spellings, but no forbid_new_pattern or forbid_new_observed is written".into());
     }
