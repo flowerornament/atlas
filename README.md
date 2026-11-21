@@ -98,6 +98,33 @@ Add `--as svg` to draw the same thing as an SVG image. Atlas can also
 draw which functions produce and consume a type, and every path a function can
 take. See [diagrams](https://github.com/flowerornament/atlas/blob/main/docs/diagrams.md).
 
+### Ask your own question
+
+When no command asks what you want, write it as a query. Atlas's
+observations are tables, and `query` joins, counts and follows them in
+Datalog. Which command-line files call into the library's query code, and
+how often?
+
+```console
+$ cargo atlas query '?- file_calls{from: A, to: B, calls: N}, under(A, "src/cli"), under(B, "crates/atlas-lib/src/queries") order by N desc limit 5.'
+  A                      B                                               N
+  src/cli/navigation.rs  crates/atlas-lib/src/queries/mod.rs             3
+  src/cli/navigation.rs  crates/atlas-lib/src/queries/navigation/mod.rs  3
+  src/cli/review.rs      crates/atlas-lib/src/queries/review/mod.rs      3
+  src/cli/callers.rs     crates/atlas-lib/src/queries/callers.rs         2
+  src/cli/review.rs      crates/atlas-lib/src/queries/navigation/mod.rs  2
+  (9 rows, the first 5 by the query's limit)
+note: `call` has an unknowns relation, `unknown_call`, that this program does not read; a row missing from `call` is not evidence that none exists
+```
+
+One line checks a boundary between two parts of a project. The note is
+Atlas keeping you honest: a call it could not resolve is recorded apart, so
+an empty answer is not proof of none. Atlas refuses a query that reads
+"no resolved call" as "never called" unless it also reads the unresolved
+ones, so "is this function used?" has three answers: called, possibly
+called, and unobserved. `cargo atlas help agent` has that recipe and others,
+and `cargo atlas help --topic query` explains the language.
+
 ### Catch a change that breaks your rules
 
 You write your project's rules in a small TOML file. For example: "the code
@@ -231,6 +258,7 @@ what its answer is based on, and gives an example.
 | Where are the large files and blocks? | `cargo atlas concentration`, `cargo atlas spans` |
 | Which public items lack doc comments? | `cargo atlas comments` |
 | Does this change break our architecture rules? | `cargo atlas delta HEAD~1 --policy .config/architecture.toml` |
+| A question no command asks | `cargo atlas query '?- file_calls{from: A, to: B, calls: N} order by N desc limit 10.'` |
 | Everything Atlas found, to query yourself | `cargo atlas facts` (or `dump` for the source graph) |
 
 To look at part of a project, name it after the command: a file or directory,
