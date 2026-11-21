@@ -9,10 +9,10 @@
 //! home (the import is the reading, not each use of it). A site Atlas
 //! cannot pin, with a candidate inside the home, or a macro's spelled path
 //! that reaches it, makes the rule unavailable, never a pass.
-use super::{AuthorityRule, Reader, Report};
+use super::{AuthorityRule, Reader, Report, homes::Home};
 use crate::analysis::{
     Analysis,
-    index::sites::{PathReading, PathSite, SiteForm},
+    index::sites::{PathSite, SiteForm},
 };
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -30,11 +30,6 @@ pub struct ReaderReading {
     /// Sites counted from macro arguments read as code (a syntax
     /// assumption).
     pub macro_arguments: usize,
-}
-
-struct Home {
-    path: Vec<String>,
-    files: BTreeSet<String>,
 }
 
 /// Judge every authority that writes `allowed_readers` and whose home
@@ -55,13 +50,14 @@ pub(super) fn judge(
     let reading = analysis.path_reading()?;
     for authority in wanted {
         let field = format!("authority.{}.allowed_readers", authority.fact);
-        let home = match resolve_home(&authority.home, &reading) {
-            Ok(home) => home,
-            Err(reason) => {
-                report.missing(field, reason.to_string());
-                continue;
-            }
-        };
+        let home =
+            match super::homes::resolve(analysis.snapshot(), &reading.scopes, &authority.home) {
+                Ok(home) => home,
+                Err(reason) => {
+                    report.missing(field, reason.to_string());
+                    continue;
+                }
+            };
         let found = read(&home, &reading.sites, &authority.home, &field, report);
         unreadable(analysis, &home, &authority.home, &field, report);
         let rows = authority.allowed_readers.as_deref().unwrap_or_default();
@@ -80,92 +76,6 @@ pub(super) fn judge(
     Ok(())
 }
 
-/// Why a home names no one production module.
-enum HomeUnresolved {
-    NotMounted { file: String },
-    MountedAsSeveral { file: String, modules: usize },
-    NoModuleRoot { home: String },
-    MountedBothWays { file: String, home: String },
-}
-impl std::fmt::Display for HomeUnresolved {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotMounted { file } => write!(f, "`{file}` is not mounted in production code"),
-            Self::MountedAsSeveral { file, modules } => {
-                write!(f, "`{file}` is mounted as {modules} modules; a home is one")
-            }
-            Self::NoModuleRoot { home } => write!(f, "no production module is rooted at `{home}`"),
-            Self::MountedBothWays { file, home } => write!(
-                f,
-                "`{file}` is mounted both inside and outside the home `{home}`; mount it once"
-            ),
-        }
-    }
-}
-
-/// A home's module path and own files, or why it has none.
-fn resolve_home(home: &str, reading: &PathReading) -> Result<Home, HomeUnresolved> {
-    if let Some((file, item)) = home.split_once("::") {
-        let mut path = one_scope(file, reading)?;
-        path.push(item.to_owned());
-        return Ok(Home {
-            path,
-            files: BTreeSet::from([file.to_owned()]),
-        });
-    }
-    let file = module_file(home, reading)?;
-    let path = one_scope(&file, reading)?;
-    let inside = |scope: &Vec<String>| scope.starts_with(&path);
-    let mut files = BTreeSet::new();
-    for (file, scopes) in &reading.scopes {
-        match (scopes.iter().all(inside), scopes.iter().any(inside)) {
-            (true, _) if !scopes.is_empty() => {
-                files.insert(file.clone());
-            }
-            (false, true) => {
-                return Err(HomeUnresolved::MountedBothWays {
-                    file: file.clone(),
-                    home: home.to_owned(),
-                });
-            }
-            _ => {}
-        }
-    }
-    Ok(Home { path, files })
-}
-/// The file of a module home: the file itself, or a directory's module
-/// root (`dir/mod.rs` or `dir.rs`).
-fn module_file(home: &str, reading: &PathReading) -> Result<String, HomeUnresolved> {
-    if std::path::Path::new(home)
-        .extension()
-        .is_some_and(|ext| ext == "rs")
-    {
-        return Ok(home.to_owned());
-    }
-    let directory = home.trim_end_matches('/');
-    [format!("{directory}/mod.rs"), format!("{directory}.rs")]
-        .into_iter()
-        .find(|file| reading.scopes.contains_key(file))
-        .ok_or_else(|| HomeUnresolved::NoModuleRoot {
-            home: home.to_owned(),
-        })
-}
-/// The one production module path of `file`.
-fn one_scope(file: &str, reading: &PathReading) -> Result<Vec<String>, HomeUnresolved> {
-    let mut scopes: Vec<&Vec<String>> = reading.scopes.get(file).into_iter().flatten().collect();
-    scopes.dedup();
-    match scopes.as_slice() {
-        [one] => Ok((*one).clone()),
-        [] => Err(HomeUnresolved::NotMounted {
-            file: file.to_owned(),
-        }),
-        many => Err(HomeUnresolved::MountedAsSeveral {
-            file: file.to_owned(),
-            modules: many.len(),
-        }),
-    }
-}
-
 /// The sites outside the home that read it, and the unavailable ones.
 fn read(
     home: &Home,
@@ -176,11 +86,12 @@ fn read(
 ) -> ReaderReading {
     let mut found = ReaderReading {
         home: home.path.join("::"),
-        home_files: home.files.iter().cloned().collect(),
+        home_files: home.own_files().into_iter().collect(),
         ..ReaderReading::default()
     };
     let into = |path: &Vec<String>| path.starts_with(&home.path);
-    for site in sites.iter().filter(|site| !home.files.contains(&site.file)) {
+    let own = home.own_files();
+    for site in sites.iter().filter(|site| !own.contains(&site.file)) {
         let reaches = site.targets.iter().flatten().any(into);
         let repeats = site.through.as_ref().is_some_and(into);
         let at = format!("{}:{}", site.file, site.line);
@@ -280,8 +191,9 @@ fn judge_rows(
             Some(_) => {}
         }
     }
+    let own = owned_home.own_files();
     for row in rows {
-        if owned_home.files.contains(&row.file) {
+        if own.contains(&row.file) {
             report.violations.push(format!(
                 "authority `{fact}`: allowed reader {} is a file of the home `{home}` itself; delete its row",
                 row.file

@@ -24,6 +24,8 @@ pub(super) struct Side<'a> {
     pub name: &'static str,
     pub snapshot: &'a Snapshot,
     pub inputs: &'a super::super::policy::Inputs,
+    /// The capture's module scopes, read once when a home is resolved.
+    pub scopes: std::cell::OnceCell<crate::Result<super::super::policy::Scopes>>,
 }
 
 /// The landing's description and its parsed citations, for amendments.
@@ -143,15 +145,24 @@ fn side_census(
             }
         }
     }
-    let Some(home) = home_spans(side.snapshot, &rule.home) else {
-        out.unavailable.push(MissingInput {
-            field: format!("delta.{}.authority.{fact}.home", side.name),
-            reason: format!(
-                "the home `{}` does not resolve exactly once here",
-                rule.home
-            ),
+    let home = side
+        .scopes
+        .get_or_init(|| crate::analysis::Analysis::new(side.snapshot)?.file_scopes())
+        .as_ref()
+        .map_err(ToString::to_string)
+        .and_then(|scopes| {
+            super::super::policy::resolve_home(side.snapshot, scopes, &rule.home)
+                .map_err(|reason| reason.to_string())
         });
-        return None;
+    let home = match home {
+        Ok(home) => home.spans(),
+        Err(reason) => {
+            out.unavailable.push(MissingInput {
+                field: format!("delta.{}.authority.{fact}.home", side.name),
+                reason,
+            });
+            return None;
+        }
     };
     complete.then(|| super::super::policy::census(side.snapshot, rule, &home, &occurrences))
 }
@@ -238,37 +249,6 @@ fn read_state(
         }
     }
     Ok(occurrences.clone())
-}
-
-/// The home's spans: an item home's syntax span, a module home's files.
-fn home_spans(
-    snapshot: &Snapshot,
-    home: &str,
-) -> Option<Vec<(String, Option<std::ops::Range<usize>>)>> {
-    if let Some((file, item)) = home.split_once("::") {
-        let source = snapshot.source_facts(file)?;
-        let mut spans = source.outline().iter().filter(|entry| entry.name == item);
-        let found = spans.next()?;
-        return spans
-            .next()
-            .is_none()
-            .then(|| vec![(file.to_owned(), Some(found.syntax_span.clone()))]);
-    }
-    let module = home.trim_end_matches('/');
-    Some(
-        snapshot
-            .graph()
-            .files
-            .iter()
-            .filter(|file| {
-                crate::architecture::contains(
-                    module.trim_end_matches(".rs"),
-                    file.path.trim_end_matches(".rs"),
-                ) || file.path == module
-            })
-            .map(|file| (file.path.clone(), None))
-            .collect(),
-    )
 }
 
 fn summary(base: &Census, now: &Census, after: &Snapshot) -> super::SpellingSummary {

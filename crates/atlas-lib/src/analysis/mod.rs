@@ -87,6 +87,13 @@ impl<'a> Analysis<'a> {
             scopes: index.file_scopes(),
         })
     }
+    /// Each production file's module scopes, from the index alone (no path
+    /// sites are read).
+    pub(crate) fn file_scopes(
+        &self,
+    ) -> Result<std::collections::BTreeMap<String, Vec<Vec<String>>>> {
+        Ok(self.index(&Architecture::empty())?.file_scopes())
+    }
     /// Bind the same captured names to a caller's declared architecture.
     pub fn index(&self, architecture: &Architecture) -> Result<Index> {
         self.require_selected_syntax()?;

@@ -331,7 +331,9 @@ exists, and that the forbidden duplicates below do not. Optional lists catch dup
   not match. These need `ast-grep` installed.
 
 A home is an item, `FILE::ITEM`, or a module: a file (`src/parse.rs`) or a
-directory for the module rooted there (`src/parse/`).
+directory for the module rooted there (`src/parse/`). An item that is a `mod`
+declaration (`src/core/mod.rs::interpret`) is its module: the module's files
+are the home's own, never its readers.
 
 `allowed_readers` lists the only files whose production code may read the
 home, each with its exact number of reading sites:

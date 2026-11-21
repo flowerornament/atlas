@@ -1,11 +1,7 @@
 //! Policy validation from captured source and explicit host/project observations.
 use super::{Policy, Reference, anchor};
 use crate::{
-    analysis::Analysis,
-    architecture::contains,
-    discovery::Snapshot,
-    population::{FileSelection, TestSelection},
-    source::ItemKind,
+    analysis::Analysis, architecture::contains, discovery::Snapshot, population::FileSelection,
 };
 use serde::Serialize;
 use std::{
@@ -342,17 +338,14 @@ fn item_home(
     let source = snapshot
         .source_facts(path)
         .ok_or("authority population lacks captured source")?;
-    let sites: Vec<_> = source
-        .outline()
-        .iter()
-        .filter(|entry| {
-            files[path]
-                && anchor_kind(entry.kind)
-                && entry.name == item
-                && TestSelection::Production.admits_line(source, entry.line)
-        })
-        .map(|entry| entry.line)
-        .collect();
+    let sites: Vec<_> = if files[path] {
+        super::homes::home_items(source, item)
+            .into_iter()
+            .map(|entry| entry.line)
+            .collect()
+    } else {
+        Vec::new()
+    };
     if let [line] = sites.as_slice() {
         report.authority_homes.insert(
             authority.fact.clone(),
@@ -396,18 +389,13 @@ fn forbidden_item(
         let source = snapshot
             .source_facts(file)
             .ok_or("forbidden-item population lacks source")?;
-        sites.extend(
-            source
-                .outline()
-                .iter()
-                .filter(|entry| {
-                    *production
-                        && anchor_kind(entry.kind)
-                        && entry.name == name
-                        && TestSelection::Production.admits_line(source, entry.line)
-                })
-                .map(|entry| format!("{file}:{}", entry.line)),
-        );
+        if *production {
+            sites.extend(
+                super::homes::home_items(source, name)
+                    .into_iter()
+                    .map(|entry| format!("{file}:{}", entry.line)),
+            );
+        }
     }
     if !sites.is_empty() {
         report.violations.push(format!(
@@ -499,21 +487,6 @@ fn read_pattern(
     }
     Ok(())
 }
-const fn anchor_kind(kind: ItemKind) -> bool {
-    matches!(
-        kind,
-        ItemKind::Struct
-            | ItemKind::Enum
-            | ItemKind::Union
-            | ItemKind::Fn
-            | ItemKind::Trait
-            | ItemKind::TypeAlias
-            | ItemKind::Const
-            | ItemKind::Static
-            | ItemKind::Mod
-    )
-}
-
 fn source_gaps<'a>(snapshot: &'a Snapshot, scope: &str) -> Vec<&'a crate::model::Diagnostic> {
     snapshot
         .graph()

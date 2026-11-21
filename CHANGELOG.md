@@ -6,6 +6,11 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- An authority home `FILE::ITEM` naming a `mod` declaration is that module,
+ as a directory home is: `allowed_readers` treats the module's files as the
+ home's own, not readers, and `forbid_new_*` counts no debt in them. Each
+ file of such a module used to count as a reader, of paths that did not
+ lead into the home.
 - **Library:** `BoundaryDeclaration::new(file, content_fingerprint)` with
  `with_listed`, `with_listed_modules` and `with_citation_problems`: a wrapper
  outside atlas-lib can now build the boundary declarations seams and

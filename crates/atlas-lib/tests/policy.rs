@@ -999,3 +999,70 @@ fn a_feature_gated_path_mount_outside_src_is_a_reader() {
         1
     );
 }
+
+/// A `FILE::ITEM` home naming a `mod` declaration is that module, as a
+/// directory home is: the module's own files are home files, never
+/// readers, and a path that does not lead into the module is no read.
+#[test]
+fn a_mod_item_home_is_its_module() {
+    let root = support::Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[package]\nname='tutorial'\nversion='0.0.0'\nedition='2024'\n[workspace]\n",
+        ),
+        (
+            "src/lib.rs",
+            "pub mod core;\npub mod user;\npub struct Home;\n",
+        ),
+        ("src/core/mod.rs", "pub mod interpret;\n"),
+        (
+            "src/core/interpret/mod.rs",
+            "pub mod eval;\npub struct Machine;\n",
+        ),
+        (
+            "src/core/interpret/eval.rs",
+            "use std::collections::HashMap;\nuse super::Machine;\npub fn run(_: &Machine) -> HashMap<u8, u8> { HashMap::new() }\n",
+        ),
+        (
+            "src/user.rs",
+            "use std::collections::HashMap;\nuse crate::core::interpret::Machine;\npub fn go(_: Machine) -> HashMap<u8, u8> { HashMap::new() }\n",
+        ),
+    ]);
+    let snapshot = snapshot_workspace(root.path()).expect("snapshot");
+    let analysis = Analysis::new(&snapshot).expect("analysis");
+    let text = readers_policy("{file='src/user.rs',reads=1,reason='drives it'}").replace(
+        "home='src/front/parse.rs'",
+        "home='src/core/mod.rs::interpret'",
+    );
+    let policy = Policy::parse(&text).expect("policy parses");
+    let report = policy::validate(&analysis, &policy, &Inputs::new(&snapshot)).expect("validation");
+    let missing: Vec<_> = report
+        .unavailable
+        .iter()
+        .map(|m| (&m.field, &m.reason))
+        .collect();
+    assert_eq!(
+        report.status(),
+        Status::Pass,
+        "{:?} {missing:?}",
+        report.violations
+    );
+    let reading = &report.authority_readers["the parser"];
+    assert_eq!(reading.home, "tutorial::core::interpret");
+    assert!(
+        reading
+            .home_files
+            .contains(&"src/core/interpret/eval.rs".to_owned())
+            && reading
+                .home_files
+                .contains(&"src/core/interpret/mod.rs".to_owned()),
+        "{:?}",
+        reading.home_files
+    );
+    assert_eq!(
+        reading.reads.keys().collect::<Vec<_>>(),
+        ["src/user.rs"],
+        "{:?}",
+        reading.reads
+    );
+}

@@ -376,3 +376,58 @@ fn an_unobserved_or_stale_side_is_unavailable() {
             .collect::<Vec<_>>()
     );
 }
+
+/// A home naming a `mod` item is that module: spellings in its files are
+/// at home, not debt (atlas-3n1.3).
+#[test]
+fn a_mod_item_home_is_its_module() {
+    let files = [
+        (
+            "Cargo.toml".to_owned(),
+            "[package]\nname='fix'\nversion='0.0.0'\nedition='2024'\n[workspace]\n".to_owned(),
+        ),
+        (
+            "src/lib.rs".to_owned(),
+            "//! fix\npub mod width;\npub mod core;\n".to_owned(),
+        ),
+        ("src/width.rs".to_owned(), "pub struct Width;\n".to_owned()),
+        (
+            "src/core/mod.rs".to_owned(),
+            "pub mod interpret;\n".to_owned(),
+        ),
+        (
+            "src/core/interpret/mod.rs".to_owned(),
+            "pub mod eval;\n".to_owned(),
+        ),
+        ("src/core/interpret/eval.rs".to_owned(), RENDER.to_owned()),
+    ];
+    let refs: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(p, t)| (p.as_str(), t.as_str()))
+        .collect();
+    let fixture = Fixture::new(&refs);
+    let snapshot = snapshot_workspace(fixture.path()).expect("snapshot");
+    let policy = Policy::parse(&POLICY.replace("ALLOWED", "").replace(
+        "home='src/width.rs::Width'",
+        "home='src/core/mod.rs::interpret'",
+    ))
+    .expect("policy");
+    let mut inputs = Inputs::new(
+        &snapshot,
+        Basis {
+            baseline: "b".into(),
+            candidate: "a".into(),
+        },
+        "d".into(),
+    );
+    inputs.policy.observed = observed(&snapshot);
+    inputs.before_policy.observed = observed(&snapshot);
+    let report = delta::check(&snapshot, &snapshot, &policy, &policy, &inputs).expect("delta");
+    let summary = &report.spellings["narrowing"];
+    assert_eq!(
+        (summary.debt_before, summary.debt_after),
+        (0, 0),
+        "{:?}",
+        report.violations
+    );
+}

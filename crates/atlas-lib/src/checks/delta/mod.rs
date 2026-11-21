@@ -288,6 +288,7 @@ fn judge_landing(
         name,
         snapshot,
         inputs,
+        scopes: std::cell::OnceCell::new(),
     };
     spellings::judge(
         (published, policy),

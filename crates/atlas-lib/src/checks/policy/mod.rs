@@ -2,6 +2,8 @@
 mod configuration;
 mod observations;
 pub use observations::{observe, observe_spellings, observe_with_helper};
+mod homes;
+pub(in crate::checks) use homes::{Scopes, resolve as resolve_home};
 mod readers;
 pub use readers::ReaderReading;
 mod spellings;
