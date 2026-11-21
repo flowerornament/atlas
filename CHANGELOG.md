@@ -6,6 +6,20 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `authority.allowed_readers` is judged: the only files whose production
+ code may read a home, each with its exact count of reading sites (each
+ `use` leaf and each written path leading into the home, re-exports, glob
+ re-exports and aliases followed; later uses of an imported name are not
+ new sites). An unlisted reader or more reads refuse; fewer is a hint, or a
+ refusal for an owned row; a row with no reads refuses; a site Atlas
+ cannot pin that might reach the home, or a macro's spelled path that
+ does, is `UNAVAILABLE` with the site and the fix. A home may now be a
+ module (a file or a directory) as well as `FILE::ITEM`. Authority homes
+ and `forbid_item` now read every discovered production file, including
+ those outside `src/` (a `build.rs` module, a feature-gated `#[path]`
+ mount): a broader check, so a policy that passed may newly refuse when
+ such a file declares a forbidden item or a second home. **Library:** `policy::Report` gains `authority_readers`
+ (`ReaderReading`) and `hints`; `Analysis::path_reading`.
 - **Library:** `Analysis::path_sites` reads every path written in
  production code as a site (`analysis::index::sites::PathSite`): each `use`
  tree leaf and each whole written path in code, a macro's input read as

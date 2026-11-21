@@ -81,6 +81,13 @@ pub struct Report {
     pub unavailable: Vec<MissingInput>,
     pub typed_errors: BTreeMap<String, crate::checks::typed_errors::Reading>,
     pub authority_homes: BTreeMap<String, Match>,
+    /// Per authority with `allowed_readers`: what reads its home.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub authority_readers: BTreeMap<String, super::readers::ReaderReading>,
+    /// Improvements a policy may make that do not refuse (a row that can
+    /// be lowered).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub hints: Vec<String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -99,7 +106,7 @@ impl Report {
             Status::Pass
         }
     }
-    fn missing(&mut self, field: impl Into<String>, reason: impl Into<String>) {
+    pub(super) fn missing(&mut self, field: impl Into<String>, reason: impl Into<String>) {
         self.unavailable.push(MissingInput {
             field: field.into(),
             reason: reason.into(),
@@ -136,9 +143,9 @@ pub fn validate(
     if let Some(concentration) = &policy.concentration {
         let workspace = crate::checks::Workspace::of(snapshot)?;
         let measured = crate::checks::concentration::functions::measured(&workspace, concentration);
-        report.violations.extend(
-            crate::checks::concentration::functions::tree(concentration, &measured).refusals,
-        );
+        let found = crate::checks::concentration::functions::tree(concentration, &measured);
+        report.violations.extend(found.refusals);
+        report.hints.extend(found.hints);
     }
     for field in policy.unjudged() {
         report.missing(
@@ -167,7 +174,8 @@ pub fn validate(
             report.unavailable.push(MissingInput {field:format!("typed_errors.{name}"),reason:"required type syntax or source population unavailable; see typed_errors reading".into()});
         }
     }
-    read_authorities(snapshot, policy, inputs, &mut report)?;
+    let resolved = read_authorities(snapshot, policy, inputs, &mut report)?;
+    super::readers::judge(analysis, &policy.authority, &resolved, &mut report)?;
     resolve_references(policy, inputs, &mut report);
     Ok(report)
 }
@@ -201,20 +209,18 @@ fn resolve_references(policy: &Policy, inputs: &Inputs, report: &mut Report) {
         }
     }
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
+/// Each authority's home, forbidden items, paths and patterns. Returns the
+/// facts whose home resolved, which the reader law reads.
 fn read_authorities(
     snapshot: &Snapshot,
     policy: &Policy,
     inputs: &Inputs,
     report: &mut Report,
-) -> crate::Result<()> {
+) -> crate::Result<BTreeSet<String>> {
     // A path names one physical subject; a production placement is not erased
     // by that same file also belonging to a test-only package context.
     let mut files: BTreeMap<&str, bool> = BTreeMap::new();
-    for file in snapshot.files(FileSelection::SourceTree) {
+    for file in snapshot.files(FileSelection::Discovered) {
         files
             .entry(&file.path)
             .and_modify(|production| *production |= !file.test_only)
@@ -228,116 +234,16 @@ fn read_authorities(
                 .map(|source| (*file, source.lines().count()))
         })
         .collect();
+    let mut resolved = BTreeSet::new();
     for authority in &policy.authority {
-        let (path, item) = anchor(&authority.home, "authority home")?;
-        if snapshot.syntax_error(path).is_some() {
-            for gap in source_gaps(snapshot, path) {
-                report.missing(format!("authority.{}.home", authority.fact), &gap.message);
-            }
+        if !read_home(snapshot, &files, authority, report)? {
             continue;
         }
-        if !files.contains_key(path) {
-            let gaps = source_gaps(snapshot, path);
-            if !gaps.is_empty() {
-                for gap in gaps {
-                    report.missing(format!("authority.{}.home", authority.fact), &gap.message);
-                }
-                continue;
-            }
-            report.violations.push(format!(
-                "policy: authority `{}` has missing home file `{path}`",
-                authority.fact
-            ));
-            continue;
-        }
-        let source = snapshot
-            .source_facts(path)
-            .ok_or("authority population lacks captured source")?;
-        let sites: Vec<_> = source
-            .outline()
-            .iter()
-            .filter(|entry| {
-                files[path]
-                    && anchor_kind(entry.kind)
-                    && entry.name == item
-                    && TestSelection::Production.admits_line(source, entry.line)
-            })
-            .map(|entry| entry.line)
-            .collect();
-        if let [line] = sites.as_slice() {
-            report.authority_homes.insert(
-                authority.fact.clone(),
-                Match {
-                    file: path.into(),
-                    line: *line,
-                },
-            );
-        } else {
-            report.violations.push(format!("policy: authority `{}` home `{}` resolves {} times in its source population at {:?}; expected exactly one",authority.fact,authority.home,sites.len(),sites));
-        }
+        resolved.insert(authority.fact.clone());
         for sentinel in &authority.forbid_item {
-            let (root, name) = anchor(sentinel, "forbid_item")?;
-            let gaps = source_gaps(snapshot, root);
-            for gap in &gaps {
-                report.missing(
-                    format!("authority.{}.forbid_item", authority.fact),
-                    &gap.message,
-                );
-            }
-            let population: Vec<_> = files
-                .iter()
-                .filter(|(file, _)| contains(root, file))
-                .collect();
-            if population.is_empty() {
-                if gaps.is_empty() {
-                    report.violations.push(format!(
-                        "policy: forbid_item `{sentinel}` has no source population"
-                    ));
-                }
-                continue;
-            }
-            let mut sites = Vec::new();
-            for (file, production) in population {
-                let source = snapshot
-                    .source_facts(file)
-                    .ok_or("forbidden-item population lacks source")?;
-                sites.extend(
-                    source
-                        .outline()
-                        .iter()
-                        .filter(|entry| {
-                            *production
-                                && anchor_kind(entry.kind)
-                                && entry.name == name
-                                && TestSelection::Production.admits_line(source, entry.line)
-                        })
-                        .map(|entry| format!("{file}:{}", entry.line)),
-                );
-            }
-            if !sites.is_empty() {
-                report.violations.push(format!(
-                    "policy: authority `{}` forbidden item `{sentinel}` exists at {}",
-                    authority.fact,
-                    sites.join(", ")
-                ));
-            }
+            forbidden_item(snapshot, &files, &authority.fact, sentinel, report)?;
         }
-        for path in &authority.forbid_path {
-            match inputs.paths.get(path) {
-                Some(PathState::Absent) => {}
-                Some(PathState::Present) => report.violations.push(format!(
-                    "policy: authority `{}` forbidden path `{path}` exists",
-                    authority.fact
-                )),
-                Some(PathState::Unavailable(reason)) => {
-                    report.missing(format!("authority.{}.forbid_path", authority.fact), reason);
-                }
-                None => report.missing(
-                    format!("authority.{}.forbid_path", authority.fact),
-                    format!("path `{path}` has not been observed"),
-                ),
-            }
-        }
+        forbidden_paths(authority, inputs, report);
         for query in &authority.forbid_pattern {
             read_pattern(
                 snapshot,
@@ -349,7 +255,149 @@ fn read_authorities(
             )?;
         }
     }
+    Ok(resolved)
+}
+/// An authority's home: an item (`FILE::ITEM`) declared exactly once in
+/// production code, or a module (a file or directory) that exists. False
+/// when it is refused or unavailable, which skips the rest of the rule.
+fn read_home(
+    snapshot: &Snapshot,
+    files: &BTreeMap<&str, bool>,
+    authority: &super::AuthorityRule,
+    report: &mut Report,
+) -> crate::Result<bool> {
+    let module_home = !authority.home.contains("::");
+    let path = if module_home {
+        authority.home.trim_end_matches('/')
+    } else {
+        anchor(&authority.home, "authority home")?.0
+    };
+    let known = |path: &str| {
+        files
+            .keys()
+            .any(|file| *file == path || contains(path, file))
+    };
+    if snapshot.syntax_error(path).is_some() || !known(path) {
+        let gaps = source_gaps(snapshot, path);
+        for gap in &gaps {
+            report.missing(format!("authority.{}.home", authority.fact), &gap.message);
+        }
+        if gaps.is_empty() {
+            report.violations.push(format!(
+                "policy: authority `{}` has missing home `{path}`",
+                authority.fact
+            ));
+        }
+        return Ok(false);
+    }
+    if module_home {
+        return Ok(true);
+    }
+    item_home(snapshot, files, authority, path, report)
+}
+fn item_home(
+    snapshot: &Snapshot,
+    files: &BTreeMap<&str, bool>,
+    authority: &super::AuthorityRule,
+    path: &str,
+    report: &mut Report,
+) -> crate::Result<bool> {
+    let (_, item) = anchor(&authority.home, "authority home")?;
+    let source = snapshot
+        .source_facts(path)
+        .ok_or("authority population lacks captured source")?;
+    let sites: Vec<_> = source
+        .outline()
+        .iter()
+        .filter(|entry| {
+            files[path]
+                && anchor_kind(entry.kind)
+                && entry.name == item
+                && TestSelection::Production.admits_line(source, entry.line)
+        })
+        .map(|entry| entry.line)
+        .collect();
+    if let [line] = sites.as_slice() {
+        report.authority_homes.insert(
+            authority.fact.clone(),
+            Match {
+                file: path.into(),
+                line: *line,
+            },
+        );
+        return Ok(true);
+    }
+    report.violations.push(format!("policy: authority `{}` home `{}` resolves {} times in its source population at {:?}; expected exactly one",authority.fact,authority.home,sites.len(),sites));
+    Ok(false)
+}
+/// A forbidden item: a second home declared anywhere under its root.
+fn forbidden_item(
+    snapshot: &Snapshot,
+    files: &BTreeMap<&str, bool>,
+    fact: &str,
+    sentinel: &str,
+    report: &mut Report,
+) -> crate::Result<()> {
+    let (root, name) = anchor(sentinel, "forbid_item")?;
+    let gaps = source_gaps(snapshot, root);
+    for gap in &gaps {
+        report.missing(format!("authority.{fact}.forbid_item"), &gap.message);
+    }
+    let population: Vec<_> = files
+        .iter()
+        .filter(|(file, _)| contains(root, file))
+        .collect();
+    if population.is_empty() {
+        if gaps.is_empty() {
+            report.violations.push(format!(
+                "policy: forbid_item `{sentinel}` has no source population"
+            ));
+        }
+        return Ok(());
+    }
+    let mut sites = Vec::new();
+    for (file, production) in population {
+        let source = snapshot
+            .source_facts(file)
+            .ok_or("forbidden-item population lacks source")?;
+        sites.extend(
+            source
+                .outline()
+                .iter()
+                .filter(|entry| {
+                    *production
+                        && anchor_kind(entry.kind)
+                        && entry.name == name
+                        && TestSelection::Production.admits_line(source, entry.line)
+                })
+                .map(|entry| format!("{file}:{}", entry.line)),
+        );
+    }
+    if !sites.is_empty() {
+        report.violations.push(format!(
+            "policy: authority `{fact}` forbidden item `{sentinel}` exists at {}",
+            sites.join(", ")
+        ));
+    }
     Ok(())
+}
+fn forbidden_paths(authority: &super::AuthorityRule, inputs: &Inputs, report: &mut Report) {
+    for path in &authority.forbid_path {
+        match inputs.paths.get(path) {
+            Some(PathState::Absent) => {}
+            Some(PathState::Present) => report.violations.push(format!(
+                "policy: authority `{}` forbidden path `{path}` exists",
+                authority.fact
+            )),
+            Some(PathState::Unavailable(reason)) => {
+                report.missing(format!("authority.{}.forbid_path", authority.fact), reason);
+            }
+            None => report.missing(
+                format!("authority.{}.forbid_path", authority.fact),
+                format!("path `{path}` has not been observed"),
+            ),
+        }
+    }
 }
 fn read_pattern(
     snapshot: &Snapshot,

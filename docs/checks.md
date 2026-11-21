@@ -244,6 +244,35 @@ exists, and that the forbidden duplicates below do not. Optional lists catch dup
 - `forbid_pattern`: [ast-grep](https://ast-grep.github.io/) patterns that must
   not match. These need `ast-grep` installed.
 
+A home is an item, `FILE::ITEM`, or a module: a file (`src/parse.rs`) or a
+directory for the module rooted there (`src/parse/`).
+
+`allowed_readers` lists the only files whose production code may read the
+home, each with its exact number of reading sites:
+
+```toml
+authority = [
+  { fact = "the parser", home = "src/parse/", allowed_readers = [
+    { file = "src/check.rs", reads = 2, reason = "checks parsed trees" },
+  ] },
+]
+```
+
+A reading site is a `use` that names something in the home (each leaf of a
+`use` list counts) or a written path that leads into it, followed through
+`use`, `as`, `super`, re-exports (globs included) and type aliases, as
+Atlas resolves calls. Later uses of an imported name are the import's
+reading, not new ones. Test code is not read; code behind a feature gate
+is. The home's own files are not readers. A file not listed, or reading
+more than its row, refuses; a row its file reads fewer times can be
+lowered (with an `owner`, the row must equal its count); a row whose file
+no longer reads the home refuses, since an unused allowance would allow a
+future read. `[]` allows no reader. A path Atlas cannot pin to one target
+that might reach the home (competing imports, a `use` it cannot read), or
+a path a macro spells without parsing as code, makes the check
+`UNAVAILABLE`, naming the site and the fix; a macro's arguments that
+parse as expressions are read as code.
+
 ### Crate graph
 
 ```toml
@@ -378,9 +407,6 @@ skipped a rule you wrote. A field written empty, such as `final_stages = []` or
 field left out claims nothing.
 
 - In an `authority` entry:
-  - `allowed_readers = [{ file, reads, owner, reason }]`: the only files
-    whose production code may use the home, each with its exact number of
-    uses; `[]` for none.
   - `forbid_new_pattern = [{ name, pattern }]`: ast-grep patterns that may
     not appear anew or grow outside the home; existing matches are counted
     from the baseline. `forbid_new_observed = [name]` is the same for

@@ -78,7 +78,15 @@ impl Policy {
                 )
                 .into());
             }
-            super::anchor(&row.home, "authority home")?;
+            // A module home is a file or directory path; an item home is
+            // `FILE::ITEM`.
+            if row.home.contains("::") {
+                super::anchor(&row.home, "authority home")?;
+            } else {
+                crate::architecture::relative_path(row.home.trim_end_matches('/'))
+                    .map_err(|error| format!("policy: authority `{}` home: {error}", row.fact))?;
+            }
+            super::readers::validate(row)?;
             for item in &row.forbid_item {
                 super::anchor(item, "forbid_item")?;
             }
@@ -337,7 +345,11 @@ mod tests {
             .insert("outside".into(), 0);
         assert!(bad.validate_configuration(&members).is_err());
         let mut bad = policy();
-        bad.authority[0].home = "not-an-anchor".into();
+        // A module home is a path inside the workspace; an item home is
+        // `FILE::ITEM` with both parts.
+        bad.authority[0].home = "../outside".into();
+        assert!(bad.validate_configuration(&members).is_err());
+        bad.authority[0].home = "src/lib.rs::".into();
         assert!(bad.validate_configuration(&members).is_err());
         let mut bad = policy();
         bad.authority.push(bad.authority[0].clone());

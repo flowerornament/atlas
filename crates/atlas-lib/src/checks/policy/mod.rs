@@ -2,6 +2,8 @@
 mod configuration;
 mod observations;
 pub use observations::{observe, observe_with_helper};
+mod readers;
+pub use readers::ReaderReading;
 mod validation;
 pub use validation::{
     Inputs, Match, MissingInput, PathState, PatternState, ReferenceResolution, Report, Resolution,
@@ -567,119 +569,108 @@ pub struct Reference {
 }
 impl Policy {
     /// The project wrapper must resolve these; parsing them never grants authority.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     pub fn external_references(&self) -> Vec<Reference> {
         let mut out = Vec::new();
-        let mut add = |field: Vec<String>, written: &str| {
-            out.push(Reference {
-                field,
-                written: written.to_owned(),
-            });
-        };
+        self.stage_owner_references(&mut out);
+        self.authority_owner_references(&mut out);
+        self.concentration_references(&mut out);
+        out
+    }
+    fn stage_owner_references(&self, out: &mut Vec<Reference>) {
         for (package, rows) in &self.stage_reads {
             for (reader, row) in rows {
-                if let StageDebt::Rows(debt) = &row.debt {
-                    for (read, row) in debt {
-                        add(
-                            vec![
-                                "stage_reads".into(),
-                                package.clone(),
-                                reader.clone(),
-                                "debt".into(),
-                                read.clone(),
-                                "owner".into(),
-                            ],
-                            &row.owner,
-                        );
-                    }
+                let StageDebt::Rows(debt) = &row.debt else {
+                    continue;
+                };
+                for (read, row) in debt {
+                    push(
+                        out,
+                        &["stage_reads", package, reader, "debt", read, "owner"],
+                        &row.owner,
+                    );
                 }
             }
         }
         for (package, seams) in &self.stage_seams {
             for (stage, row) in &seams.exports {
-                add(
-                    vec![
-                        "stage_seams".into(),
-                        package.clone(),
-                        "exports".into(),
-                        stage.clone(),
-                        "owner".into(),
-                    ],
+                push(
+                    out,
+                    &["stage_seams", package, "exports", stage, "owner"],
                     &row.owner,
                 );
             }
             for (name, row) in &seams.writers {
-                add(
-                    vec![
-                        "stage_seams".into(),
-                        package.clone(),
-                        "writers".into(),
-                        name.clone(),
-                        "owner".into(),
-                    ],
+                push(
+                    out,
+                    &["stage_seams", package, "writers", name, "owner"],
                     &row.owner,
                 );
             }
             for (owner, row) in &seams.test_coupling {
-                add(
-                    vec![
-                        "stage_seams".into(),
-                        package.clone(),
-                        "test_coupling".into(),
-                        owner.clone(),
-                        "owner".into(),
-                    ],
+                push(
+                    out,
+                    &["stage_seams", package, "test_coupling", owner, "owner"],
                     &row.owner,
                 );
             }
         }
-        if let Some(amendment) = &self.population.amended_by {
-            add(
-                vec!["population".into(), "amended_by".into(), "bead".into()],
-                &amendment.bead,
-            );
-        }
-        if let Some(policy) = &self.concentration {
-            for (rows, name) in [(&policy.entry, "entry"), (&policy.file, "file")] {
-                for (index, row) in rows.iter().enumerate() {
-                    if let Some(owner) = &row.owner {
-                        add(
-                            vec![
-                                "concentration".into(),
-                                name.into(),
-                                index.to_string(),
-                                "owner".into(),
-                            ],
-                            owner,
-                        );
-                    }
-                }
-            }
-            if let Some(amendment) = &policy.amended_by {
-                add(
-                    vec!["concentration".into(), "amended_by".into(), "bead".into()],
-                    &amendment.bead,
-                );
-            }
-            for (index, row) in policy.name.iter().enumerate() {
-                if let Some(bead) = &row.reruled_by {
-                    add(
-                        vec![
-                            "concentration".into(),
-                            "name".into(),
-                            index.to_string(),
-                            "reruled_by".into(),
-                        ],
-                        bead,
+    }
+    fn authority_owner_references(&self, out: &mut Vec<Reference>) {
+        for (index, rule) in self.authority.iter().enumerate() {
+            for (row, reader) in rule.allowed_readers.iter().flatten().enumerate() {
+                if let Some(owner) = &reader.owner {
+                    let (index, row) = (index.to_string(), row.to_string());
+                    push(
+                        out,
+                        &["authority", &index, "allowed_readers", &row, "owner"],
+                        owner,
                     );
                 }
             }
         }
-        out
+        if let Some(amendment) = &self.population.amended_by {
+            push(out, &["population", "amended_by", "bead"], &amendment.bead);
+        }
     }
+    fn concentration_references(&self, out: &mut Vec<Reference>) {
+        let Some(policy) = &self.concentration else {
+            return;
+        };
+        for (rows, name) in [(&policy.entry, "entry"), (&policy.file, "file")] {
+            for (index, row) in rows.iter().enumerate() {
+                if let Some(owner) = &row.owner {
+                    push(
+                        out,
+                        &["concentration", name, &index.to_string(), "owner"],
+                        owner,
+                    );
+                }
+            }
+        }
+        if let Some(amendment) = &policy.amended_by {
+            push(
+                out,
+                &["concentration", "amended_by", "bead"],
+                &amendment.bead,
+            );
+        }
+        for (index, row) in policy.name.iter().enumerate() {
+            if let Some(bead) = &row.reruled_by {
+                push(
+                    out,
+                    &["concentration", "name", &index.to_string(), "reruled_by"],
+                    bead,
+                );
+            }
+        }
+    }
+}
+/// A project authority written at `field`.
+fn push(out: &mut Vec<Reference>, field: &[&str], written: &str) {
+    out.push(Reference {
+        field: field.iter().map(|part| (*part).to_owned()).collect(),
+        written: written.to_owned(),
+    });
 }
 
 impl Policy {
@@ -690,7 +681,6 @@ impl Policy {
         let mut out = Vec::new();
         for (index, rule) in self.authority.iter().enumerate() {
             for (written, field) in [
-                (rule.allowed_readers.is_some(), "allowed_readers"),
                 (!rule.forbid_new_pattern.is_empty(), "forbid_new_pattern"),
                 (!rule.forbid_new_observed.is_empty(), "forbid_new_observed"),
                 (!rule.allowed_in.is_empty(), "allowed_in"),

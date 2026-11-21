@@ -23,6 +23,15 @@ use syn::{
     visit::{self, Visit},
 };
 
+/// Every production path site, with each production file's module scopes
+/// (`crate::module` paths), from one index.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct PathReading {
+    pub sites: Vec<PathSite>,
+    pub scopes: BTreeMap<String, Vec<Vec<String>>>,
+}
+
 /// How a site is written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -59,6 +68,10 @@ pub struct PathSite {
 }
 
 impl Index {
+    /// Each production file's module scopes.
+    pub(in crate::analysis) fn file_scopes(&self) -> BTreeMap<String, Vec<Vec<String>>> {
+        self.scopes.clone()
+    }
     /// The production path sites of every file this index mounts.
     pub(in crate::analysis) fn path_sites(
         &self,

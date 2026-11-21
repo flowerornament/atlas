@@ -543,7 +543,6 @@ fn every_extension_field_parses_and_is_unavailable_until_judged() {
         .map(|m| m.field.as_str())
         .collect();
     for field in [
-        "authority.0.allowed_readers",
         "authority.0.forbid_new_pattern",
         "authority.0.forbid_new_observed",
         "authority.0.allowed_in",
@@ -727,5 +726,271 @@ fn function_limits_read_production_and_build_scripts_only() {
         ["build_helper", "main", "production"],
         "{:?}",
         report.violations
+    );
+}
+
+/// A crate with a home module `src/front/parse.rs`, read from `user.rs`
+/// three times (an import, a qualified path, the door), plus test code and
+/// a feature-gated read.
+fn readers_fixture(user: &str) -> Fixture {
+    Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[package]\nname='tutorial'\nversion='0.0.0'\nedition='2024'\n[features]\nextra=[]\n[workspace]\n",
+        ),
+        (
+            "src/lib.rs",
+            "pub mod front;\npub mod user;\npub mod other;\npub struct Home;\n",
+        ),
+        (
+            "src/front/mod.rs",
+            "pub mod parse;\npub use parse::Tree as Door;\n",
+        ),
+        (
+            "src/front/parse.rs",
+            "pub struct Tree;\nimpl Tree { pub fn new() -> Self { Tree } }\npub fn helper() {}\n",
+        ),
+        ("src/user.rs", user),
+        ("src/other.rs", "pub fn quiet() {}\n"),
+    ])
+}
+const USER: &str = "use crate::front::parse::Tree;\npub fn run() {\n    Tree::new();\n    Tree::new();\n    crate::front::parse::helper();\n    crate::front::Door::new();\n}\n#[cfg(test)]\nmod tests { fn t() { crate::front::parse::helper(); } }\n#[test]\nfn a_test() { crate::front::parse::helper(); }\n";
+fn readers_policy(rows: &str) -> String {
+    POLICY
+        .replace("typed_errors=['fixture']\n", "typed_errors=[]\n")
+        .replace("'fixture'", "'tutorial'")
+        .replace("fixture=", "tutorial=")
+        .replace(
+            "authority=[{fact='one home',home='src/lib.rs::Home'}]",
+            &format!("authority=[{{fact='the parser',home='src/front/parse.rs',allowed_readers=[{rows}]}}]"),
+        )
+}
+fn readers_report(user: &str, rows: &str) -> policy::Report {
+    let root = readers_fixture(user);
+    let snapshot = snapshot_workspace(root.path()).expect("snapshot");
+    let analysis = Analysis::new(&snapshot).expect("analysis");
+    let policy = Policy::parse(&readers_policy(rows)).expect("policy parses");
+    policy::validate(&analysis, &policy, &Inputs::new(&snapshot)).expect("validation")
+}
+
+#[test]
+fn allowed_readers_count_exact_production_sites() {
+    // The import, the qualified path and the door: 3; the door file is the
+    // home's parent and reads it once (its re-export).
+    let exact = "{file='src/user.rs',reads=3,reason='runs it'},{file='src/front/mod.rs',reads=1,reason='the door'}";
+    let report = readers_report(USER, exact);
+    assert_eq!(report.status(), Status::Pass, "{:?}", report.violations);
+    let reading = &report.authority_readers["the parser"];
+    assert_eq!(reading.home, "tutorial::front::parse");
+    assert_eq!(reading.reads["src/user.rs"].len(), 3, "{:?}", reading.reads);
+    // Unlisted, the reader refuses with its first site and the row to add.
+    let report = readers_report(USER, "{file='src/front/mod.rs',reads=1,reason='the door'}");
+    assert!(
+        report.violations.iter().any(|v| v.contains(
+            "src/user.rs:1 reads the home `src/front/parse.rs` through `crate::front::parse::Tree`"
+        ) && v
+            .contains(r#"{ file = "src/user.rs", reads = 3, reason = "..." }"#)),
+        "{:?}",
+        report.violations
+    );
+    // `[]`: no production reader at all.
+    let report = readers_report(USER, "");
+    assert_eq!(report.violations.len(), 2, "{:?}", report.violations);
+}
+
+#[test]
+fn a_row_is_exact_when_owned_and_an_unused_row_refuses() {
+    let door = "{file='src/front/mod.rs',reads=1,reason='the door'}";
+    let more = readers_report(
+        USER,
+        &format!("{door},{{file='src/user.rs',reads=2,reason='runs it'}}"),
+    );
+    assert!(
+        more.violations
+            .iter()
+            .any(|v| v.contains("at 3 sites (1, 5, 6); its row allows 2")),
+        "{:?}",
+        more.violations
+    );
+    let fewer = readers_report(
+        USER,
+        &format!("{door},{{file='src/user.rs',reads=4,reason='runs it'}}"),
+    );
+    assert!(fewer.violations.is_empty(), "{:?}", fewer.violations);
+    assert!(
+        fewer
+            .hints
+            .iter()
+            .any(|h| h.contains("can ratchet to reads = 3 (row 4)")),
+        "{:?}",
+        fewer.hints
+    );
+    let owned = readers_report(
+        USER,
+        &format!("{door},{{file='src/user.rs',reads=4,reason='runs it',owner='ticket-1'}}"),
+    );
+    assert!(
+        owned
+            .violations
+            .iter()
+            .any(|v| v.contains("owned by `ticket-1`")),
+        "{:?}",
+        owned.violations
+    );
+    // An owner is project authority: unresolved, the check is unavailable.
+    assert!(
+        owned
+            .unavailable
+            .iter()
+            .any(|m| m.field == "authority.0.allowed_readers.1.owner")
+    );
+}
+
+#[test]
+fn an_unused_row_and_a_row_for_the_home_itself_refuse() {
+    let door = "{file='src/front/mod.rs',reads=1,reason='the door'}";
+    let unused = readers_report(
+        USER,
+        &format!(
+            "{door},{{file='src/user.rs',reads=3,reason='runs it'}},{{file='src/other.rs',reads=1,reason='once'}}"
+        ),
+    );
+    assert!(
+        unused
+            .violations
+            .iter()
+            .any(|v| v.contains("listed reader src/other.rs no longer reads the home")),
+        "{:?}",
+        unused.violations
+    );
+    let home_file = readers_report(
+        USER,
+        &format!(
+            "{door},{{file='src/user.rs',reads=3,reason='runs it'}},{{file='src/front/parse.rs',reads=1,reason='itself'}}"
+        ),
+    );
+    assert!(
+        home_file
+            .violations
+            .iter()
+            .any(|v| v.contains("is a file of the home")),
+        "{:?}",
+        home_file.violations
+    );
+}
+
+#[test]
+fn feature_gated_code_reads_and_unreadable_sites_are_unavailable() {
+    let door = "{file='src/front/mod.rs',reads=1,reason='the door'}";
+    let gated = "#[cfg(feature = \"extra\")]\npub fn extra() { crate::front::parse::helper(); }\n";
+    let report = readers_report(
+        gated,
+        &format!("{door},{{file='src/user.rs',reads=1,reason='the extra feature'}}"),
+    );
+    assert_eq!(
+        report.status(),
+        Status::Pass,
+        "{:?} {:?}",
+        report.violations,
+        report
+            .unavailable
+            .iter()
+            .map(|m| &m.reason)
+            .collect::<Vec<_>>()
+    );
+    let spelled = "pub fn run() { custom! { go crate::front::parse::helper } }\n";
+    let report = readers_report(spelled, door);
+    assert_eq!(report.status(), Status::Unavailable);
+    assert!(
+        report.unavailable.iter().any(|m| m
+            .reason
+            .contains("spells `crate::front::parse::helper` in a macro's input")),
+        "{:?}",
+        report
+            .unavailable
+            .iter()
+            .map(|m| &m.reason)
+            .collect::<Vec<_>>()
+    );
+    let twins = "#[cfg(unix)]\nuse crate::front::parse as p;\n#[cfg(windows)]\nuse crate::other as p;\npub fn run() { p::helper(); }\n";
+    let report = readers_report(
+        twins,
+        &format!("{door},{{file='src/user.rs',reads=1,reason='unix'}}"),
+    );
+    assert!(
+        report
+            .unavailable
+            .iter()
+            .any(|m| m.reason.contains("`p::helper` may read the home")),
+        "{:?}",
+        report
+            .unavailable
+            .iter()
+            .map(|m| &m.reason)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn an_item_home_is_read_through_its_item() {
+    let text = readers_policy("{file='src/user.rs',reads=3,reason='runs it'},{file='src/front/mod.rs',reads=1,reason='the door'}")
+        .replace("home='src/front/parse.rs'", "home='src/front/parse.rs::Tree'");
+    let root = readers_fixture(USER);
+    let snapshot = snapshot_workspace(root.path()).unwrap();
+    let analysis = Analysis::new(&snapshot).unwrap();
+    let report = policy::validate(
+        &analysis,
+        &Policy::parse(&text).unwrap(),
+        &Inputs::new(&snapshot),
+    )
+    .unwrap();
+    // `helper` is not `Tree`: user.rs reads the item through the import
+    // and the door only, so its row of 3 can fall to 2.
+    assert!(report.violations.is_empty(), "{:?}", report.violations);
+    assert_eq!(
+        report.authority_readers["the parser"].home,
+        "tutorial::front::parse::Tree"
+    );
+    assert!(
+        report
+            .hints
+            .iter()
+            .any(|h| h.contains("src/user.rs can ratchet to reads = 2")),
+        "{:?}",
+        report.hints
+    );
+}
+
+/// A file outside `src/` mounted with `#[path]` behind a feature gate is
+/// production code, so its reads count, under its own path.
+#[test]
+fn a_feature_gated_path_mount_outside_src_is_a_reader() {
+    let root = readers_fixture("pub fn run() {}\n");
+    std::fs::write(
+        root.path().join("src/lib.rs"),
+        "pub mod front;\npub mod user;\npub mod other;\npub struct Home;\n#[cfg(feature = \"extra\")]\n#[path = \"../support/extra.rs\"]\nmod extra;\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.path().join("support")).unwrap();
+    std::fs::write(
+        root.path().join("support/extra.rs"),
+        "pub fn go() { crate::front::parse::helper(); }\n",
+    )
+    .unwrap();
+    let text = readers_policy(
+        "{file='src/front/mod.rs',reads=1,reason='the door'},{file='support/extra.rs',reads=1,reason='the extra feature'}",
+    );
+    let snapshot = snapshot_workspace(root.path()).unwrap();
+    let analysis = Analysis::new(&snapshot).unwrap();
+    let report = policy::validate(
+        &analysis,
+        &Policy::parse(&text).unwrap(),
+        &Inputs::new(&snapshot),
+    )
+    .unwrap();
+    assert_eq!(report.status(), Status::Pass, "{:?}", report.violations);
+    assert_eq!(
+        report.authority_readers["the parser"].reads["support/extra.rs"].len(),
+        1
     );
 }

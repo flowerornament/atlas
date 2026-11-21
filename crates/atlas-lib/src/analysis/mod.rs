@@ -76,8 +76,16 @@ impl<'a> Analysis<'a> {
     /// Every path written in production code, resolved through the
     /// qualified index (see [`index::sites`]).
     pub fn path_sites(&self) -> Result<Vec<index::sites::PathSite>> {
+        Ok(self.path_reading()?.sites)
+    }
+    /// [`Self::path_sites`] with each production file's module scopes, from
+    /// one index.
+    pub fn path_reading(&self) -> Result<index::sites::PathReading> {
         let index = self.index(&Architecture::empty())?;
-        index.path_sites(&self.sources)
+        Ok(index::sites::PathReading {
+            sites: index.path_sites(&self.sources)?,
+            scopes: index.file_scopes(),
+        })
     }
     /// Bind the same captured names to a caller's declared architecture.
     pub fn index(&self, architecture: &Architecture) -> Result<Index> {
