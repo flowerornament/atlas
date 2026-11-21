@@ -210,6 +210,42 @@ refused, and a change that fixes one should lower the number to 1. Ratchets let
 you adopt a rule in a project that does not follow it yet, and improve over
 time.
 
+### Your first delta
+
+1. Write the policy and run `cargo atlas policy --policy <path>` until it
+   passes. It checks the policy's shape, the crate graph, each authority's
+   home and readers, and the function limits; the size, surface and file
+   rules are measured by `delta`.
+2. Commit the policy. `delta` reads it from both commits, so the commit
+   that adds it has no baseline: check that one with `cargo atlas policy`,
+   and run `delta` from the next change on (`cargo atlas delta HEAD~1`).
+3. Decide what counts as a citation in a `//!` header, and pass it with
+   `--citation-markers` (`docs/`, `spec:`). Without it `delta` is
+   `UNAVAILABLE`. Set `header_uncited` to the number of uncited roots
+   today: `delta`'s refusal names them and their count ("has 2 folder roots
+   whose //! header has no citation, above 0").
+4. Read the `hint:` lines. A row above its measure passes but says it can
+   be lowered; lower it, or give it an `owner` to make it exact.
+
+### Recording what is broken today
+
+A policy can adopt a rule the code breaks today, honestly: write down what
+is there, with a reason, and let `delta` hold it from growing. Each kind of
+rule has its own place:
+
+| What is broken | How to record it |
+| --- | --- |
+| A file reads a home it should not | An `allowed_readers` row with its exact `reads` and a `reason` (and an `owner`, the issue that will remove it). `cargo atlas policy --json` lists each reader's sites under `report.authority_readers`. |
+| A spelling sits outside its home | Nothing: `forbid_new_pattern` counts the baseline's and refuses only growth. An item meant to keep it gets an `allowed_in` row. |
+| A stage reads a stage it should not | Add the stage to its `stage_reads` row, with the reason in a comment; with item-level seams, a `debt` row counts the items read past the boundary and only goes down. |
+| A file or entry file is over its limit | A `[concentration]` `file` or `entry` row, `{ path, lines }`, at its size today. |
+| A function is over a limit | A `function` row, `{ file, function, lines }` or `nesting`, at its measure today. |
+| Module headers cite nothing | `header_uncited`, per package, at today's count. |
+| A package depends on another it should not | List it in the rule's `allowed`, with the reason in `law`. |
+
+Each recorded number may only go down. A row with an `owner` must equal its
+measure, so it is lowered as the fix lands; one without is told it can be.
+
 ## Checking stages with `stages`
 
 If `parse.rs` used something from `emit`, `stages` would report:

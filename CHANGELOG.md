@@ -6,6 +6,10 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- docs/checks.md gains "Your first delta" (commit the policy, citation
+ markers, `header_uncited`, hints) and "Recording what is broken today" (a
+ table of where each kind of rule records today's breaks); `delta --help`
+ points at both.
 - `cargo atlas policy`'s `N authority homes`, and `delta`'s `authorities`,
  count module homes as well as item homes. **Library:**
  `policy::Report::module_homes`, each resolved module home by fact.

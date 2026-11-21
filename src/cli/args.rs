@@ -216,7 +216,7 @@ pub(super) enum Command {
     Map(map::Options),
     /// Check whether a change breaks the architecture policy.
     #[command(
-        after_help = "Answers: does the candidate commit break a rule in the policy, or make a measured number worse than the baseline REFERENCE?\nVerdicts: PASS, REFUSE (a rule is broken) or UNAVAILABLE (evidence is missing). REFUSE and UNAVAILABLE exit with an error; with --json, REFUSE is data and exits successfully.\nThe policy must be committed. See cargo atlas help checks.\nExample: cargo atlas delta HEAD~1 --policy .config/architecture.toml --citation-markers docs/"
+        after_help = "Answers: does the candidate commit break a rule in the policy, or make a measured number worse than the baseline REFERENCE?\nVerdicts: PASS, REFUSE (a rule is broken) or UNAVAILABLE (evidence is missing). REFUSE and UNAVAILABLE exit with an error; with --json, REFUSE is data and exits successfully.\nThe policy must be committed. For a first delta, and for recording what the code breaks today, see cargo atlas help checks ('Your first delta', 'Recording what is broken today').\nExample: cargo atlas delta HEAD~1 --policy .config/architecture.toml --citation-markers docs/"
     )]
     #[command(mut_arg("json", |arg| arg.help("Print the report as JSON. A REFUSE verdict is then data and exits successfully; UNAVAILABLE still fails.")))]
     #[command(mut_arg("bare", |arg| {
