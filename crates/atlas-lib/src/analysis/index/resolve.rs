@@ -58,7 +58,7 @@ impl Index {
                 Glob::Unbound => {}
             }
         }
-        self.exported(&normalize(scope, &p, &self.crates))
+        self.exported(&self.relative(scope, &p))
     }
     /// What the module's globs of workspace modules bind a path's first
     /// name to. Unbound when no glob applies: the module declares the name,
@@ -89,7 +89,7 @@ impl Index {
         }
         let mut found = BTreeSet::new();
         for glob in globs {
-            let Some(module) = self.exported(&normalize(scope, glob, &self.crates)) else {
+            let Some(module) = self.exported(&self.relative(scope, glob)) else {
                 continue;
             };
             let Some(names) = self.modules.get(&module) else {
@@ -109,7 +109,7 @@ impl Index {
                 let [source] = sources.as_slice() else {
                     return Glob::Ambiguous;
                 };
-                let mut path = normalize(&module, source, &self.crates);
+                let mut path = self.relative(&module, source);
                 path.extend_from_slice(&p[1..]);
                 path
             } else {
@@ -125,6 +125,30 @@ impl Index {
             1 => found.pop_first().map_or(Glob::Unbound, Glob::Bound),
             _ => Glob::Ambiguous,
         }
+    }
+    /// `path` written in the module at `scope`, made absolute. A relative
+    /// path names the module's own items first: a local `mod json` is
+    /// `self::json` even in a workspace with a crate `json`, as in Rust,
+    /// where a name in scope shadows the extern prelude.
+    fn relative(&self, scope: &[String], path: &[String]) -> Vec<String> {
+        match path.first() {
+            Some(first) if self.crates.contains(first) && self.declares_path_root(scope, first) => {
+                let mut local = scope.to_vec();
+                local.extend_from_slice(path);
+                local
+            }
+            _ => normalize(scope, path, &self.crates),
+        }
+    }
+    /// Whether the module at `scope` declares `name` in the type namespace,
+    /// where a path's first segment is read: a module (inline or file) or a
+    /// type. A function or constant of that name does not shadow a crate.
+    fn declares_path_root(&self, scope: &[String], name: &str) -> bool {
+        let mut key = scope.to_vec();
+        key.push(name.to_owned());
+        self.modules.contains_key(&key)
+            || self.types.contains(&key)
+            || self.aliases.contains_key(&key)
     }
     /// Whether the module at `scope` declares `name` itself: an item, a
     /// re-export, or a module with items under it. Such a name shadows every
@@ -308,7 +332,7 @@ impl Index {
             ));
         }
         if p.len() == 1 && f.flow.imports.contains_key(&p[0]) {
-            let local = normalize(&f.scope, &p, &self.crates);
+            let local = self.relative(&f.scope, &p);
             if self.names.contains_key(&local) {
                 return Target::Summarized(Summary::about(
                     SummaryKind::ImportNamespaceClash,

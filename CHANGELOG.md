@@ -6,6 +6,12 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Fixed: a path starting with a workspace crate's name was read as that
+ crate even where the caller's module declares a module or type of that
+ name, which Rust reads first (a wrong edge). A relative path now names
+ the module's own module or type first; a local function of that name
+ still does not shadow the crate. No call changes on this repository or
+ two private workspaces.
 - Fixed: a method receiver's type was read through the module's item even
  when the body shadows it (`type A = B; let v: A = ...; v.run()` or a
  body-local `fn make()` as the initializer), giving a wrong edge to the
