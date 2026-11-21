@@ -543,10 +543,6 @@ fn every_extension_field_parses_and_is_unavailable_until_judged() {
         .map(|m| m.field.as_str())
         .collect();
     for field in [
-        "concentration.function_lines",
-        "concentration.function_nesting",
-        "concentration.generated",
-        "concentration.function",
         "authority.0.allowed_readers",
         "authority.0.forbid_new_pattern",
         "authority.0.forbid_new_observed",
@@ -684,5 +680,52 @@ fn an_explicitly_empty_field_is_a_claim_not_an_absence() {
             .unjudged()
             .iter()
             .any(|field| field.ends_with("final_stages"))
+    );
+}
+
+/// Which functions `function_lines` reads: a crate's production source and
+/// its build script with the modules it declares; not test modules, test
+/// functions, test or example targets, nor `generated` paths.
+#[test]
+fn function_limits_read_production_and_build_scripts_only() {
+    let long = "{\n    let a = 1;\n    let b = 2;\n    let c = 3;\n}\n";
+    let file = |name: &str| format!("pub fn {name}() {long}");
+    let root = Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[package]\nname='fixture'\nversion='0.0.0'\nedition='2024'\n[workspace]\n",
+        ),
+        (
+            "src/lib.rs",
+            &format!(
+                "pub mod generated;\npub struct Home;\n{}#[cfg(test)]\nmod tests {{\n    fn in_test_module() {long}}}\n#[test]\nfn a_test() {long}",
+                file("production")
+            ),
+        ),
+        ("src/generated/mod.rs", &file("written_by_a_tool")),
+        ("build.rs", &format!("mod helper;\nfn main() {long}")),
+        ("helper.rs", &file("build_helper")),
+        ("tests/it.rs", &file("integration")),
+        ("examples/demo.rs", &format!("fn main() {long}")),
+    ]);
+    let text = POLICY.replace(
+        "conventional_names=[]\n",
+        "conventional_names=[]\nfunction_lines=2\ngenerated=[{path='src/generated',reason='written by a tool'}]\n",
+    );
+    let snapshot = snapshot_workspace(root.path()).unwrap();
+    let analysis = Analysis::new(&snapshot).unwrap();
+    let policy = Policy::parse(&text).unwrap();
+    let report = policy::validate(&analysis, &policy, &Inputs::new(&snapshot)).unwrap();
+    let mut over: Vec<_> = report
+        .violations
+        .iter()
+        .filter_map(|text| text.strip_prefix("function `")?.split('`').next())
+        .collect();
+    over.sort_unstable();
+    assert_eq!(
+        over,
+        ["build_helper", "main", "production"],
+        "{:?}",
+        report.violations
     );
 }

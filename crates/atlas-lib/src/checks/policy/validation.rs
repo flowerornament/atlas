@@ -132,6 +132,14 @@ pub fn validate(
         &owned,
         &crate::checks::delta::measure::member_dependencies(snapshot.metadata()),
     ));
+    // Function limits are judged on this tree; a change's law is delta's.
+    if let Some(concentration) = &policy.concentration {
+        let workspace = crate::checks::Workspace::of(snapshot)?;
+        let measured = crate::checks::concentration::functions::measured(&workspace, concentration);
+        report.violations.extend(
+            crate::checks::concentration::functions::tree(concentration, &measured).refusals,
+        );
+    }
     for field in policy.unjudged() {
         report.missing(
             field,

@@ -673,18 +673,6 @@ impl Policy {
     /// unavailable, never a complete PASS.
     pub fn unjudged(&self) -> Vec<String> {
         let mut out = Vec::new();
-        if let Some(policy) = &self.concentration {
-            for (written, field) in [
-                (policy.function_lines.is_some(), "function_lines"),
-                (policy.function_nesting.is_some(), "function_nesting"),
-                (!policy.generated.is_empty(), "generated"),
-                (!policy.function.is_empty(), "function"),
-            ] {
-                if written {
-                    out.push(format!("concentration.{field}"));
-                }
-            }
-        }
         for (index, rule) in self.authority.iter().enumerate() {
             for (written, field) in [
                 (rule.allowed_readers.is_some(), "allowed_readers"),

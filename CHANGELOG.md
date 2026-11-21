@@ -6,6 +6,15 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Function limits are judged: `[concentration] function_lines` and
+ `function_nesting` hold every production function of the population (and
+ its build script) to Clippy's `too_many_lines` and `excessive_nesting`
+ measures, `function` rows hold a function above a limit at its measure
+ (owned rows exact, as file rows), and `generated` paths are left out.
+ `cargo atlas policy` judges them on the tree; the law over a change comes
+ with `delta`'s. A Clippy golden test (`just clippy-golden`, run in CI)
+ holds the measure to Clippy's own flags. Atlas's policy adopts 70 and 6,
+ its Clippy settings, with rows for the 26 functions it holds above them.
 - atlas-lib: two public errors are typed. **Breaking:**
  `relations::Relations::read` returns `Result<Relations, relations::ReadError>`
  instead of `Result<Relations, String>`, and `source::Import::bindings` is

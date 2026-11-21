@@ -54,7 +54,7 @@ pub(crate) fn run(
                 "observations": inputs,
                 "diagnostics": snapshot.graph().diagnostics,
                 "limits": [
-                    "Policy-input validation only: size/surface/concentration measurements, dependency judgments and baseline/candidate ratchets belong to delta. Written source is not compilation or complete Rust resolution.",
+                    "Policy checks this tree: its shape, the crate graph, authority homes and function limits. Size, surface and file concentration measurements, and baseline/candidate ratchets, belong to delta. Written source is not compilation or complete Rust resolution.",
                     "Project authority requires the owning wrapper; pattern helpers read private copies of captured bytes.",
                 ]
             }))?

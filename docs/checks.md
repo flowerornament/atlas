@@ -322,6 +322,24 @@ header_uncited = { tutorial = 2 }
   owner is only told it can be lowered or deleted, an owned one is refused
   until it is. A project wrapper resolves each owner, as it does stage debt
   owners.
+- `function_lines` and `function_nesting`: the longest a function body may
+  be, in lines holding code, and how deep its blocks may nest, counted from
+  the file's root (`impl`, `trait`, inline `mod` and each `{}` block add a
+  level). They are the measures of Clippy's `too_many_lines` and
+  `excessive_nesting`, so a project can use the same numbers as its Clippy
+  settings. Production functions of the `population` packages and their
+  build scripts are measured; tests are not. Atlas expands no macro: a
+  function a `macro_rules!` writes is not measured, and blocks inside a
+  macro's arguments are not counted, so Atlas can read lower than Clippy
+  there. `cargo atlas facts` has the same numbers as `function.lines` and
+  `function.nesting`.
+- `function`: functions allowed over those limits, as rows like
+  `{ file = "src/big.rs", function = "Parser::expr", lines = 140 }` (or
+  `nesting = 8`, or both). `function` is written as `cargo atlas flow
+  --function` prints it: `Type::method`, `<Type as Trait>::method`,
+  `module::name`. Rows behave as `entry` and `file` rows, `owner` included.
+- `generated = [{ path, reason }]`: files or directories whose functions are
+  not measured.
 - `conventional_names`: module names any package may reuse, such as `error`.
 - `name`: other module names used in more than one place, each with a
   `ruling`: `facet` (one idea seen from several places, which is fine) or
@@ -352,13 +370,6 @@ skipped a rule you wrote. A field written empty, such as `final_stages = []` or
 `production_sites = {}`, is a claim ("none") and counts as written; only a
 field left out claims nothing.
 
-- `[concentration] function_lines` and `function_nesting`: the longest a
-  function body may be, in lines of code, and how deep it may nest (the
-  measures of Clippy's `too_many_lines` and `excessive_nesting`).
-  `generated = [{ path, reason }]` lists files or directories whose
-  functions are not measured. `function = [{ file, function, lines,
-  nesting, owner }]` lists functions allowed over a limit at their measure;
-  `function` is written as `cargo atlas callers` takes it (`Type::method`).
 - In an `authority` entry:
   - `allowed_readers = [{ file, reads, owner, reason }]`: the only files
     whose production code may use the home, each with its exact number of

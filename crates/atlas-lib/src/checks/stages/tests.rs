@@ -8,6 +8,7 @@ fn crate_map(files: &[(&str, &str)]) -> CrateMap {
         name: "demo-fix".to_owned(),
         src_rel: "crates/demo-fix/src".to_owned(),
         mounted: Vec::new(),
+        build: Vec::new(),
         files: files
             .iter()
             .map(|(rel, text)| {

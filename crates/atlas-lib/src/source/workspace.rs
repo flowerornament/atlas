@@ -15,6 +15,8 @@ pub(crate) struct CrateMap {
     pub src_rel: String,
     pub files: Vec<FileMap>,
     pub mounted: Vec<ModuleMount>,
+    /// The build script (`build.rs`) and the module files it declares.
+    pub build: Vec<FileMap>,
 }
 pub(crate) struct ModuleMount {
     pub module: String,
@@ -51,6 +53,7 @@ impl Workspace {
                 src_rel,
                 files: captured,
                 mounted,
+                build: build_files(snapshot, package, root)?,
             });
         }
         crates.sort_by(|a, b| a.name.cmp(&b.name));
@@ -83,6 +86,41 @@ fn package_files(
     captured
 }
 
+/// A package's build script and the files its module tree reaches, with
+/// valid captured facts, in path order.
+fn build_files(
+    snapshot: &Snapshot,
+    package: &cargo_metadata::Package,
+    root: &std::path::Path,
+) -> crate::Result<Vec<FileMap>> {
+    let mut roots = std::collections::BTreeSet::new();
+    for target in &package.targets {
+        if target
+            .kind
+            .contains(&cargo_metadata::TargetKind::CustomBuild)
+        {
+            roots.insert(crate::source::discovery::path_key(
+                target.src_path.as_std_path().strip_prefix(root)?,
+            ));
+        }
+    }
+    let mut files: Vec<FileMap> = snapshot
+        .graph()
+        .files
+        .iter()
+        .filter(|file| file.crate_name == package.name.as_str())
+        .filter(|file| file.mounts.iter().any(|mount| roots.contains(&mount.root)))
+        .filter_map(|file| {
+            Some(FileMap {
+                rel: file.path.clone(),
+                source: snapshot.retain_source(&file.path)?,
+                test_file: false,
+            })
+        })
+        .collect();
+    files.sort_by(|a, b| a.rel.cmp(&b.rel));
+    Ok(files)
+}
 /// A package's native source-tree mounts with valid facts, each a test file.
 /// A package without a captured mount population refuses.
 fn mounted_files(snapshot: &Snapshot, package: &str) -> crate::Result<Vec<ModuleMount>> {

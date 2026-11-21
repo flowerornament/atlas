@@ -7,11 +7,11 @@
 # section holds. Every number below was measured on the tree when this file
 # was written; a number marked as a ratchet may only go down.
 #
-# What runs where: `policy` checks this file's shape, the crate graph's
-# workspace members, and each authority row (home and forbidden items).
-# The size, surface, crate graph edges, stage order and concentration
-# numbers are measured by `delta` and `stages`, which compare the code with
-# them; see CONTRIBUTING.md for running them by hand.
+# What runs where: `policy` checks this file's shape, the crate graph, each
+# authority row (home and forbidden items) and the function limits. The
+# size, surface, stage order and file concentration numbers are measured by
+# `delta` and `stages`, which compare the code with them; see
+# CONTRIBUTING.md for running them by hand.
 schema = 1
 provenance = "authored"
 
@@ -123,6 +123,41 @@ population = ["atlas-lib", "cargo-atlas"]
 entry_lines = 300
 file_lines = 600
 conventional_names = ["tests"]
+# Function limits, as Clippy's too_many_lines and excessive_nesting read
+# them (the gate denies both at these numbers): code lines in a body, and
+# block levels from the file's root.
+function_lines = 70
+function_nesting = 6
+# Ratchets: the functions held above a limit, at their measure, each owed a
+# split along its decisions (they carry Clippy expects in the source).
+function = [
+  { file = "crates/atlas-lib/src/analysis/index/build.rs", function = "Index::bind_method_owners", nesting = 7 },
+  { file = "crates/atlas-lib/src/analysis/index/mounts.rs", function = "Mounts::read", lines = 80 },
+  { file = "crates/atlas-lib/src/analysis/representations/extract.rs", function = "References<'_>::ty", lines = 77, nesting = 7 },
+  { file = "crates/atlas-lib/src/analysis/representations/extract.rs", function = "from_selected_sources", lines = 268 },
+  { file = "crates/atlas-lib/src/analysis/representations/types.rs", function = "Facts::incident", lines = 86 },
+  { file = "crates/atlas-lib/src/analysis/semantic/mod.rs", function = "SemanticIndex::reading", lines = 73 },
+  { file = "crates/atlas-lib/src/analysis/semantic/mod.rs", function = "Tables::new", lines = 72 },
+  { file = "crates/atlas-lib/src/analysis/workflow/functions.rs", function = "collect", lines = 90 },
+  { file = "crates/atlas-lib/src/analysis/workflow/parse.rs", function = "Reader<'_>::expr", lines = 283 },
+  { file = "crates/atlas-lib/src/analysis/workflow/projection.rs", function = "Builder<'a>::steps", lines = 215 },
+  { file = "crates/atlas-lib/src/checks/concentration/measure.rs", function = "Measure::of", lines = 117, nesting = 7 },
+  { file = "crates/atlas-lib/src/checks/concentration/ratchets.rs", function = "landing", lines = 93 },
+  { file = "crates/atlas-lib/src/checks/concentration/ratchets.rs", function = "name_rows", lines = 77 },
+  { file = "crates/atlas-lib/src/checks/delta/coupling.rs", function = "CrateGraphPolicy::violations", lines = 79 },
+  { file = "crates/atlas-lib/src/checks/delta/mod.rs", function = "check", lines = 118 },
+  { file = "crates/atlas-lib/src/checks/delta/mod.rs", function = "stage_judgment", lines = 95 },
+  { file = "crates/atlas-lib/src/checks/mod.rs", function = "seam_readings", lines = 91 },
+  { file = "crates/atlas-lib/src/checks/policy/mod.rs", function = "Policy::external_references", lines = 107 },
+  { file = "crates/atlas-lib/src/checks/policy/observations.rs", function = "query_pattern", lines = 71 },
+  { file = "crates/atlas-lib/src/checks/policy/validation.rs", function = "read_authorities", lines = 137 },
+  { file = "crates/atlas-lib/src/checks/stages/interfaces.rs", function = "interface_policy_violations", lines = 112 },
+  { file = "crates/atlas-lib/src/checks/stages/mod.rs", function = "StageReport::from_root", lines = 89 },
+  { file = "crates/atlas-lib/src/checks/stages/roots.rs", function = "RootTable::edges", lines = 75 },
+  { file = "crates/atlas-lib/src/checks/stages/seams/boundary.rs", function = "boundaries", lines = 147, nesting = 7 },
+  { file = "crates/atlas-lib/src/checks/stages/seams/ratchets.rs", function = "SeamReading::policy_refusals", lines = 86 },
+  { file = "crates/atlas-lib/src/checks/typed_errors.rs", function = "read", lines = 89 },
+]
 # Ratchets: files above the limits, at their measured body lines.
 entry = [
   { path = "crates/atlas-lib/src/analysis/semantic/mod.rs", lines = 617 },

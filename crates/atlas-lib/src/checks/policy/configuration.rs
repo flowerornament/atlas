@@ -199,6 +199,7 @@ impl ConcentrationPolicy {
         if self.entry_lines == 0 || self.file_lines == 0 {
             return fail("entry_lines and file_lines must be positive".into());
         }
+        crate::checks::concentration::functions::validate(self)?;
         for (rule, rows) in [("entry", &self.entry), ("file", &self.file)] {
             let mut paths = BTreeSet::new();
             if let Some(row) = rows.iter().find(|row| !paths.insert(row.path.as_str())) {

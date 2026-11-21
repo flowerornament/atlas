@@ -14,6 +14,9 @@ verify-vendor:
     npm run verify-vendor
 check-install:
     renderer/check-install.sh
+# The function measure against Clippy itself (runs Clippy on a fixture crate)
+clippy-golden:
+    cargo test -p atlas-lib --test clippy_golden --locked -- --ignored
 # Publish the described jj change: run `just check` on exactly it, then push it
 land *args:
     scripts/jj-land.sh {{args}}

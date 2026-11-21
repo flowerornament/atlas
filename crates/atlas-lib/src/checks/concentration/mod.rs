@@ -1,4 +1,5 @@
 //! Measured architecture debt over captured source; project citation rules stay outside core.
+pub(in crate::checks) mod functions;
 mod measure;
 mod ratchets;
 use super::{

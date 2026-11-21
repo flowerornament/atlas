@@ -21,6 +21,7 @@ jobs:
           cargo test --workspace --locked
           cargo clippy -p atlas-lib --no-default-features --all-targets --locked -- -D warnings
           cargo test -p atlas-lib --no-default-features --locked
+          cargo test -p atlas-lib --test clippy_golden --locked -- --ignored
           scripts/self-check.sh
           RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
           node --test renderer/*.test.mjs
