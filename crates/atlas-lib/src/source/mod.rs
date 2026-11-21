@@ -20,6 +20,7 @@ pub use items::{Field, Item, ItemKind, TestRegions, Visibility};
 pub use lexical::RustSourceProjection;
 pub use scan::non_test_loc;
 use std::{collections::BTreeSet, path::Path, sync::Arc};
+pub use syntax::measure::FunctionMeasure;
 #[doc(hidden)]
 pub use syntax::parse_count;
 pub(crate) use syntax::parse_file;
@@ -99,6 +100,7 @@ pub struct Source {
     module_bytes: Vec<std::ops::Range<usize>>,
     modules: Vec<syntax::ModuleDeclaration>,
     imports: Vec<Import>,
+    functions: Vec<FunctionMeasure>,
     code_without_imports: std::sync::OnceLock<String>,
 }
 impl Source {
@@ -130,8 +132,14 @@ impl Source {
             individually_gated: facts.gated,
             modules: facts.modules,
             imports: facts.imports,
+            functions: facts.functions,
             code_without_imports: std::sync::OnceLock::new(),
         }
+    }
+    /// Every function with a body, measured as Clippy reads its length and
+    /// nesting (see [`FunctionMeasure`]), in source order.
+    pub fn functions(&self) -> &[FunctionMeasure] {
+        &self.functions
     }
     pub(crate) fn file_module_declarations(&self) -> &[syntax::ModuleDeclaration] {
         &self.modules

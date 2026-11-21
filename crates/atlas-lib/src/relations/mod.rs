@@ -747,6 +747,8 @@ fn items(graph: &SourceGraph, facts: &Facts) -> [Relation; 3] {
             f.trait_impl.into(),
             functions.find(&f.file, f.line, &f.name),
             f.test_only.into(),
+            f.lines.into(),
+            f.nesting.into(),
         ]);
     }
     let mut ty = Relation::new("type");

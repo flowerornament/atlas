@@ -316,7 +316,15 @@ pub(in crate::analysis) fn from_selected_sources(
         }
         if let Some(sig) = &r.signature {
             refs.signature(sig);
+            // The syntax pass measured every function at the same site.
+            let measure = sources[&r.file]
+                .source()
+                .functions()
+                .iter()
+                .find(|m| (m.line, m.column) == (r.line, r.column));
             facts.functions.push(Function {
+                lines: measure.map_or(0, |m| m.lines),
+                nesting: measure.map_or(0, |m| m.nesting),
                 id: r.id.clone(),
                 name: r.name.clone(),
                 qualified: r

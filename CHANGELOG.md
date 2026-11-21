@@ -6,6 +6,16 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Function measures: every function with a body is measured once in the
+ syntax pass, as Clippy's `too_many_lines` (code lines in the body) and
+ `excessive_nesting` (deepest block level from the file's root) read it,
+ and kept in the facts cache (`Source::functions`, `FunctionMeasure`, with
+ an identity spelled as `flow --function` prints it and a token
+ fingerprint). The facts `function` relation gains `lines` and `nesting`
+ columns (schema 1, appended), the numbers the concentration law will
+ read. Atlas expands no macro: functions a `macro_rules!` writes are not
+ measured, and blocks inside macro arguments are not counted, so Atlas
+ can read lower than Clippy there.
 - An extension field written empty (`final_stages = []`, a writer's
  `test_sites = {}` or `production_sites = {}`) is a claim and is reported
  like any written field, no longer read as absent. **Library:** those

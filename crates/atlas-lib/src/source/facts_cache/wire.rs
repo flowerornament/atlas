@@ -21,6 +21,7 @@ pub(super) struct WireFacts {
     module_bytes: Vec<(usize, usize)>,
     imports: Vec<WireImport>,
     modules: Vec<crate::source::syntax::ModuleDeclaration>,
+    functions: Vec<crate::source::syntax::measure::FunctionMeasure>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -87,6 +88,7 @@ impl WireFacts {
             module_bytes,
             imports,
             modules,
+            functions,
         } = facts;
         let (spans, total) = regions.parts();
         Self {
@@ -97,6 +99,7 @@ impl WireFacts {
             module_bytes: module_bytes.iter().map(pair).collect(),
             imports: imports.iter().map(WireImport::of).collect(),
             modules: modules.clone(),
+            functions: functions.clone(),
         }
     }
 
@@ -111,6 +114,7 @@ impl WireFacts {
             module_bytes,
             imports,
             modules,
+            functions,
         } = self;
         Some(Facts {
             outline: outline
@@ -123,6 +127,7 @@ impl WireFacts {
             module_bytes: module_bytes.into_iter().map(range).collect(),
             imports: imports.into_iter().map(WireImport::into_import).collect(),
             modules,
+            functions,
         })
     }
 }

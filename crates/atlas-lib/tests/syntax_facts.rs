@@ -263,3 +263,49 @@ fn law_native_module_lines_begin_at_the_gate_not_its_attached_comments() {
         "native lines retain the preceding doc"
     );
 }
+
+/// The facts `function.lines` and `nesting` columns are the syntax pass's
+/// measure of the same function, never a second count.
+#[test]
+fn facts_function_measures_are_the_syntax_pass_measures() {
+    let f = support::Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"measured\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+        ),
+        (
+            "src/lib.rs",
+            "pub struct T;\nimpl T {\n    pub fn method(&self) {\n        if true {\n            g();\n        }\n    }\n}\npub fn g() {\n    // a comment\n    let _ = 1;\n}\npub async fn h() {\n    g();\n}\n",
+        ),
+    ]);
+    let snapshot = atlas_lib::discovery::snapshot_workspace(f.path()).expect("snapshot");
+    let facts = atlas_lib::analysis::Analysis::new(&snapshot)
+        .expect("analysis")
+        .representations()
+        .expect("facts");
+    let source = snapshot.source_facts("src/lib.rs").expect("source");
+    assert_eq!(facts.functions.len(), 3);
+    for function in &facts.functions {
+        let measure = source
+            .functions()
+            .iter()
+            .find(|m| format!("src/lib.rs:{}:{}", m.line, m.column) == function.id)
+            .unwrap_or_else(|| panic!("{} measured", function.id));
+        assert_eq!(
+            (function.lines, function.nesting),
+            (measure.lines, measure.nesting),
+            "{}",
+            function.id
+        );
+    }
+    let by_name = |name: &str| {
+        facts
+            .functions
+            .iter()
+            .find(|f| f.name == name)
+            .map(|f| (f.lines, f.nesting))
+    };
+    assert_eq!(by_name("T::method"), Some((3, 3)));
+    assert_eq!(by_name("g"), Some((1, 1)));
+    assert_eq!(by_name("h"), Some((3, 1)));
+}

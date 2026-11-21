@@ -68,6 +68,7 @@ impl<'a> Walk<'a> {
             module_bytes: self.module_bytes,
             modules: self.modules,
             imports: self.imports,
+            functions: Vec::new(),
         })
     }
     fn unsupported(&mut self, span: Span, form: &str) {

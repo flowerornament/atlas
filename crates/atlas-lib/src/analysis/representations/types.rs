@@ -43,6 +43,13 @@ pub struct Function {
     /// selection that includes tests has such functions.
     #[serde(default)]
     pub test_only: bool,
+    /// Code lines in the body and the deepest nesting, as the syntax pass
+    /// measured them ([`crate::source::FunctionMeasure`]): the numbers the
+    /// concentration law reads.
+    #[serde(default)]
+    pub lines: usize,
+    #[serde(default)]
+    pub nesting: usize,
 }
 impl Function {
     /// Unqualified impl-target type named by this written method name, not a retention claim.

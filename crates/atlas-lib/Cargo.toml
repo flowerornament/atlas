@@ -16,6 +16,7 @@ include = ["/src/**", "/Cargo.toml", "/README.md", "/LICENSE-APACHE", "/LICENSE-
 cargo_metadata = "0.23.1"
 clap = { version = "4.6.7", features = ["derive"], optional = true }
 proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
+quote = "1.0.47"
 serde = { version = "1.0.229", features = ["derive", "rc"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"

@@ -320,6 +320,8 @@ Qualified. A function body the qualified analysis selected.
 | `trait_impl` | boolean | Declared in a trait impl. |
 | `declaration` | text | The lexical `declaration.id` at the same file, line and name; empty if none matched. |
 | `test_only` | boolean | In a test-only file, a test module, or behind a test gate. Always false unless the capture includes tests (`--with-tests`). |
+| `lines` | integer | Code lines in the body, as Clippy's too_many_lines counts them: lines holding code outside comments, the outer braces left out. The concentration law's measure. |
+| `nesting` | integer | The deepest block level inside the function, counted from the file's root as Clippy's excessive_nesting counts it. Blocks inside macro arguments are not counted. |
 
 ### `type`
 

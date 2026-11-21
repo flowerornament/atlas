@@ -3,6 +3,7 @@
 pub(crate) mod attributes;
 pub(crate) mod fragments;
 pub(crate) mod imports;
+pub(crate) mod measure;
 mod walk;
 use super::{Item, RustSourceProjection, SyntaxError, TestRegions};
 use std::{collections::BTreeSet, path::Path};
@@ -16,6 +17,7 @@ pub(super) struct Facts {
     pub module_bytes: Vec<std::ops::Range<usize>>,
     pub imports: Vec<super::Import>,
     pub modules: Vec<ModuleDeclaration>,
+    pub functions: Vec<measure::FunctionMeasure>,
 }
 /// A file module declaration (`mod name;`) as written, with the inline
 /// modules around it. Where its file is found is discovery's decision.
@@ -63,7 +65,9 @@ pub(super) fn read(path: &Path, projection: &RustSourceProjection) -> Result<Fac
     let ast = parse_file(projection.text()).map_err(SyntaxError::from)?;
     let mut walk = walk::Walk::new(path, projection);
     walk.visit_file(&ast);
-    walk.finish()
+    let mut facts = walk.finish()?;
+    facts.functions = measure::functions(&ast, projection.text());
+    Ok(facts)
 }
 
 std::thread_local! {

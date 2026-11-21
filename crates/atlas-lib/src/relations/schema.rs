@@ -337,6 +337,14 @@ pub const RELATIONS: &[Relation] = &[
                 "test_only",
                 "In a test-only file, a test module, or behind a test gate. Always false unless the capture includes tests (`--with-tests`).",
             ),
+            integer(
+                "lines",
+                "Code lines in the body, as Clippy's too_many_lines counts them: lines holding code outside comments, the outer braces left out. The concentration law's measure.",
+            ),
+            integer(
+                "nesting",
+                "The deepest block level inside the function, counted from the file's root as Clippy's excessive_nesting counts it. Blocks inside macro arguments are not counted.",
+            ),
         ],
         basis: None,
         unknowns: None,
