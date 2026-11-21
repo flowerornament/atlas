@@ -29,8 +29,10 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  still draws a closure as one opaque step. Construction sites follow the
  same rule: a struct literal and a `Type::default()` call inside a closure
  are now construction rows of the enclosing function in `types` and the
- `construction`/`default_call` facts. An `async` block's body is still left
- out. Recorded calls (resolved / unknown), before
+ `construction`/`default_call` facts. An `async { }` block's body follows the
+ same rule: its calls and literals are the enclosing function's (they were
+ recorded nowhere before). Few blocks in the measured workspaces: only the
+ large private one changed, by 18 unknown calls. Recorded calls (resolved / unknown), before
  and after: Atlas 1,621 / 11,108 to 1,902 / 13,570; a large private
  workspace 20,637 / 76,453 to 23,418 / 90,518; a mid-size one 1,722 / 4,455
  to 1,948 / 5,085. The callers caveat now names what stays unrecorded: calls

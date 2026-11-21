@@ -37,6 +37,9 @@ pub fn builds() -> Vec<Graph> {
     let called = || Graph::default();
     vec![literal(), called()]
 }
+pub fn later(prices: &Prices) -> impl std::future::Future<Output = (u32, Graph)> + '_ {
+    async move { (prices.bound() + helper(), Graph { n: 2 }) }
+}
 ";
 
 fn json(f: &Fixture, args: &[&str]) -> serde_json::Value {
@@ -74,14 +77,14 @@ fn calls_inside_closures_belong_to_the_enclosing_function() {
     let helper = json(&f, &["callers", "helper"]);
     assert_eq!(
         names(&helper["answers"][0]["resolved"], "from_name"),
-        ["direct", "mapped", "nested"]
+        ["direct", "later", "mapped", "nested"]
     );
     // A method on the enclosing function's typed parameter, and on the
     // closure's own typed parameter.
     let bound = json(&f, &["callers", "Prices::bound"]);
     assert_eq!(
         names(&bound["answers"][0]["resolved"], "from_name"),
-        ["direct"]
+        ["direct", "later"]
     );
     let least = json(&f, &["callers", "Prices::least"]);
     assert_eq!(
@@ -130,4 +133,38 @@ fn constructions_inside_closures_belong_to_the_enclosing_function() {
         })
         .count();
     assert_eq!((literal, called), (1, 1), "{text}");
+}
+
+/// An `async` block's body is part of the function that writes it, as a
+/// closure's is: its calls and literals are that function's.
+#[test]
+fn calls_and_constructions_inside_async_blocks_belong_to_the_enclosing_function() {
+    let f = Fixture::new(&[("src/lib.rs", LIB)]);
+    let helper = json(&f, &["callers", "helper"]);
+    assert!(
+        names(&helper["answers"][0]["resolved"], "from_name").contains(&"later".to_owned()),
+        "{helper}"
+    );
+    let bound = json(&f, &["callers", "Prices::bound"]);
+    assert!(
+        names(&bound["answers"][0]["resolved"], "from_name").contains(&"later".to_owned()),
+        "{bound}"
+    );
+    let types = json(&f, &["types", "Graph"]);
+    let later = types["facts"]["functions"]
+        .as_array()
+        .expect("functions")
+        .iter()
+        .find(|function| function["name"] == "later")
+        .and_then(|function| function["id"].as_str())
+        .expect("later")
+        .to_owned();
+    assert!(
+        types["facts"]["constructors"]
+            .as_array()
+            .expect("constructors")
+            .iter()
+            .any(|c| c["from"] == later.as_str()),
+        "{types}"
+    );
 }

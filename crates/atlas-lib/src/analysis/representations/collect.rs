@@ -230,10 +230,9 @@ impl<'ast> Visit<'ast> for Collector<'_> {
         }
         syn::visit::visit_expr_struct(self, s);
     }
-    // A closure's body is part of the function that writes it, so its
-    // literals are that function's construction sites (the default visit
-    // walks it). An async block's body is still left out, as its calls are.
-    fn visit_expr_async(&mut self, _: &'ast syn::ExprAsync) {}
+    // A closure's or `async` block's body is part of the function that
+    // writes it, so its literals are that function's construction sites: the
+    // default visit walks both.
 }
 
 fn literal(source: &str, e: &syn::Expr) -> Literal {

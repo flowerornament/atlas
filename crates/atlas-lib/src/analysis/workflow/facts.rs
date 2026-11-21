@@ -307,7 +307,8 @@ impl<'ast> Visit<'ast> for Facts<'_, '_> {
         }
         self.visit_expr(&closure.body);
     }
-    fn visit_expr_async(&mut self, _: &'ast syn::ExprAsync) {}
+    // An `async` block's body is part of this function too (the default
+    // visit walks it), as a closure's is.
     fn visit_expr_macro(&mut self, _: &'ast syn::ExprMacro) {}
     fn visit_expr_const(&mut self, _: &'ast syn::ExprConst) {}
     /// A nested item's body is its own scope, but its name shadows the
