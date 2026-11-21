@@ -94,10 +94,6 @@ impl Index {
             }
         }
     }
-    #[expect(
-        clippy::excessive_nesting,
-        reason = "nested deeper than 6 blocks; to be flattened along its decisions"
-    )]
     pub(super) fn bind_method_owners(&mut self) -> Result<()> {
         // Resolve an impl owner imported from another physical file only once.
         for (i, f) in self.functions.iter().enumerate() {
@@ -124,12 +120,7 @@ impl Index {
                 if let Some(p) = path(&f.flow.function) {
                     let mut original = f.scope.clone();
                     original.extend(p.into_iter().skip(f.flow.module.len()));
-                    if let Some(values) = self.names.get_mut(&original) {
-                        values.retain(|v| *v != i);
-                        if values.is_empty() {
-                            self.names.remove(&original);
-                        }
-                    }
+                    unbind(&mut self.names, &original, i);
                 }
                 if !foreign {
                     self.names.entry(key).or_default().push(i);
@@ -185,5 +176,15 @@ impl Index {
                         })
                     })
             })
+    }
+}
+
+/// Drop function `i` from the name `key` binds, and the name once empty.
+fn unbind(names: &mut BTreeMap<Vec<String>, Vec<usize>>, key: &[String], i: usize) {
+    if let Some(values) = names.get_mut(key) {
+        values.retain(|v| *v != i);
+        if values.is_empty() {
+            names.remove(key);
+        }
     }
 }

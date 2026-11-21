@@ -20,10 +20,9 @@ pub(super) struct Function<'a> {
     signature: &'a syn::Signature,
     body: &'a syn::Block,
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
+/// Every selectable function body among `items`, in `module`: free
+/// functions, inline modules' bodies, impl methods and trait default
+/// bodies.
 pub(super) fn collect<'a>(
     items: &'a [Item],
     module: &[String],
@@ -35,6 +34,11 @@ pub(super) fn collect<'a>(
         String::new()
     } else {
         format!("{}::", module.join("::"))
+    };
+    let scope = Scope {
+        module,
+        prefix: &prefix,
+        imports: &imports,
     };
     for item in items {
         if !reader.selection.admits(item.span()) {
@@ -64,61 +68,87 @@ pub(super) fn collect<'a>(
                     collect(items, &child, reader, out);
                 }
             }
-            Item::Impl(i) => {
-                let owner = reader.text(i.self_ty.span());
-                let implemented = i.trait_.as_ref().map(|(path, _)| reader.text(path.span()));
-                for member in &i.items {
-                    if let syn::ImplItem::Fn(f) = member
-                        && reader.selection.admits(f.span())
-                    {
-                        out.push(Function {
-                            name: format!("{prefix}{owner}::{}", f.sig.ident),
-                            trait_name: implemented.as_ref().map(|implemented| {
-                                format!("{prefix}<{owner} as {implemented}>::{}", f.sig.ident)
-                            }),
-                            default_body: false,
-                            module: module.to_vec(),
-                            owner: Some(owner.clone()),
-                            parameters: i
-                                .generics
-                                .type_params()
-                                .chain(f.sig.generics.type_params())
-                                .map(|p| p.ident.to_string())
-                                .collect(),
-                            imports: imports.clone(),
-                            signature: &f.sig,
-                            body: &f.block,
-                        });
-                    }
-                }
-            }
-            Item::Trait(t) => {
-                for member in &t.items {
-                    if let syn::TraitItem::Fn(f) = member
-                        && let Some(body) = &f.default
-                        && reader.selection.admits(f.span())
-                    {
-                        out.push(Function {
-                            name: format!("{prefix}{}::{}", t.ident, f.sig.ident),
-                            trait_name: None,
-                            default_body: true,
-                            module: module.to_vec(),
-                            // `Self` is whichever type implements the trait.
-                            owner: None,
-                            parameters: t
-                                .generics
-                                .type_params()
-                                .chain(f.sig.generics.type_params())
-                                .map(|p| p.ident.to_string())
-                                .collect(),
-                            imports: imports.clone(),
-                            signature: &f.sig,
-                            body,
-                        });
-                    }
-                }
-            }
+            Item::Impl(i) => impl_methods(i, &scope, reader, out),
+            Item::Trait(t) => trait_defaults(t, &scope, reader, out),
             _ => {}
+        }
+    }
+}
+
+/// Where a run of items is written: its module, the prefix its names take,
+/// and the imports in scope there.
+struct Scope<'s> {
+    module: &'s [String],
+    prefix: &'s str,
+    imports: &'s std::collections::BTreeMap<String, Vec<Vec<String>>>,
+}
+
+/// An impl's methods, named `Type::method` (and `<Type as Trait>::method`
+/// for a trait impl).
+fn impl_methods<'a>(
+    i: &'a syn::ItemImpl,
+    scope: &Scope<'_>,
+    reader: &Reader<'_>,
+    out: &mut Vec<Function<'a>>,
+) {
+    let prefix = scope.prefix;
+    let owner = reader.text(i.self_ty.span());
+    let implemented = i.trait_.as_ref().map(|(path, _)| reader.text(path.span()));
+    for member in &i.items {
+        if let syn::ImplItem::Fn(f) = member
+            && reader.selection.admits(f.span())
+        {
+            out.push(Function {
+                name: format!("{prefix}{owner}::{}", f.sig.ident),
+                trait_name: implemented.as_ref().map(|implemented| {
+                    format!("{prefix}<{owner} as {implemented}>::{}", f.sig.ident)
+                }),
+                default_body: false,
+                module: scope.module.to_vec(),
+                owner: Some(owner.clone()),
+                parameters: i
+                    .generics
+                    .type_params()
+                    .chain(f.sig.generics.type_params())
+                    .map(|p| p.ident.to_string())
+                    .collect(),
+                imports: scope.imports.clone(),
+                signature: &f.sig,
+                body: &f.block,
+            });
+        }
+    }
+}
+
+/// A trait's default method bodies, named `Trait::method`; `Self` is
+/// whichever type implements the trait, so they have no owner.
+fn trait_defaults<'a>(
+    t: &'a syn::ItemTrait,
+    scope: &Scope<'_>,
+    reader: &Reader<'_>,
+    out: &mut Vec<Function<'a>>,
+) {
+    for member in &t.items {
+        if let syn::TraitItem::Fn(f) = member
+            && let Some(body) = &f.default
+            && reader.selection.admits(f.span())
+        {
+            out.push(Function {
+                name: format!("{}{}::{}", scope.prefix, t.ident, f.sig.ident),
+                trait_name: None,
+                default_body: true,
+                module: scope.module.to_vec(),
+                owner: None,
+                parameters: t
+                    .generics
+                    .type_params()
+                    .chain(f.sig.generics.type_params())
+                    .map(|p| p.ident.to_string())
+                    .collect(),
+                imports: scope.imports.clone(),
+                signature: &f.sig,
+                body,
+            });
         }
     }
 }

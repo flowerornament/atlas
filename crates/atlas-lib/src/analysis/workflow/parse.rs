@@ -200,10 +200,7 @@ impl Reader<'_> {
         steps.push(self.action(expr));
         steps
     }
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
+    /// An expression's steps, in evaluation order as written.
     fn expr(&self, expr: &Expr) -> Vec<Step> {
         let site = self.site(expr.span());
         match expr {
@@ -216,18 +213,7 @@ impl Reader<'_> {
                     site,
                 }],
             },
-            // The steps run as written; the marker says the compiler does not
-            // check the operations through the block's closing line.
-            Expr::Unsafe(e) => {
-                let mut steps = vec![Step::Action {
-                    binding: None,
-                    label: format!("unsafe block, through line {}", site.end_line),
-                    fallible: false,
-                    site: site.clone(),
-                }];
-                steps.extend(self.block(&e.block));
-                steps
-            }
+            Expr::Unsafe(e) => self.unsafe_block(e, site),
             Expr::Paren(e) => self.expr(&e.expr),
             Expr::Group(e) => self.expr(&e.expr),
             Expr::Try(e) => {
@@ -240,50 +226,124 @@ impl Reader<'_> {
                 });
                 steps
             }
-            Expr::If(e) => {
-                let mut steps = self.operand(&e.cond);
-                steps.push(Step::Branch {
-                    label: format!("if {}", self.text(e.cond.span())),
-                    arms: vec![
-                        Arm {
-                            label: "then (true / pattern matches)".into(),
-                            steps: self.block(&e.then_branch),
-                        },
-                        Arm {
-                            label: "else (false / pattern does not match)".into(),
-                            steps: e
-                                .else_branch
-                                .as_ref()
-                                .map_or_else(Vec::new, |(_, x)| self.expr(x)),
-                        },
-                    ],
-                    site,
-                });
-                steps
+            Expr::If(e) => self.if_expr(e, site),
+            Expr::Match(e) => self.match_expr(e, site),
+            Expr::ForLoop(_) | Expr::While(_) | Expr::Loop(_) => self.loop_expr(expr, site),
+            Expr::Return(_) | Expr::Break(_) | Expr::Continue(_) => self.exit_expr(expr, site),
+            Expr::Binary(e) if matches!(e.op, syn::BinOp::And(_) | syn::BinOp::Or(_)) => {
+                self.short_circuit(expr, e, site)
             }
-            Expr::Match(e) => {
+            Expr::Binary(e) if compound(&e.op) => self.compound_assign(expr, e, site),
+            Expr::Call(e) => self.evaluated(expr, std::iter::once(&*e.func).chain(&e.args)),
+            Expr::MethodCall(e) => {
+                self.evaluated(expr, std::iter::once(&*e.receiver).chain(&e.args))
+            }
+            Expr::Binary(e) => self.evaluated(expr, [&*e.left, &*e.right]),
+            Expr::Assign(e) => self.evaluated(expr, [&*e.right, &*e.left]),
+            Expr::Reference(e) => {
                 let mut steps = self.operand(&e.expr);
-                steps.push(Step::Match {
-                    label: format!("match {}", self.text(e.expr.span())),
-                    arms: e
-                        .arms
-                        .iter()
-                        .map(|arm| super::MatchArm {
-                            pattern: self.text(match &arm.pat {
-                                syn::Pat::Guard(g) => g.pat.span(),
-                                p => p.span(),
-                            }),
-                            guard: match &arm.pat {
-                                syn::Pat::Guard(g) => self.expr(&g.guard),
-                                _ => vec![],
-                            },
-                            body: self.expr(&arm.body),
-                        })
-                        .collect(),
+                steps.push(Step::Borrow {
+                    label: self.text(expr.span()),
                     site,
                 });
                 steps
             }
+            Expr::Unary(e) => self.with_operand(expr, &e.expr),
+            Expr::Field(e) => self.with_operand(expr, &e.base),
+            Expr::Index(e) => self.evaluated(expr, [&*e.expr, &*e.index]),
+            Expr::Cast(e) => self.with_operand(expr, &e.expr),
+            Expr::Struct(e) => self.evaluated(
+                expr,
+                e.fields.iter().map(|f| &f.expr).chain(e.rest.as_deref()),
+            ),
+            Expr::Tuple(e) => self.evaluated(expr, &e.elems),
+            Expr::Array(e) => self.evaluated(expr, &e.elems),
+            // The operand runs, then the await; when and how often the
+            // future is polled is not shown.
+            Expr::Await(e) => self.with_operand(expr, &e.base),
+            // The element is evaluated once; the length is a constant.
+            Expr::Repeat(e) => self.with_operand(expr, &e.expr),
+            // A range evaluates its start, then its end.
+            Expr::Range(e) => self.evaluated(
+                expr,
+                [&e.start, &e.end].into_iter().flatten().map(|end| &**end),
+            ),
+            Expr::Let(e) => self.with_operand(expr, &e.expr),
+            Expr::Lit(_) | Expr::Path(_) => vec![self.action(expr)],
+            _ => vec![self.opaque(expr)],
+        }
+    }
+    /// Each operand in order, then the expression's own action.
+    fn evaluated<'e>(
+        &self,
+        expr: &Expr,
+        operands: impl IntoIterator<Item = &'e Expr>,
+    ) -> Vec<Step> {
+        let mut steps: Vec<Step> = operands.into_iter().flat_map(|x| self.operand(x)).collect();
+        steps.push(self.action(expr));
+        steps
+    }
+    /// The steps run as written; the marker says the compiler does not
+    /// check the operations through the block's closing line.
+    fn unsafe_block(&self, e: &syn::ExprUnsafe, site: Site) -> Vec<Step> {
+        let mut steps = vec![Step::Action {
+            binding: None,
+            label: format!("unsafe block, through line {}", site.end_line),
+            fallible: false,
+            site,
+        }];
+        steps.extend(self.block(&e.block));
+        steps
+    }
+    fn if_expr(&self, e: &syn::ExprIf, site: Site) -> Vec<Step> {
+        let mut steps = self.operand(&e.cond);
+        steps.push(Step::Branch {
+            label: format!("if {}", self.text(e.cond.span())),
+            arms: vec![
+                Arm {
+                    label: "then (true / pattern matches)".into(),
+                    steps: self.block(&e.then_branch),
+                },
+                Arm {
+                    label: "else (false / pattern does not match)".into(),
+                    steps: e
+                        .else_branch
+                        .as_ref()
+                        .map_or_else(Vec::new, |(_, x)| self.expr(x)),
+                },
+            ],
+            site,
+        });
+        steps
+    }
+    fn match_expr(&self, e: &syn::ExprMatch, site: Site) -> Vec<Step> {
+        let mut steps = self.operand(&e.expr);
+        steps.push(Step::Match {
+            label: format!("match {}", self.text(e.expr.span())),
+            arms: e
+                .arms
+                .iter()
+                .map(|arm| super::MatchArm {
+                    pattern: self.text(match &arm.pat {
+                        syn::Pat::Guard(g) => g.pat.span(),
+                        p => p.span(),
+                    }),
+                    guard: match &arm.pat {
+                        syn::Pat::Guard(g) => self.expr(&g.guard),
+                        _ => vec![],
+                    },
+                    body: self.expr(&arm.body),
+                })
+                .collect(),
+            site,
+        });
+        steps
+    }
+    /// A `for` (its iterator first), `while` (its condition as the header)
+    /// or `loop`.
+    fn loop_expr(&self, expr: &Expr, site: Site) -> Vec<Step> {
+        let target = |label: &Option<syn::Label>| label.as_ref().map(|l| l.name.ident.to_string());
+        match expr {
             Expr::ForLoop(e) => {
                 let mut steps = self.operand(&e.expr);
                 steps.push(Step::Loop {
@@ -295,7 +355,7 @@ impl Reader<'_> {
                     form: super::LoopKind::For,
                     head: vec![],
                     body: self.block(&e.body),
-                    target: e.label.as_ref().map(|l| l.name.ident.to_string()),
+                    target: target(&e.label),
                     site,
                 });
                 steps
@@ -305,7 +365,7 @@ impl Reader<'_> {
                 form: super::LoopKind::While,
                 head: self.operand(&e.cond),
                 body: self.block(&e.body),
-                target: e.label.as_ref().map(|l| l.name.ident.to_string()),
+                target: target(&e.label),
                 site,
             }],
             Expr::Loop(e) => vec![Step::Loop {
@@ -313,193 +373,101 @@ impl Reader<'_> {
                 form: super::LoopKind::Infinite,
                 head: vec![],
                 body: self.block(&e.body),
-                target: e.label.as_ref().map(|l| l.name.ident.to_string()),
+                target: target(&e.label),
                 site,
             }],
-            Expr::Return(e) => {
-                let mut steps = e.expr.as_ref().map_or_else(Vec::new, |x| self.operand(x));
-                steps.push(Step::Exit {
-                    label: self.text(expr.span()),
-                    control: super::ExitKind::Return,
-                    site,
-                });
-                steps
-            }
-            Expr::Break(e) => {
-                let mut steps = e.expr.as_ref().map_or_else(Vec::new, |x| self.operand(x));
-                steps.push(Step::Exit {
-                    label: self.text(expr.span()),
-                    control: super::ExitKind::Break(e.label.as_ref().map(|l| l.ident.to_string())),
-                    site,
-                });
-                steps
-            }
-            Expr::Continue(e) => vec![Step::Exit {
-                label: self.text(expr.span()),
-                control: super::ExitKind::Continue(
-                    e.label.as_ref().map(|label| label.ident.to_string()),
-                ),
-                site,
-            }],
-            Expr::Binary(e) if matches!(e.op, syn::BinOp::And(_) | syn::BinOp::Or(_)) => {
-                let mut steps = self.operand(&e.left);
-                let is_and = matches!(e.op, syn::BinOp::And(_));
-                steps.push(Step::Branch {
-                    label: format!("short-circuit {}", self.text(expr.span())),
-                    arms: vec![
-                        Arm {
-                            label: format!(
-                                "left {}: evaluate right",
-                                if is_and { "true" } else { "false" }
-                            ),
-                            steps: self.expr(&e.right),
-                        },
-                        Arm {
-                            label: format!(
-                                "left {}: skip right",
-                                if is_and { "false" } else { "true" }
-                            ),
-                            steps: vec![],
-                        },
-                    ],
-                    site,
-                });
-                steps
-            }
-            Expr::Call(e) => {
-                let mut steps = self.operand(&e.func);
-                for arg in &e.args {
-                    steps.extend(self.operand(arg));
-                }
-                steps.push(self.action(expr));
-                steps
-            }
-            Expr::MethodCall(e) => {
-                let mut steps = self.operand(&e.receiver);
-                for arg in &e.args {
-                    steps.extend(self.operand(arg));
-                }
-                steps.push(self.action(expr));
-                steps
-            }
-            Expr::Binary(e) => {
-                // Compound assignment order depends on type/overloading, which this reader does not infer.
-                if matches!(
-                    e.op,
-                    syn::BinOp::AddAssign(_)
-                        | syn::BinOp::SubAssign(_)
-                        | syn::BinOp::MulAssign(_)
-                        | syn::BinOp::DivAssign(_)
-                        | syn::BinOp::RemAssign(_)
-                        | syn::BinOp::BitXorAssign(_)
-                        | syn::BinOp::BitAndAssign(_)
-                        | syn::BinOp::BitOrAssign(_)
-                        | syn::BinOp::ShlAssign(_)
-                        | syn::BinOp::ShrAssign(_)
-                ) {
-                    // Built-in operators evaluate the right operand first,
-                    // overloaded ones the left; the type is not inferred, so
-                    // when both sides have steps, both orders are shown.
-                    let (left, right) = (self.operand(&e.left), self.operand(&e.right));
-                    let mut steps = if left.is_empty() || right.is_empty() {
-                        [right, left].concat()
-                    } else {
-                        vec![Step::Branch {
-                            label: format!(
-                                "operand order of {} (depends on the operand types)",
-                                self.text(expr.span())
-                            ),
-                            arms: vec![
-                                Arm {
-                                    label: "built-in operator: right operand first".into(),
-                                    steps: [right.clone(), left.clone()].concat(),
-                                },
-                                Arm {
-                                    label: "overloaded operator: left operand first".into(),
-                                    steps: [left, right].concat(),
-                                },
-                            ],
-                            site: site.clone(),
-                        }]
-                    };
-                    // The operator's own effect is not inferred.
-                    steps.push(self.opaque(expr));
-                    return steps;
-                }
-                let mut steps = self.operand(&e.left);
-                steps.extend(self.operand(&e.right));
-                steps.push(self.action(expr));
-                steps
-            }
-            Expr::Assign(e) => {
-                let mut steps = self.operand(&e.right);
-                steps.extend(self.operand(&e.left));
-                steps.push(self.action(expr));
-                steps
-            }
-            Expr::Reference(e) => {
-                let mut steps = self.operand(&e.expr);
-                steps.push(Step::Borrow {
-                    label: self.text(expr.span()),
-                    site,
-                });
-                steps
-            }
-            Expr::Unary(e) => self.with_operand(expr, &e.expr),
-            Expr::Field(e) => self.with_operand(expr, &e.base),
-            Expr::Index(e) => {
-                let mut steps = self.operand(&e.expr);
-                steps.extend(self.operand(&e.index));
-                steps.push(self.action(expr));
-                steps
-            }
-            Expr::Cast(e) => self.with_operand(expr, &e.expr),
-            Expr::Struct(e) => {
-                let mut steps = Vec::new();
-                for f in &e.fields {
-                    steps.extend(self.operand(&f.expr));
-                }
-                if let Some(rest) = &e.rest {
-                    steps.extend(self.operand(rest));
-                }
-                steps.push(self.action(expr));
-                steps
-            }
-            Expr::Tuple(e) => {
-                let mut steps = Vec::new();
-                for x in &e.elems {
-                    steps.extend(self.operand(x));
-                }
-                steps.push(self.action(expr));
-                steps
-            }
-            Expr::Array(e) => {
-                let mut steps = Vec::new();
-                for x in &e.elems {
-                    steps.extend(self.operand(x));
-                }
-                steps.push(self.action(expr));
-                steps
-            }
-            // The operand runs, then the await; when and how often the
-            // future is polled is not shown.
-            Expr::Await(e) => self.with_operand(expr, &e.base),
-            // The element is evaluated once; the length is a constant.
-            Expr::Repeat(e) => self.with_operand(expr, &e.expr),
-            Expr::Range(e) => {
-                // A range evaluates its start, then its end.
-                let mut steps = Vec::new();
-                for endpoint in [&e.start, &e.end].into_iter().flatten() {
-                    steps.extend(self.operand(endpoint));
-                }
-                steps.push(self.action(expr));
-                steps
-            }
-            Expr::Let(e) => self.with_operand(expr, &e.expr),
-            Expr::Lit(_) | Expr::Path(_) => vec![self.action(expr)],
             _ => vec![self.opaque(expr)],
         }
     }
+    /// A `return` or `break` (its value first) or a `continue`.
+    fn exit_expr(&self, expr: &Expr, site: Site) -> Vec<Step> {
+        let label = |l: &Option<syn::Lifetime>| l.as_ref().map(|l| l.ident.to_string());
+        let (value, control) = match expr {
+            Expr::Return(e) => (e.expr.as_deref(), super::ExitKind::Return),
+            Expr::Break(e) => (e.expr.as_deref(), super::ExitKind::Break(label(&e.label))),
+            Expr::Continue(e) => (None, super::ExitKind::Continue(label(&e.label))),
+            _ => return vec![self.opaque(expr)],
+        };
+        let mut steps = value.map_or_else(Vec::new, |x| self.operand(x));
+        steps.push(Step::Exit {
+            label: self.text(expr.span()),
+            control,
+            site,
+        });
+        steps
+    }
+    /// `&&` and `||`: the left operand, then a branch that evaluates or
+    /// skips the right.
+    fn short_circuit(&self, expr: &Expr, e: &syn::ExprBinary, site: Site) -> Vec<Step> {
+        let mut steps = self.operand(&e.left);
+        let is_and = matches!(e.op, syn::BinOp::And(_));
+        steps.push(Step::Branch {
+            label: format!("short-circuit {}", self.text(expr.span())),
+            arms: vec![
+                Arm {
+                    label: format!(
+                        "left {}: evaluate right",
+                        if is_and { "true" } else { "false" }
+                    ),
+                    steps: self.expr(&e.right),
+                },
+                Arm {
+                    label: format!("left {}: skip right", if is_and { "false" } else { "true" }),
+                    steps: vec![],
+                },
+            ],
+            site,
+        });
+        steps
+    }
+    /// Compound assignment. Built-in operators evaluate the right operand
+    /// first, overloaded ones the left; the type is not inferred, so when
+    /// both sides have steps, both orders are shown, and the operator's own
+    /// effect is opaque.
+    fn compound_assign(&self, expr: &Expr, e: &syn::ExprBinary, site: Site) -> Vec<Step> {
+        let (left, right) = (self.operand(&e.left), self.operand(&e.right));
+        let mut steps = if left.is_empty() || right.is_empty() {
+            [right, left].concat()
+        } else {
+            vec![Step::Branch {
+                label: format!(
+                    "operand order of {} (depends on the operand types)",
+                    self.text(expr.span())
+                ),
+                arms: vec![
+                    Arm {
+                        label: "built-in operator: right operand first".into(),
+                        steps: [right.clone(), left.clone()].concat(),
+                    },
+                    Arm {
+                        label: "overloaded operator: left operand first".into(),
+                        steps: [left, right].concat(),
+                    },
+                ],
+                site,
+            }]
+        };
+        steps.push(self.opaque(expr));
+        steps
+    }
+}
+
+/// Whether `op` is a compound assignment, whose operand order depends on
+/// the operand types.
+const fn compound(op: &syn::BinOp) -> bool {
+    matches!(
+        op,
+        syn::BinOp::AddAssign(_)
+            | syn::BinOp::SubAssign(_)
+            | syn::BinOp::MulAssign(_)
+            | syn::BinOp::DivAssign(_)
+            | syn::BinOp::RemAssign(_)
+            | syn::BinOp::BitXorAssign(_)
+            | syn::BinOp::BitAndAssign(_)
+            | syn::BinOp::BitOrAssign(_)
+            | syn::BinOp::ShlAssign(_)
+            | syn::BinOp::ShrAssign(_)
+    )
 }
 
 /// An expression's outer attributes, as written.

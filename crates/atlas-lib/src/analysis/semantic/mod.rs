@@ -382,10 +382,6 @@ impl SemanticIndex {
         self.reading(calls, text)
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     fn reading<'a>(
         &self,
         calls: impl Iterator<
@@ -421,36 +417,9 @@ impl SemanticIndex {
         let mut missing = BTreeSet::new();
         let mut lines = HashMap::new();
         for (caller, call, qualified, function) in calls {
-            // Whether `written` may stand for a symbol named `named`: an
-            // import of that name in scope brings it in (`use crate::base as
-            // label`), or a body-local `use` or item rebinds the name here.
-            let renames = |written: &str, named: &str| {
-                function.is_some_and(|function| {
-                    function
-                        .flow
-                        .local_names
-                        .iter()
-                        .any(|local| local == written)
-                        || function.flow.imports.get(written).is_some_and(|paths| {
-                            paths
-                                .iter()
-                                .any(|path| path.last().is_some_and(|last| last == named))
-                        })
-                })
-            };
-            let mut semantic = tables.call(call, text, &renames, &mut missing, &mut lines);
-            // A name the qualified reading followed to the very definition
-            // the index names (through a re-export chain the name check
-            // cannot see, `crate::{synchronize_render}` for `synchronize`)
-            // is the same symbol, not a stale one.
-            if let Semantic::Mismatch { symbol } = &semantic
-                && let Some((_, Some(target))) = &qualified
-            {
-                let classified = tables.classify(symbol);
-                if compare(Some(target), &classified) == Agreement::Agrees {
-                    semantic = classified;
-                }
-            }
+            let target = qualified.as_ref().and_then(|(_, target)| *target);
+            let semantic =
+                tables.reading_of(call, function, target, text, (&mut missing, &mut lines));
             *reading
                 .readings
                 .entry(kind(&semantic).to_owned())
@@ -522,10 +491,6 @@ fn compare(target: Option<&crate::analysis::index::Function>, semantic: &Semanti
 }
 
 impl Tables {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     fn new(index: &wire::Index) -> Result<Self, String> {
         if index.documents.is_empty() {
             return Err("the index has no documents".into());
@@ -542,6 +507,21 @@ impl Tables {
                 ..Coverage::default()
             },
         };
+        tables.read_documents(index)?;
+        if !tables.read_occurrences(index) {
+            return Err("the index names no core, alloc or std symbol; an indexer that cannot load the standard library (rust-src) writes such an index, so its external readings cannot be trusted".into());
+        }
+        tables.coverage.sysroot_observed = true;
+        tables.coverage.symbols_with_several_definitions = tables
+            .definitions
+            .iter()
+            .filter(|(symbol, sites)| sites.len() > 1 && !symbol.starts_with("local "))
+            .count();
+        Ok(tables)
+    }
+    /// Each document once, in UTF-8 positions: its symbols' kinds and text.
+    fn read_documents(&mut self, index: &wire::Index) -> Result<(), String> {
+        let tables = self;
         for document in &index.documents {
             if !tables.documents.insert(document.relative_path.clone()) {
                 return Err(format!("document {} appears twice", document.relative_path));
@@ -561,6 +541,12 @@ impl Tables {
                     .insert(document.relative_path.clone(), text.clone());
             }
         }
+        Ok(())
+    }
+    /// Each occurrence as a definition or a reference; whether any names a
+    /// standard-library symbol.
+    fn read_occurrences(&mut self, index: &wire::Index) -> bool {
+        let tables = self;
         let mut sysroot = false;
         for document in &index.documents {
             for o in &document.occurrences {
@@ -589,16 +575,49 @@ impl Tables {
                 }
             }
         }
-        if !sysroot {
-            return Err("the index names no core, alloc or std symbol; an indexer that cannot load the standard library (rust-src) writes such an index, so its external readings cannot be trusted".into());
+        sysroot
+    }
+
+    /// One call's semantic reading, in the scope of the function that makes
+    /// it. A name the qualified reading followed to the very definition the
+    /// index names (through a re-export chain the name check cannot see,
+    /// `crate::{synchronize_render}` for `synchronize`) is the same symbol,
+    /// not a stale one.
+    fn reading_of<'a>(
+        &self,
+        call: &Call,
+        function: Option<&crate::analysis::index::Function>,
+        target: Option<&crate::analysis::index::Function>,
+        text: &dyn Fn(&str) -> Option<&'a str>,
+        (missing, lines): (&mut BTreeSet<String>, &mut HashMap<String, locate::Lines>),
+    ) -> Semantic {
+        // Whether `written` may stand for a symbol named `named`: an import
+        // of that name in scope brings it in (`use crate::base as label`),
+        // or a body-local `use` or item rebinds the name here.
+        let renames = |written: &str, named: &str| {
+            function.is_some_and(|function| {
+                function
+                    .flow
+                    .local_names
+                    .iter()
+                    .any(|local| local == written)
+                    || function.flow.imports.get(written).is_some_and(|paths| {
+                        paths
+                            .iter()
+                            .any(|path| path.last().is_some_and(|last| last == named))
+                    })
+            })
+        };
+        let semantic = self.call(call, text, &renames, missing, lines);
+        if let Semantic::Mismatch { symbol } = &semantic
+            && target.is_some()
+        {
+            let classified = self.classify(symbol);
+            if compare(target, &classified) == Agreement::Agrees {
+                return classified;
+            }
         }
-        tables.coverage.sysroot_observed = true;
-        tables.coverage.symbols_with_several_definitions = tables
-            .definitions
-            .iter()
-            .filter(|(symbol, sites)| sites.len() > 1 && !symbol.starts_with("local "))
-            .count();
-        Ok(tables)
+        semantic
     }
 
     fn call<'a>(

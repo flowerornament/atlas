@@ -254,91 +254,19 @@ impl<'a> Builder<'a> {
         );
         Some(continuation)
     }
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
+    /// Each step as a node, connected from `tails`; the tails it leaves.
     fn steps(&mut self, steps: &[Step], mut tails: Vec<String>) -> Vec<String> {
         for step in steps {
             if self.nodes.len() >= self.budget {
                 self.exhausted = true;
                 return vec![];
             }
-            let label = match step {
-                Step::Action { fallible, .. } => {
-                    format!("{}{}", step.label(), if *fallible { " ?" } else { "" })
-                }
-                Step::Opaque { fallible, .. } => {
-                    format!(
-                        "[opaque] {}{}",
-                        step.label(),
-                        if *fallible { " ?" } else { "" }
-                    )
-                }
-                _ => step.label().to_owned(),
-            };
-            let id = self.node(&label, step.site());
+            let id = self.node(&label_of(step), step.site());
             self.connect(tails, &id);
-            if let Some(folds) = &mut self.folds {
-                if matches!(step, Step::Borrow { .. }) {
-                    folds.linear.push(id.clone());
-                }
-                if matches!(
-                    step,
-                    Step::Action {
-                        fallible: false,
-                        ..
-                    }
-                ) && folds.call_sites.contains(step.site())
-                {
-                    folds.calls.insert(id.clone());
-                }
-            }
+            self.fold(step, &id);
             tails = match step {
-                Step::Branch { arms, site, .. } => {
-                    let mut ends = vec![];
-                    for arm in arms {
-                        if self.exhausted {
-                            break;
-                        }
-                        let gate = self.node(&arm.label, site);
-                        self.edge(&id, &gate, Some(&arm.label));
-                        ends.extend(self.steps(&arm.steps, vec![gate]));
-                    }
-                    ends
-                }
-                Step::Match { arms, site, .. } => {
-                    let mut pending = vec![id];
-                    let mut ends = vec![];
-                    for arm in arms {
-                        if self.exhausted {
-                            break;
-                        }
-                        let pattern = self.node(&format!("pattern: {}", arm.pattern), site);
-                        self.connect(pending, &pattern);
-                        let next = self.node("try next pattern", site);
-                        if arm.pattern != "_" {
-                            self.edge(&pattern, &next, Some("does not match"));
-                        }
-                        let body_gate = self.node("matched arm body", site);
-                        if arm.guard.is_empty() {
-                            self.edge(&pattern, &body_gate, Some("matches"));
-                        } else {
-                            let guard = self.node("pattern matches: evaluate guard", site);
-                            self.edge(&pattern, &guard, Some("matches"));
-                            let guards = self.steps(&arm.guard, vec![guard]);
-                            let result = self.node("guard result", site);
-                            self.connect(guards, &result);
-                            self.edge(&result, &body_gate, Some("true"));
-                            self.edge(&result, &next, Some("false"));
-                        }
-                        ends.extend(self.steps(&arm.body, vec![body_gate]));
-                        pending = vec![next];
-                    }
-                    let unmatched = self.node("match coverage not checked (no fallthrough)", site);
-                    self.connect(pending, &unmatched);
-                    ends
-                }
+                Step::Branch { arms, site, .. } => self.branch(&id, arms, site),
+                Step::Match { arms, site, .. } => self.match_arms(id, arms, site),
                 Step::Loop {
                     head,
                     body,
@@ -346,93 +274,12 @@ impl<'a> Builder<'a> {
                     site,
                     target,
                     ..
-                } => {
-                    // A labelled transfer in a `while` condition names this
-                    // loop, so its target is registered before the condition.
-                    let exit = self.node("after loop (if it exits)", site);
-                    let header = *form == LoopKind::While;
-                    if header {
-                        self.loops.push(LoopTarget {
-                            name: target.clone(),
-                            header: id.clone(),
-                            exit: exit.clone(),
-                            kind: TargetKind::WhileHeader,
-                        });
-                    }
-                    let tested = self.steps(head, vec![id.clone()]);
-                    if header {
-                        self.loops.pop();
-                    }
-                    let test = self.node("loop header result", site);
-                    self.connect(tested, &test);
-                    let gate = self.node("loop body (when entered)", site);
-                    self.edge(&test, &gate, Some("enter"));
-                    if *form != LoopKind::Infinite {
-                        self.edge(
-                            &test,
-                            &exit,
-                            Some(if *form == LoopKind::For {
-                                "exhausted"
-                            } else {
-                                "false"
-                            }),
-                        );
-                    }
-                    self.loops.push(LoopTarget {
-                        name: target.clone(),
-                        header: id.clone(),
-                        exit: exit.clone(),
-                        kind: TargetKind::Loop,
-                    });
-                    let ends = self.steps(body, vec![gate]);
-                    self.loops.pop();
-                    self.connect(ends, &id);
-                    vec![exit]
-                }
+                } => self.loop_step(&id, (head, body), *form, site, target.as_ref()),
                 Step::Block {
                     body, target, site, ..
-                } => {
-                    let exit = self.node("after labelled block", site);
-                    self.loops.push(LoopTarget {
-                        name: Some(target.clone()),
-                        header: id.clone(),
-                        exit: exit.clone(),
-                        kind: TargetKind::Block,
-                    });
-                    let ends = self.steps(body, vec![id.clone()]);
-                    self.loops.pop();
-                    self.connect(ends, &exit);
-                    vec![exit]
-                }
+                } => self.labelled_block(&id, body, target, site),
                 Step::Exit { control, .. } => {
-                    let target = match control {
-                        ExitKind::Return => Some(self.exit.clone()),
-                        ExitKind::Break(name) | ExitKind::Continue(name) => self
-                            .loops
-                            .iter()
-                            .rev()
-                            // An unlabelled transfer never names a block.
-                            .find(|t| match name {
-                                Some(n) => t.name.as_ref() == Some(n),
-                                None => t.kind != TargetKind::Block,
-                            })
-                            // `continue 'label` cannot name a block.
-                            .filter(|t| {
-                                !matches!(
-                                    (name, t.kind, control),
-                                    (None, TargetKind::WhileHeader, _)
-                                        | (_, TargetKind::Block, ExitKind::Continue(_))
-                                )
-                            })
-                            .map(|t| {
-                                if matches!(control, ExitKind::Break(_)) {
-                                    t.exit.clone()
-                                } else {
-                                    t.header.clone()
-                                }
-                            }),
-                    };
-                    if let Some(target) = target {
+                    if let Some(target) = self.transfer_target(control) {
                         self.edge(&id, &target, Some("transfer"));
                     } else {
                         let unknown =
@@ -450,34 +297,200 @@ impl<'a> Builder<'a> {
                     fallible: true,
                     site,
                     ..
-                } => {
-                    if let Some(folds) = &mut self.folds {
-                        let binding = if let Step::Action { binding, .. } = step {
-                            binding.clone()
-                        } else {
-                            None
-                        };
-                        folds.residuals.push((id.clone(), binding));
-                    }
-                    let early = self.node("? returns early (residual)", site);
-                    if let Some(folds) = &mut self.folds {
-                        folds.linear.push(early.clone());
-                    }
-                    self.edge(&id, &early, Some("residual"));
-                    let exit = self.exit.clone();
-                    self.edge(&early, &exit, Some("return residual"));
-                    let success = self.node("? continues", site);
-                    if let Some(folds) = &mut self.folds {
-                        folds.linear.push(success.clone());
-                    }
-                    self.edge(&id, &success, Some("success"));
-                    vec![success]
-                }
+                } => self.fallible(&id, step, site),
                 Step::Action { site, .. } => vec![self.call(&id, site).unwrap_or(id)],
                 Step::Borrow { .. } | Step::Opaque { .. } => vec![id],
             };
         }
         tails
+    }
+    /// What compact detail folds away later: borrows, and infallible calls
+    /// at known call sites.
+    fn fold(&mut self, step: &Step, id: &str) {
+        let Some(folds) = &mut self.folds else {
+            return;
+        };
+        if matches!(step, Step::Borrow { .. }) {
+            folds.linear.push(id.to_owned());
+        }
+        if matches!(
+            step,
+            Step::Action {
+                fallible: false,
+                ..
+            }
+        ) && folds.call_sites.contains(step.site())
+        {
+            folds.calls.insert(id.to_owned());
+        }
+    }
+    /// An `if`: each arm from its gate; the arms' tails.
+    fn branch(&mut self, id: &str, arms: &[super::Arm], site: &Site) -> Vec<String> {
+        let mut ends = vec![];
+        for arm in arms {
+            if self.exhausted {
+                break;
+            }
+            let gate = self.node(&arm.label, site);
+            self.edge(id, &gate, Some(&arm.label));
+            ends.extend(self.steps(&arm.steps, vec![gate]));
+        }
+        ends
+    }
+    /// A `match`: patterns tried in order, each with its guard, then the
+    /// arm body; coverage is not checked.
+    fn match_arms(&mut self, id: String, arms: &[super::MatchArm], site: &Site) -> Vec<String> {
+        let mut pending = vec![id];
+        let mut ends = vec![];
+        for arm in arms {
+            if self.exhausted {
+                break;
+            }
+            let pattern = self.node(&format!("pattern: {}", arm.pattern), site);
+            self.connect(pending, &pattern);
+            let next = self.node("try next pattern", site);
+            if arm.pattern != "_" {
+                self.edge(&pattern, &next, Some("does not match"));
+            }
+            let body_gate = self.node("matched arm body", site);
+            if arm.guard.is_empty() {
+                self.edge(&pattern, &body_gate, Some("matches"));
+            } else {
+                let guard = self.node("pattern matches: evaluate guard", site);
+                self.edge(&pattern, &guard, Some("matches"));
+                let guards = self.steps(&arm.guard, vec![guard]);
+                let result = self.node("guard result", site);
+                self.connect(guards, &result);
+                self.edge(&result, &body_gate, Some("true"));
+                self.edge(&result, &next, Some("false"));
+            }
+            ends.extend(self.steps(&arm.body, vec![body_gate]));
+            pending = vec![next];
+        }
+        let unmatched = self.node("match coverage not checked (no fallthrough)", site);
+        self.connect(pending, &unmatched);
+        ends
+    }
+    /// A loop: its header, then its body back to the header; the exit.
+    fn loop_step(
+        &mut self,
+        id: &str,
+        (head, body): (&[Step], &[Step]),
+        form: LoopKind,
+        site: &Site,
+        target: Option<&String>,
+    ) -> Vec<String> {
+        // A labelled transfer in a `while` condition names this loop, so
+        // its target is registered before the condition.
+        let exit = self.node("after loop (if it exits)", site);
+        let header = form == LoopKind::While;
+        if header {
+            self.loops.push(LoopTarget {
+                name: target.cloned(),
+                header: id.to_owned(),
+                exit: exit.clone(),
+                kind: TargetKind::WhileHeader,
+            });
+        }
+        let tested = self.steps(head, vec![id.to_owned()]);
+        if header {
+            self.loops.pop();
+        }
+        let test = self.node("loop header result", site);
+        self.connect(tested, &test);
+        let gate = self.node("loop body (when entered)", site);
+        self.edge(&test, &gate, Some("enter"));
+        if form != LoopKind::Infinite {
+            let label = if form == LoopKind::For {
+                "exhausted"
+            } else {
+                "false"
+            };
+            self.edge(&test, &exit, Some(label));
+        }
+        self.loops.push(LoopTarget {
+            name: target.cloned(),
+            header: id.to_owned(),
+            exit: exit.clone(),
+            kind: TargetKind::Loop,
+        });
+        let ends = self.steps(body, vec![gate]);
+        self.loops.pop();
+        self.connect(ends, id);
+        vec![exit]
+    }
+    /// A labelled block: its body, then the node after it.
+    fn labelled_block(
+        &mut self,
+        id: &str,
+        body: &[Step],
+        target: &str,
+        site: &Site,
+    ) -> Vec<String> {
+        let exit = self.node("after labelled block", site);
+        self.loops.push(LoopTarget {
+            name: Some(target.to_owned()),
+            header: id.to_owned(),
+            exit: exit.clone(),
+            kind: TargetKind::Block,
+        });
+        let ends = self.steps(body, vec![id.to_owned()]);
+        self.loops.pop();
+        self.connect(ends, &exit);
+        vec![exit]
+    }
+    /// Where a `return`, `break` or `continue` goes: the function's exit, or
+    /// the innermost target it can name (an unlabelled transfer never names
+    /// a block; `continue 'label` cannot name a block).
+    fn transfer_target(&self, control: &ExitKind) -> Option<String> {
+        let (ExitKind::Break(name) | ExitKind::Continue(name)) = control else {
+            return Some(self.exit.clone());
+        };
+        self.loops
+            .iter()
+            .rev()
+            .find(|t| match name {
+                Some(n) => t.name.as_ref() == Some(n),
+                None => t.kind != TargetKind::Block,
+            })
+            .filter(|t| {
+                !matches!(
+                    (name, t.kind, control),
+                    (None, TargetKind::WhileHeader, _)
+                        | (_, TargetKind::Block, ExitKind::Continue(_))
+                )
+            })
+            .map(|t| {
+                if matches!(control, ExitKind::Break(_)) {
+                    t.exit.clone()
+                } else {
+                    t.header.clone()
+                }
+            })
+    }
+    /// A `?`: its residual returns early to the exit, and success continues.
+    fn fallible(&mut self, id: &str, step: &Step, site: &Site) -> Vec<String> {
+        if let Some(folds) = &mut self.folds {
+            let binding = if let Step::Action { binding, .. } = step {
+                binding.clone()
+            } else {
+                None
+            };
+            folds.residuals.push((id.to_owned(), binding));
+        }
+        let early = self.node("? returns early (residual)", site);
+        if let Some(folds) = &mut self.folds {
+            folds.linear.push(early.clone());
+        }
+        self.edge(id, &early, Some("residual"));
+        let exit = self.exit.clone();
+        self.edge(&early, &exit, Some("return residual"));
+        let success = self.node("? continues", site);
+        if let Some(folds) = &mut self.folds {
+            folds.linear.push(success.clone());
+        }
+        self.edge(id, &success, Some("success"));
+        vec![success]
     }
 }
 
@@ -651,5 +664,17 @@ mod loop_tests {
             targets(source, "continue"),
             ["opaque control target (not resolved)"]
         );
+    }
+}
+
+/// A step's node label: a fallible call or opaque step is marked `?`.
+fn label_of(step: &Step) -> String {
+    let question = |fallible: bool| if fallible { " ?" } else { "" };
+    match step {
+        Step::Action { fallible, .. } => format!("{}{}", step.label(), question(*fallible)),
+        Step::Opaque { fallible, .. } => {
+            format!("[opaque] {}{}", step.label(), question(*fallible))
+        }
+        _ => step.label().to_owned(),
     }
 }

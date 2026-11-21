@@ -246,31 +246,12 @@ impl Facts {
     /// Nothing is resolved anew; observations elsewhere are left out, not
     /// changed, and the limitations say so.
     #[must_use]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     pub fn incident(&self, scope: &str, in_scope: impl Fn(&str) -> bool) -> Self {
         let touches = |from: &str, to: &str| in_scope(file_of(from)) || in_scope(file_of(to));
-        let calls: Vec<_> = self
-            .calls
-            .iter()
-            .filter(|c| touches(&c.from, &c.to))
-            .cloned()
-            .collect();
-        let references: Vec<_> = self
-            .references
-            .iter()
-            .filter(|r| touches(&r.from, &r.to))
-            .cloned()
-            .collect();
-        let built = |list: &[Constructor]| -> Vec<Constructor> {
-            list.iter()
-                .filter(|c| touches(&c.from, &c.to))
-                .cloned()
-                .collect()
-        };
-        let (constructors, default_calls) = (built(&self.constructors), built(&self.default_calls));
+        let calls = kept(&self.calls, |c| touches(&c.from, &c.to));
+        let references = kept(&self.references, |r| touches(&r.from, &r.to));
+        let constructors = kept(&self.constructors, |c| touches(&c.from, &c.to));
+        let default_calls = kept(&self.default_calls, |c| touches(&c.from, &c.to));
         let mut ends: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
         for (from, to) in calls
             .iter()
@@ -282,18 +263,12 @@ impl Facts {
             ends.insert(from);
             ends.insert(to);
         }
-        let functions: Vec<_> = self
-            .functions
-            .iter()
-            .filter(|f| in_scope(&f.file) || ends.contains(f.id.as_str()))
-            .cloned()
-            .collect();
-        let types: Vec<_> = self
-            .types
-            .iter()
-            .filter(|t| in_scope(&t.file) || ends.contains(t.id.as_str()))
-            .cloned()
-            .collect();
+        let functions = kept(&self.functions, |f| {
+            in_scope(&f.file) || ends.contains(f.id.as_str())
+        });
+        let types = kept(&self.types, |t| {
+            in_scope(&t.file) || ends.contains(t.id.as_str())
+        });
         let files: std::collections::BTreeSet<String> = functions
             .iter()
             .map(|f| f.file.clone())
@@ -309,33 +284,20 @@ impl Facts {
             functions,
             references,
             constructors,
-            constants: self
-                .constants
-                .iter()
-                .filter(|c| in_scope(&c.site.path))
-                .cloned()
-                .collect(),
+            constants: kept(&self.constants, |c| in_scope(&c.site.path)),
             default_calls,
             calls,
-            unknown_types: self
-                .unknown_types
-                .iter()
-                .filter(|u| in_scope(file_of(&u.from)))
-                .cloned()
-                .collect(),
-            unknown_calls: self
-                .unknown_calls
-                .iter()
-                .filter(|u| in_scope(file_of(&u.from)))
-                .cloned()
-                .collect(),
-            fingerprints: self
-                .fingerprints
-                .iter()
-                .filter(|(path, _)| in_scope(path) || files.contains(path))
-                .cloned()
-                .collect(),
+            unknown_types: kept(&self.unknown_types, |u| in_scope(file_of(&u.from))),
+            unknown_calls: kept(&self.unknown_calls, |u| in_scope(file_of(&u.from))),
+            fingerprints: kept(&self.fingerprints, |(path, _)| {
+                in_scope(path) || files.contains(path)
+            }),
             limitations,
         }
     }
+}
+
+/// The observations of `list` that `keep` admits, unchanged.
+fn kept<T: Clone>(list: &[T], keep: impl Fn(&T) -> bool) -> Vec<T> {
+    list.iter().filter(|item| keep(item)).cloned().collect()
 }

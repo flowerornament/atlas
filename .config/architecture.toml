@@ -131,16 +131,6 @@ function_nesting = 6
 # Ratchets: the functions held above a limit, at their measure, each owed a
 # split along its decisions (they carry Clippy expects in the source).
 function = [
-  { file = "crates/atlas-lib/src/analysis/index/build.rs", function = "Index::bind_method_owners", nesting = 7 },
-  { file = "crates/atlas-lib/src/analysis/index/mounts.rs", function = "Mounts::read", lines = 80 },
-  { file = "crates/atlas-lib/src/analysis/representations/extract.rs", function = "References<'_>::ty", lines = 77, nesting = 7 },
-  { file = "crates/atlas-lib/src/analysis/representations/extract.rs", function = "from_selected_sources", lines = 268 },
-  { file = "crates/atlas-lib/src/analysis/representations/types.rs", function = "Facts::incident", lines = 86 },
-  { file = "crates/atlas-lib/src/analysis/semantic/mod.rs", function = "SemanticIndex::reading", lines = 73 },
-  { file = "crates/atlas-lib/src/analysis/semantic/mod.rs", function = "Tables::new", lines = 72 },
-  { file = "crates/atlas-lib/src/analysis/workflow/functions.rs", function = "collect", lines = 90 },
-  { file = "crates/atlas-lib/src/analysis/workflow/parse.rs", function = "Reader<'_>::expr", lines = 283 },
-  { file = "crates/atlas-lib/src/analysis/workflow/projection.rs", function = "Builder<'a>::steps", lines = 215 },
 ]
 # Ratchets: files above the limits, at their measured body lines.
 entry = [

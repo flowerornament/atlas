@@ -14,10 +14,6 @@ pub(super) struct Mounts {
     pub(super) files: BTreeMap<String, Vec<(Vec<String>, bool)>>,
 }
 impl Mounts {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     pub(super) fn read(
         metadata: &Metadata,
         graph: &SourceGraph,
@@ -30,14 +26,7 @@ impl Mounts {
             let library = package
                 .targets
                 .iter()
-                .find(|t| {
-                    t.kind.iter().any(|k| {
-                        matches!(
-                            k,
-                            TargetKind::Lib | TargetKind::RLib | TargetKind::ProcMacro
-                        )
-                    })
-                })
+                .find(|t| library_kind(t))
                 .map_or_else(
                     || package.name.replace('-', "_"),
                     |t| t.name.replace('-', "_"),
@@ -45,29 +34,7 @@ impl Mounts {
             if !crates.insert(library.clone()) {
                 return Err(format!("Cargo library namespace {library} belongs to multiple packages; qualified lookup cannot choose one").into());
             }
-            let mut targets = BTreeMap::<String, Vec<(String, bool, String)>>::new();
-            for target in &package.targets {
-                let path = discovery::target_key(root, target.src_path.as_std_path());
-                let binary = target
-                    .kind
-                    .iter()
-                    .any(|kind| matches!(kind, TargetKind::Bin));
-                let label = discovery::target_label(target);
-                let namespace = if target.kind.iter().any(|kind| {
-                    matches!(
-                        kind,
-                        TargetKind::Lib | TargetKind::RLib | TargetKind::ProcMacro
-                    )
-                }) {
-                    library.clone()
-                } else {
-                    format!("{library}#{label}")
-                };
-                targets
-                    .entry(path)
-                    .or_default()
-                    .push((namespace, binary, label));
-            }
+            let targets = target_namespaces(root, package, &library);
             for file in graph
                 .files
                 .iter()
@@ -133,4 +100,41 @@ impl Mounts {
         }
         Ok(boundaries)
     }
+}
+
+fn library_kind(target: &cargo_metadata::Target) -> bool {
+    target.kind.iter().any(|kind| {
+        matches!(
+            kind,
+            TargetKind::Lib | TargetKind::RLib | TargetKind::ProcMacro
+        )
+    })
+}
+/// Each target root of a package, with the namespace it compiles into (the
+/// library's, or `library#label` for any other target), whether it is a
+/// binary, and its label.
+fn target_namespaces(
+    root: &std::path::Path,
+    package: &cargo_metadata::Package,
+    library: &str,
+) -> BTreeMap<String, Vec<(String, bool, String)>> {
+    let mut targets = BTreeMap::<String, Vec<(String, bool, String)>>::new();
+    for target in &package.targets {
+        let path = discovery::target_key(root, target.src_path.as_std_path());
+        let binary = target
+            .kind
+            .iter()
+            .any(|kind| matches!(kind, TargetKind::Bin));
+        let label = discovery::target_label(target);
+        let namespace = if library_kind(target) {
+            library.to_owned()
+        } else {
+            format!("{library}#{label}")
+        };
+        targets
+            .entry(path)
+            .or_default()
+            .push((namespace, binary, label));
+    }
+    targets
 }
