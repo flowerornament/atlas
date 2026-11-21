@@ -60,8 +60,10 @@ pub(super) fn parse_ast(
         exports: super::facts::exports(&ast.items, reader.selection),
         types: Vec::new(),
         aliases: Vec::new(),
+        modules: Vec::new(),
     };
     super::facts::types(&ast.items, &[], reader.selection, &mut parsed);
+    super::facts::modules(&ast.items, &[], reader.selection, &mut parsed.modules);
     parsed
 }
 

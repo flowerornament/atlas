@@ -1,5 +1,6 @@
-//! Conservative call lookup through explicit imports, reexports and signature types.
-//! Ambiguous, indirect and unsupported calls stay summarized; no Rust type inference.
+//! Conservative call lookup through explicit imports, globs of workspace
+//! modules, reexports and signature types. Ambiguous, indirect and
+//! unsupported calls stay summarized; no Rust type inference.
 use super::{Function, Index, Summary, SummaryKind, Target};
 use crate::{
     analysis::workflow::{Binding, Call},
@@ -50,8 +51,115 @@ impl Index {
                 return None;
             };
             p = import.iter().chain(&p[1..]).cloned().collect();
+        } else {
+            match self.glob(scope, imports, &p) {
+                Glob::Bound(path) => return Some(path),
+                Glob::Ambiguous => return None,
+                Glob::Unbound => {}
+            }
         }
         self.exported(&normalize(scope, &p, &self.crates))
+    }
+    /// What the module's globs of workspace modules bind a path's first
+    /// name to. Unbound when no glob applies: the module declares the name,
+    /// no workspace glob binds it, or it is a path keyword or a crate.
+    /// Ambiguous when globs bind it to different items (or through an
+    /// ambiguous import or re-export), which is never picked.
+    ///
+    /// A glob of the module itself or of an ancestor binds every name there,
+    /// private items and `use` declarations included; a glob of any other
+    /// module binds its non-private items and its re-exports. A name a
+    /// glob of an external module, or a glob inside the globbed module,
+    /// might also bind is not considered: in code that compiles, two globs
+    /// cannot both bind a name that is used.
+    fn glob(
+        &self,
+        scope: &[String],
+        imports: &BTreeMap<String, Vec<Vec<String>>>,
+        p: &[String],
+    ) -> Glob {
+        let (Some(first), Some(globs)) = (p.first(), imports.get("*")) else {
+            return Glob::Unbound;
+        };
+        if matches!(first.as_str(), "crate" | "self" | "super" | "Self")
+            || self.crates.contains(first)
+            || self.declares_name(scope, first)
+        {
+            return Glob::Unbound;
+        }
+        let mut found = BTreeSet::new();
+        for glob in globs {
+            let Some(module) = self.exported(&normalize(scope, glob, &self.crates)) else {
+                continue;
+            };
+            let Some(names) = self.modules.get(&module) else {
+                continue;
+            };
+            let inside = scope.starts_with(&module);
+            let mut key = module.clone();
+            key.push(first.clone());
+            let bound = if names
+                .items
+                .get(first)
+                .is_some_and(|private| inside || !private)
+                || self.exports.contains_key(&key)
+            {
+                key.iter().chain(&p[1..]).cloned().collect::<Vec<_>>()
+            } else if inside && let Some(sources) = names.imports.get(first) {
+                let [source] = sources.as_slice() else {
+                    return Glob::Ambiguous;
+                };
+                let mut path = normalize(&module, source, &self.crates);
+                path.extend_from_slice(&p[1..]);
+                path
+            } else {
+                continue;
+            };
+            let Some(bound) = self.exported(&bound) else {
+                return Glob::Ambiguous;
+            };
+            found.insert(bound);
+        }
+        match found.len() {
+            0 => Glob::Unbound,
+            1 => found.pop_first().map_or(Glob::Unbound, Glob::Bound),
+            _ => Glob::Ambiguous,
+        }
+    }
+    /// Whether the module at `scope` declares `name` itself: an item, a
+    /// re-export, or a module with items under it. Such a name shadows every
+    /// glob import.
+    fn declares_name(&self, scope: &[String], name: &str) -> bool {
+        if self
+            .modules
+            .get(scope)
+            .is_some_and(|names| names.items.contains_key(name))
+        {
+            return true;
+        }
+        let mut key = scope.to_vec();
+        key.push(name.to_owned());
+        let from = (Bound::Included(key.as_slice()), Bound::Unbounded);
+        let under = |k: &Vec<String>| k.starts_with(&key);
+        self.names
+            .range::<[String], _>(from)
+            .next()
+            .is_some_and(|(k, _)| under(k))
+            || self
+                .types
+                .range::<[String], _>(from)
+                .next()
+                .is_some_and(under)
+            || self
+                .aliases
+                .range::<[String], _>(from)
+                .next()
+                .is_some_and(|(k, _)| under(k))
+            || self
+                .exports
+                .range::<[String], _>(from)
+                .next()
+                .is_some_and(|(k, _)| under(k))
     }
     pub(crate) fn canonical(&self, function: usize, p: &[String]) -> Option<Vec<String>> {
         let f = self.functions.get(function)?;
@@ -294,13 +402,16 @@ impl Index {
             return target;
         }
         let path = written.join("::");
-        Target::Summarized(Summary::about(
-            SummaryKind::UnresolvedPath,
-            &path,
+        let message = if f.flow.imports.contains_key("*") {
+            format!(
+                "unresolved or external path {path}: nothing in this module, its explicit imports or the workspace modules it glob-imports binds {first}, so it may come from an external glob, the prelude or another package"
+            )
+        } else {
             format!(
                 "unresolved or external path {path}: nothing in this module or its imports binds {first}, so it may be a prelude or external name"
-            ),
-        ))
+            )
+        };
+        Target::Summarized(Summary::about(SummaryKind::UnresolvedPath, &path, message))
     }
 
     /// Whether `first` names something in `f`'s scope: a path keyword, an
@@ -312,30 +423,7 @@ impl Index {
         {
             return true;
         }
-        let mut key = f.scope.clone();
-        key.push(first.to_owned());
-        // The first key at or after `key` is under it when any key is.
-        let from = (Bound::Included(key.as_slice()), Bound::Unbounded);
-        let under = |k: &Vec<String>| k.starts_with(&key);
-        self.names
-            .range::<[String], _>(from)
-            .next()
-            .is_some_and(|(k, _)| under(k))
-            || self
-                .types
-                .range::<[String], _>(from)
-                .next()
-                .is_some_and(under)
-            || self
-                .aliases
-                .range::<[String], _>(from)
-                .next()
-                .is_some_and(|(k, _)| under(k))
-            || self
-                .exports
-                .range::<[String], _>(from)
-                .next()
-                .is_some_and(|(k, _)| under(k))
+        self.declares_name(&f.scope, first)
     }
 
     /// Prefer the written type; otherwise inspect a unique initializer's return type.
@@ -354,6 +442,13 @@ impl Index {
             output => self.canonical(*target, &ty(output)?),
         }
     }
+}
+
+/// What glob imports bind a name to.
+enum Glob {
+    Unbound,
+    Bound(Vec<String>),
+    Ambiguous,
 }
 
 pub(super) fn normalize(

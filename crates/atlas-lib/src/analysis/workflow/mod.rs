@@ -272,6 +272,21 @@ pub struct ParsedFile {
     /// Declared type aliases, read by the index to tell an alias of a
     /// workspace type from an alias of a foreign one.
     pub(crate) aliases: Vec<Alias>,
+    /// Each module the file writes (the file's own and its inline ones):
+    /// what a glob import of it binds.
+    pub(crate) modules: Vec<ModuleNames>,
+}
+/// The names a module binds for a glob import of it: its items and its
+/// `use` declarations, relative to the file's module, with whether each is
+/// private (a glob from outside the module and its descendants does not
+/// bind a private name).
+#[derive(Clone, Default)]
+pub(crate) struct ModuleNames {
+    pub(crate) path: Vec<String>,
+    /// Declared items by name: private or not.
+    pub(crate) items: std::collections::BTreeMap<String, bool>,
+    /// `use` bindings as `imports` holds them, `*` for its own globs.
+    pub(crate) imports: std::collections::BTreeMap<String, Vec<Vec<String>>>,
 }
 /// A `type` alias, relative to the file's module, with its aliased path as
 /// written (generic arguments dropped) and the imports in scope there.

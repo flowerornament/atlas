@@ -39,6 +39,16 @@ it uses.
 | **Qualified** | Atlas followed `use` statements, modules and Cargo targets to work out exactly which item a call or type refers to. If it cannot work it out, the item is marked *unresolved*. | `dependencies`, `callers`, `callees`, `types`, `compare`, `overview`, `flow --depth` |
 | **Declared** | You wrote it down: an architecture policy, or a table in your code that an adapter reads. | `stages`, `seams`, `policy`, `delta`, `program`, `map --architecture` |
 
+A glob import (`use super::*`, `use crate::model::*`) is followed into
+workspace modules only. A glob of the module itself or of an ancestor binds
+every name there, private items and that module's own `use` imports
+included; a glob of another module binds its non-private items and
+re-exports. A name the module declares or imports by name shadows every
+glob; two globs binding different items leave the call ambiguous; a glob of
+another package, or a glob inside the globbed module, is not followed.
+Items a macro writes are not seen, so a glob can appear to bind a name such
+an item shadows.
+
 A fourth kind, **semantic**, comes from outside Atlas: a SCIP index that a
 compiler front end such as rust-analyzer wrote (`rust-analyzer scip .`). Pass
 it with `--scip FILE` to `dump --json` or `flow`, and each call gets a second,

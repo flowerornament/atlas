@@ -1,4 +1,5 @@
-//! Conservative source names: Cargo roots, explicit imports, and inspected signatures.
+//! Conservative source names: Cargo roots, explicit imports, globs of
+//! workspace modules, and inspected signatures.
 //! Construction binds Cargo mounts, boundaries, functions, names and method owners.
 //! Resolution never chooses among ambiguous names; Analysis owns the syntax cache.
 mod build;
@@ -67,6 +68,8 @@ pub struct Index {
     /// Trait-impl owners the workspace declares no type for: a foreign type
     /// (or one a macro declares). Their methods are never call targets.
     foreign: BTreeSet<Vec<String>>,
+    /// What a glob import of each workspace module binds, by module path.
+    modules: BTreeMap<Vec<String>, super::workflow::ModuleNames>,
 }
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -230,6 +233,7 @@ impl Index {
             type_names: BTreeSet::new(),
             aliases: BTreeMap::new(),
             foreign: BTreeSet::new(),
+            modules: BTreeMap::new(),
         };
         index.read_functions(sources, graph, &mounts, tests)?;
         index.name_functions();

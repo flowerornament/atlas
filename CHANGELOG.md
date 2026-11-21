@@ -6,6 +6,17 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Glob imports of workspace modules are followed (`use super::*`, `use
+ crate::model::*`). A glob of the module itself or an ancestor binds every
+ name there, private items and that module's `use` imports included; a
+ glob of another module binds its non-private items and re-exports. A name
+ the module declares or imports by name shadows every glob, two globs
+ binding different items are ambiguous (never picked), and a glob of
+ another package is not followed; the unresolved-path reason then says a
+ glob may bind it. No resolved call is lost or changes target on this
+ repository or two private workspaces; with `--with-tests` resolved calls
+ grow by 148 (Atlas), 7,848 (+19%, large workspace) and 87 (mid-size); the
+ SCIP index disagrees with none of them.
 - `--with-tests` on `callers`, `callees`, `facts` and `query` reads the
  test population beside production code: test targets, the module files
  they declare, `#[cfg(test)]` modules and test-gated items. Every row from

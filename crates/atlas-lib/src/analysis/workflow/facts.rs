@@ -49,6 +49,49 @@ pub(super) fn types(
         out.types.push(path);
     }
 }
+/// The names each module binds for a glob of it, through inline modules.
+/// Items a macro writes are not seen, so a glob can bind a name such an
+/// item would shadow.
+pub(super) fn modules(
+    items: &[Item],
+    module: &[String],
+    selection: crate::population::SyntaxSelection<'_>,
+    out: &mut Vec<super::ModuleNames>,
+) {
+    let mut names = super::ModuleNames {
+        path: module.to_vec(),
+        items: BTreeMap::new(),
+        imports: imports(items, selection),
+    };
+    for item in items {
+        if !selection.admits(item.span()) {
+            continue;
+        }
+        let (ident, vis) = match item {
+            Item::Fn(f) => (&f.sig.ident, &f.vis),
+            Item::Struct(s) => (&s.ident, &s.vis),
+            Item::Enum(e) => (&e.ident, &e.vis),
+            Item::Union(u) => (&u.ident, &u.vis),
+            Item::Trait(t) => (&t.ident, &t.vis),
+            Item::Type(t) => (&t.ident, &t.vis),
+            Item::Const(c) => (&c.ident, &c.vis),
+            Item::Static(s) => (&s.ident, &s.vis),
+            Item::Mod(m) => {
+                if let Some((_, inner)) = &m.content {
+                    let mut child = module.to_vec();
+                    child.push(m.ident.to_string());
+                    modules(inner, &child, selection, out);
+                }
+                (&m.ident, &m.vis)
+            }
+            _ => continue,
+        };
+        names
+            .items
+            .insert(ident.to_string(), matches!(vis, syn::Visibility::Inherited));
+    }
+    out.push(names);
+}
 /// A type's path as written, without generic arguments, through references.
 fn type_path(ty: &syn::Type) -> Option<Vec<String>> {
     match ty {
@@ -87,7 +130,8 @@ fn bindings(
             && (!exported_only || !matches!(item.vis, syn::Visibility::Inherited))
         {
             for binding in crate::scan::item_use_bindings(item) {
-                // A glob remains an unresolved import; qualification never expands it.
+                // A glob is kept under `*`, its module's path; the index
+                // follows it only into workspace modules.
                 let path = binding
                     .source_path
                     .split("::")

@@ -48,6 +48,10 @@ impl Index {
                     self.types
                         .insert(scope.iter().chain(path).cloned().collect());
                 }
+                for names in &parsed.modules {
+                    let key: Vec<String> = scope.iter().chain(&names.path).cloned().collect();
+                    self.modules.insert(key, names.clone());
+                }
                 for alias in &parsed.aliases {
                     let qualified: Vec<String> = scope.iter().chain(&alias.path).cloned().collect();
                     let module = qualified[..qualified.len() - 1].to_vec();
