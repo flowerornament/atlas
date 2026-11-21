@@ -71,11 +71,7 @@ fn source_authorities_refuse_ambiguous_or_test_only_homes_and_forbidden_items() 
     }
 }
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
-fn missing_paths_patterns_and_project_authority_never_mean_pass() {
+fn a_missing_forbidden_path_observation_never_means_pass() {
     let root = fixture("pub struct Home;\n");
     let snapshot = snapshot_workspace(root.path()).unwrap();
     let analysis = Analysis::new(&snapshot).unwrap();
@@ -102,6 +98,16 @@ fn missing_paths_patterns_and_project_authority_never_mean_pass() {
             .status(),
         Status::Refuse
     );
+}
+#[test]
+fn a_missing_forbidden_pattern_observation_never_means_pass() {
+    let root = fixture("pub struct Home;\n");
+    let snapshot = snapshot_workspace(root.path()).unwrap();
+    let analysis = Analysis::new(&snapshot).unwrap();
+    let mut policy = Policy::parse(POLICY).unwrap();
+    policy.authority[0].forbid_path.push("old.rs".into());
+    let mut inputs = Inputs::new(&snapshot);
+    // The forbidden path is observed absent, so only the pattern decides.
     inputs.paths.insert("old.rs".into(), PathState::Absent);
     policy.authority[0]
         .forbid_pattern

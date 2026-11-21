@@ -39,11 +39,7 @@ fn json(f: &Fixture, args: &[&str]) -> serde_json::Value {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
-fn callers_lists_resolved_calls_and_possible_ones_apart() {
+fn callers_lists_resolved_callers_one_per_site() {
     let f = fixture();
     // AT7: resolved callers, one per site.
     let two = text(&f, &["callers", "two"]);
@@ -54,6 +50,11 @@ fn callers_lists_resolved_calls_and_possible_ones_apart() {
         "{two}"
     );
     assert!(two.contains("      src/lib.rs:11  caller_x\n"), "{two}");
+}
+
+#[test]
+fn callers_lists_resolved_calls_and_possible_ones_apart() {
+    let f = fixture();
     // A resolved caller and an unresolved call written "one", kept apart.
     let one = text(&f, &["callers", "one"]);
     assert!(
@@ -77,6 +78,11 @@ fn callers_lists_resolved_calls_and_possible_ones_apart() {
         answer["possibly_by_kind"]["receiver-initializer-unknown"],
         1
     );
+}
+
+#[test]
+fn callers_never_reads_no_callers_as_unused() {
+    let f = fixture();
     // R19: neither resolved nor possible callers is never "unused".
     let none = text(&f, &["callers", "none"]);
     assert!(
@@ -84,6 +90,11 @@ fn callers_lists_resolved_calls_and_possible_ones_apart() {
         "{none}"
     );
     assert!(!none.contains("unused"));
+}
+
+#[test]
+fn callers_answers_each_function_sharing_a_name_on_its_own() {
+    let f = fixture();
     // R16: two functions named `run` are answered on their own.
     let run = text(&f, &["callers", "run"]);
     assert!(
@@ -101,6 +112,11 @@ fn callers_lists_resolved_calls_and_possible_ones_apart() {
             .map(Vec::len),
         Some(2)
     );
+}
+
+#[test]
+fn callers_selector_forms_reach_the_same_function() {
+    let f = fixture();
     // The other selector forms reach the same function.
     for selector in ["a::run", "src/a.rs:1", "src/a.rs:1:7"] {
         let answer = json(&f, &["callers", selector]);
@@ -123,6 +139,11 @@ fn callers_lists_resolved_calls_and_possible_ones_apart() {
             ["path"],
         "src/b.rs"
     );
+}
+
+#[test]
+fn callers_refuses_a_name_no_function_has() {
+    let f = fixture();
     // R15.
     let (ok, stdout, stderr) = atlas(&f, &["callers", "nowhere"]);
     assert!(!ok && stdout.is_empty());
@@ -130,6 +151,11 @@ fn callers_lists_resolved_calls_and_possible_ones_apart() {
         stderr,
         "atlas: no function matches \"nowhere\"; try cargo atlas name nowhere\n"
     );
+}
+
+#[test]
+fn callers_in_limits_the_callers_never_the_function_asked() {
+    let f = fixture();
     // --in keeps callers in part of the project, never which function is asked.
     let kept = json(&f, &["callers", "two", "--in", "src/a.rs"]);
     assert_eq!(

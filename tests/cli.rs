@@ -216,11 +216,7 @@ fn representation_query_outputs_are_explicit_and_cannot_overwrite_inputs() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
-fn canonical_root_and_current_directory_preserve_existing_queries() {
+fn canonical_root_preserves_existing_positional_queries() {
     let f = fixture();
     for (legacy, named) in [
         (
@@ -273,6 +269,11 @@ fn canonical_root_and_current_directory_preserve_existing_queries() {
         );
         assert_eq!(old.stdout, new.stdout, "{named:?}");
     }
+}
+
+#[test]
+fn positional_scope_from_the_current_directory_matches_named_scope_and_root() {
+    let f = fixture();
     for command in ["spans", "nontest-loc", "concentration"] {
         let positional = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
             .current_dir(f.path())
@@ -299,6 +300,11 @@ fn canonical_root_and_current_directory_preserve_existing_queries() {
         );
         assert_eq!(positional.stdout, named.stdout, "{command}");
     }
+}
+
+#[test]
+fn the_current_directory_is_the_default_root() {
+    let f = fixture();
     let default_root = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
         .current_dir(f.path())
         .args(["census", "--json"])
@@ -306,6 +312,11 @@ fn canonical_root_and_current_directory_preserve_existing_queries() {
         .expect("current directory invocation");
     assert!(default_root.status.success());
     assert_eq!(default_root.stdout, run(&f, &["census", "--json"]).stdout);
+}
+
+#[test]
+fn a_positional_root_conflicts_with_a_different_root_and_aliases_the_same_one() {
+    let f = fixture();
     let other = fixture();
     let conflict = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
         .current_dir("/")

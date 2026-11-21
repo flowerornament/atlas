@@ -544,13 +544,9 @@ fn export_candidates_preserve_qualified_and_name_preference_evidence() {
     assert!(matches!(local.target, Resolution::Unique(_)));
 }
 
-#[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
-fn exports_keep_global_ambiguity_qualified_priority_and_package_context() {
-    use atlas_lib::{model::Resolution, queries::navigation::BindingEvidence};
+/// The public dump of three packages whose exports name declarations that are
+/// unique, repeated across packages, or local to the exporting package.
+fn three_package_exports() -> atlas_lib::queries::navigation::Dump {
     let root = Fixture::new(&[]);
     fs::write(
         root.path().join("Cargo.toml"),
@@ -584,10 +580,16 @@ fn exports_keep_global_ambiguity_qualified_priority_and_package_context() {
         }
     }
     let snapshot = snapshot_workspace(root.path()).expect("snapshot");
-    let dump = Navigation::new(&snapshot, VisibilitySelection::Public)
+    Navigation::new(&snapshot, VisibilitySelection::Public)
         .expect("navigation")
         .dump()
-        .expect("dump");
+        .expect("dump")
+}
+
+#[test]
+fn exports_keep_qualified_priority_and_package_context() {
+    use atlas_lib::{model::Resolution, queries::navigation::BindingEvidence};
+    let dump = three_package_exports();
     let definition = |id: &str| {
         dump.declarations
             .iter()
@@ -613,6 +615,12 @@ fn exports_keep_global_ambiguity_qualified_priority_and_package_context() {
             if name == "LocalChoice" { "a" } else { "b" }
         );
     }
+}
+
+#[test]
+fn exports_keep_global_and_qualified_ambiguity() {
+    use atlas_lib::{model::Resolution, queries::navigation::BindingEvidence};
+    let dump = three_package_exports();
     for (name, expected) in [
         ("Ambiguous", BindingEvidence::WorkspaceName),
         ("AmbiguousPath", BindingEvidence::QualifiedSuffix),

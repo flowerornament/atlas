@@ -187,14 +187,17 @@ fn name_cards_agree(root: &Path, name: &str) {
     assert_eq!(got, expected, "{name} in {}", root.display());
 }
 
+/// `callers`/`callees` and the prelude's `calls_function`, `reaches` and
+/// `possible_call` agree on `selector`.
+fn calls_agree(root: &Path, selector: &str) {
+    let id = resolved_calls_agree(root, selector);
+    possible_callers_agree(root, selector, &id);
+}
+
 /// `callers`/`callees` and the prelude's `calls_function` and `reaches`:
 /// depth 1 is one `calls_function` step, and depth 16 (more than any chain
-/// here) is every `reaches` row.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
-fn calls_agree(root: &Path, selector: &str) {
+/// here) is every `reaches` row. Returns the selected function's id.
+fn resolved_calls_agree(root: &Path, selector: &str) -> String {
     let ends = |question: &str, depth: &str| -> (String, BTreeSet<String>) {
         let report = json(root, &[question, selector, "--depth", depth, "--json"]);
         let answer = &report["answers"][0];
@@ -238,7 +241,11 @@ fn calls_agree(root: &Path, selector: &str) {
         !all.is_empty() || !reached.is_empty(),
         "{selector} has no calls"
     );
-    // Possibly: the unresolved calls `possible_call` names, site for site.
+    id
+}
+
+/// Possibly: the unresolved calls `possible_call` names, site for site.
+fn possible_callers_agree(root: &Path, selector: &str, id: &str) {
     let report = json(root, &["callers", selector, "--json"]);
     let possibly: BTreeSet<(String, u64, u64)> = report["answers"][0]["possibly"]
         .as_array()

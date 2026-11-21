@@ -143,14 +143,12 @@ fn as_json_prints_the_bytes_json_prints_and_json_needs_no_notice() {
     assert!(text(&refused.stderr).contains("[possible values: json]"));
 }
 
+const FLOW: [&str; 5] = ["flow", "--path", "src/lib.rs", "--function", "run"];
+
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn every_old_output_spelling_prints_what_its_as_form_prints() {
     let f = fixture();
-    let flow = ["flow", "--path", "src/lib.rs", "--function", "run"];
+    let flow = FLOW;
     for (old, new) in [
         (
             &["dependencies", "--backend", "ascii"][..],
@@ -184,6 +182,12 @@ fn every_old_output_spelling_prints_what_its_as_form_prints() {
         assert_eq!(text(&before.stdout), text(&after.stdout), "{old:?}");
         assert_eq!(text(&before.stderr), text(&after.stderr), "{old:?}");
     }
+}
+
+#[test]
+fn every_old_image_spelling_writes_what_its_as_form_writes() {
+    let f = fixture();
+    let flow = FLOW;
     // Images: the same file at the same path, from either spelling.
     for (old, new) in [
         (

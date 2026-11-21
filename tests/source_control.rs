@@ -238,11 +238,74 @@ fn large_empty_match_arms_refuse_the_node_budget_instead_of_evading_it() {
     assert!(error.to_string().contains("600"));
 }
 
+/// A source index for one `src/lib.rs` fixture, kept with the directory it reads.
+fn index_for(source: &str) -> (Fixture, atlas_lib::source_index::Index) {
+    let fixture = Fixture::new(&[("src/lib.rs", source)]);
+    let metadata = cargo_metadata::MetadataCommand::new()
+        .current_dir(fixture.path())
+        .no_deps()
+        .exec()
+        .expect("read fixture metadata");
+    let graph = discovery::scan_metadata(&metadata).expect("scan fixture metadata");
+    let architecture = cargo_atlas::architecture::Architecture::empty();
+    let index =
+        atlas_lib::source_index::Index::new(fixture.path(), &metadata, &graph, &architecture)
+            .expect("index fixture source");
+    (fixture, index)
+}
+/// Every raw node is either kept or summarized, and a summarized node keeps
+/// its label and source sites.
+fn assert_compact_accounts_for_every_raw_node(raw: &Diagram, compact: &Diagram) {
+    let accounted: BTreeSet<_> = compact
+        .nodes
+        .iter()
+        .chain(&compact.coverage.summarized_nodes)
+        .map(|n| n.id.as_str())
+        .collect();
+    assert_eq!(accounted, raw.nodes.iter().map(|n| n.id.as_str()).collect());
+    assert_eq!(
+        compact.nodes.len() + compact.coverage.summarized_nodes.len(),
+        raw.nodes.len()
+    );
+    for node in &compact.coverage.summarized_nodes {
+        let original = raw
+            .nodes
+            .iter()
+            .find(|n| n.id == node.id)
+            .expect("a summarized node is a raw node");
+        assert_eq!(node.label, original.label);
+        assert_eq!(node.source_sites, original.source_sites);
+    }
+}
+/// Retained nodes reach each other exactly as they do in the raw view, and
+/// every raw `return to` edge survives.
+fn assert_compact_preserves_retained_paths(raw: &Diagram, compact: &Diagram, depth: u8) {
+    for from in &compact.nodes {
+        for to in &compact.nodes {
+            assert_eq!(
+                reachable(raw, &from.id, &to.id),
+                reachable(compact, &from.id, &to.id),
+                "{} → {} at depth {depth}",
+                from.label,
+                to.label
+            );
+        }
+    }
+    for edge in raw.edges.iter().filter(|e| {
+        e.label
+            .as_deref()
+            .is_some_and(|s| s.starts_with("return to"))
+    }) {
+        assert!(
+            compact
+                .edges
+                .iter()
+                .any(|e| e.from == edge.from && e.to == edge.to && e.label == edge.label)
+        );
+    }
+}
+
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn compact_control_preserves_retained_paths_and_every_folded_observation() {
     for source in [
         CONTROL,
@@ -254,17 +317,7 @@ fn compact_control_preserves_retained_paths_and_every_folded_observation() {
         "pub fn run(){run();}",
     ] {
         let function = if source == CONTROL { "nested" } else { "run" };
-        let fixture = Fixture::new(&[("src/lib.rs", source)]);
-        let metadata = cargo_metadata::MetadataCommand::new()
-            .current_dir(fixture.path())
-            .no_deps()
-            .exec()
-            .unwrap();
-        let graph = discovery::scan_metadata(&metadata).unwrap();
-        let architecture = cargo_atlas::architecture::Architecture::empty();
-        let index =
-            atlas_lib::source_index::Index::new(fixture.path(), &metadata, &graph, &architecture)
-                .unwrap();
+        let (_fixture, index) = index_for(source);
         for depth in [0, 1] {
             let (_, raw) = workflow::expand(&index, "src/lib.rs", function, depth).unwrap();
             let (_, compact) = workflow::expand_with_detail(
@@ -276,45 +329,8 @@ fn compact_control_preserves_retained_paths_and_every_folded_observation() {
             )
             .unwrap();
             compact.validate().unwrap();
-            let accounted: BTreeSet<_> = compact
-                .nodes
-                .iter()
-                .chain(&compact.coverage.summarized_nodes)
-                .map(|n| n.id.as_str())
-                .collect();
-            assert_eq!(accounted, raw.nodes.iter().map(|n| n.id.as_str()).collect());
-            assert_eq!(
-                compact.nodes.len() + compact.coverage.summarized_nodes.len(),
-                raw.nodes.len()
-            );
-            for node in &compact.coverage.summarized_nodes {
-                let original = raw.nodes.iter().find(|n| n.id == node.id).unwrap();
-                assert_eq!(node.label, original.label);
-                assert_eq!(node.source_sites, original.source_sites);
-            }
-            for from in &compact.nodes {
-                for to in &compact.nodes {
-                    assert_eq!(
-                        reachable(&raw, &from.id, &to.id),
-                        reachable(&compact, &from.id, &to.id),
-                        "{} → {} at depth {depth}",
-                        from.label,
-                        to.label
-                    );
-                }
-            }
-            for edge in raw.edges.iter().filter(|e| {
-                e.label
-                    .as_deref()
-                    .is_some_and(|s| s.starts_with("return to"))
-            }) {
-                assert!(
-                    compact
-                        .edges
-                        .iter()
-                        .any(|e| e.from == edge.from && e.to == edge.to && e.label == edge.label)
-                );
-            }
+            assert_compact_accounts_for_every_raw_node(&raw, &compact);
+            assert_compact_preserves_retained_paths(&raw, &compact, depth);
         }
     }
 }

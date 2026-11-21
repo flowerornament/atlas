@@ -241,11 +241,7 @@ fn qualified_rows_bridge_to_exactly_one_lexical_declaration() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
-fn counts_agree_with_census_and_dependencies() {
+fn counts_agree_with_census() {
     let fixture = fixture();
     let facts = json(&fixture, &["facts"]);
     let census = json(&fixture, &["census", "--json"]);
@@ -283,7 +279,12 @@ fn counts_agree_with_census_and_dependencies() {
         records(&facts, "mention_unresolved").len()
     );
     assert_eq!(census["diagnostics"], records(&facts, "diagnostic").len());
+}
 
+#[test]
+fn counts_and_calls_agree_with_dependencies() {
+    let fixture = fixture();
+    let facts = json(&fixture, &["facts"]);
     let dependencies = json(&fixture, &["dependencies", "--all-facts", "--json"]);
     let evidence = &dependencies["facts"];
     for (relation, key) in [

@@ -8,13 +8,9 @@ use atlas_lib::{
 mod support;
 use support::Fixture;
 
-#[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
-fn shared_package_roots_keep_contexts_and_one_physical_report() {
-    let fixture = Fixture::new(&[
+/// Two packages whose library roots are the same physical `shared.rs`.
+fn shared_package_root() -> Fixture {
+    Fixture::new(&[
         (
             "Cargo.toml",
             "[workspace]\nmembers=['left','right']\nresolver='3'\n",
@@ -31,7 +27,12 @@ fn shared_package_roots_keep_contexts_and_one_physical_report() {
             "shared.rs",
             "pub struct Token {}\npub fn make() -> Token { Token {} }\npub fn caller() -> Token { make() }\n",
         ),
-    ]);
+    ])
+}
+
+#[test]
+fn shared_package_roots_keep_contexts_and_one_physical_report() {
+    let fixture = shared_package_root();
     let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
     assert_eq!(snapshot.graph().files.len(), 2);
     assert_eq!(snapshot.graph().physical_files().count(), 1);
@@ -44,6 +45,12 @@ fn shared_package_roots_keep_contexts_and_one_physical_report() {
     );
     assert_eq!(queries::census(snapshot.graph(), None).unwrap().files, 1);
     assert_eq!(review::outline(&snapshot, ".").unwrap().files.len(), 1);
+}
+
+#[test]
+fn shared_package_roots_keep_one_physical_body_in_representations() {
+    let fixture = shared_package_root();
+    let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
     let facts = Analysis::new(&snapshot).unwrap().representations().unwrap();
     assert_eq!(facts.types.len(), 1);
     assert_eq!(facts.functions.len(), 2);
@@ -55,6 +62,12 @@ fn shared_package_roots_keep_contexts_and_one_physical_report() {
     );
     assert_eq!(facts.constructors.len(), 1);
     assert_eq!(facts.references.len(), 2);
+}
+
+#[test]
+fn shared_package_roots_draw_one_physical_file_and_both_contexts() {
+    let fixture = shared_package_root();
+    let snapshot = discovery::snapshot_workspace(fixture.path()).expect("fixture snapshot");
     for level in [
         atlas_lib::diagram::Level::Files,
         atlas_lib::diagram::Level::Declarations,

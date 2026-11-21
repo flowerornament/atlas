@@ -4,7 +4,7 @@ mod support;
 use std::{
     fs,
     os::unix::fs::PermissionsExt,
-    process::{Command, Output, Stdio},
+    process::{Child, Command, Output, Stdio},
     thread,
     time::{Duration, Instant},
 };
@@ -41,11 +41,18 @@ fn run(fixture: &Fixture, body: &str) -> Output {
     );
     output
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
+/// Runs Atlas with `arguments` against a fake Node whose script is `body`,
+/// within a hang deadline, and checks the renderer process was reaped.
 fn invoke(fixture: &Fixture, body: &str, arguments: &[&str]) -> Output {
+    let real = install_fake_node(fixture, body);
+    let child = spawn_with_fake_node(fixture, &real, arguments);
+    let output = wait_within_deadline(fixture, child);
+    assert_renderer_reaped(fixture);
+    output
+}
+/// Writes `fake/node`, which runs the real Node on `fake/body.mjs`, and
+/// returns the real Node executable's path.
+fn install_fake_node(fixture: &Fixture, body: &str) -> String {
     let real = Command::new("node")
         .args(["-p", "process.execPath"])
         .output()
@@ -64,11 +71,14 @@ fn invoke(fixture: &Fixture, body: &str, arguments: &[&str]) -> Output {
     fixture.write("fake/body.mjs", &format!(
         "import fs from 'node:fs';\nfs.writeFileSync(process.env.ATLAS_NODE_PID, String(process.pid));\n{body}\n"
     ));
+    real
+}
+fn spawn_with_fake_node(fixture: &Fixture, real: &str, arguments: &[&str]) -> Child {
     let mut paths = vec![fixture.path().join("fake")];
     paths.extend(std::env::split_paths(
         &std::env::var_os("PATH").expect("PATH for Node fixture"),
     ));
-    let mut child = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+    Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
         .args(arguments)
         .arg("--root")
         .arg(fixture.path())
@@ -82,7 +92,9 @@ fn invoke(fixture: &Fixture, body: &str, arguments: &[&str]) -> Output {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("start Atlas CLI fixture");
+        .expect("start Atlas CLI fixture")
+}
+fn wait_within_deadline(fixture: &Fixture, mut child: Child) -> Output {
     // Drain both pipes while waiting, so a child that writes more than a pipe
     // buffer is never blocked by the harness itself.
     let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
@@ -112,11 +124,13 @@ fn invoke(fixture: &Fixture, body: &str, arguments: &[&str]) -> Output {
         }
         thread::sleep(Duration::from_millis(10));
     };
-    let output = Output {
+    Output {
         status,
         stdout: stdout.join().expect("stdout reader"),
         stderr: stderr.join().expect("stderr reader"),
-    };
+    }
+}
+fn assert_renderer_reaped(fixture: &Fixture) {
     if let Ok(pid) = fs::read_to_string(fixture.path().join("fake/pid")) {
         let alive = Command::new("kill")
             .args(["-0", pid.trim()])
@@ -127,7 +141,6 @@ fn invoke(fixture: &Fixture, body: &str, arguments: &[&str]) -> Output {
             "owned renderer must be reaped: {pid}"
         );
     }
-    output
 }
 fn refuses(body: &str, message: &str) {
     let fixture = project();
