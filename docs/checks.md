@@ -205,7 +205,7 @@ unknown fields, so a typo is an error rather than a silently ignored rule.
 | `schema` | Always `1`. |
 | `provenance` | Always `"authored"`: the file was written by people, not generated. |
 | `authority` | A list of facts and the one place each is defined (see below). Must not be empty. |
-| `[population] core` | The workspace packages that the size and surface rules cover. |
+| `[population] core` | The workspace packages that the size and surface rules cover. A package leaves `core` only with `amended_by = { bead = "<reference>", covers = ["population"] }` in `[population]`, cited in the change's description, as a loosening of `[concentration]` is. |
 | `[size] core_token_lines` | The most lines containing code allowed across all `core` packages. |
 | `[size] crate` | The most lines containing code allowed in each package. |
 | `[surface]` | The most public declarations allowed in each package. |
@@ -299,6 +299,11 @@ header_uncited = { tutorial = 2 }
 - `file_lines`: the most lines of code any production file may have.
 - `entry` and `file`: files allowed above those limits, as rows like
   `{ path = "src/big.rs", lines = 2400 }`. The recorded size may only go down.
+  A row may name an `owner`, the reference that answers for it (an issue,
+  say). An owned row must equal its file's measure: where a row without an
+  owner is only told it can be lowered or deleted, an owned one is refused
+  until it is. A project wrapper resolves each owner, as it does stage debt
+  owners.
 - `conventional_names`: module names any package may reuse, such as `error`.
 - `name`: other module names used in more than one place, each with a
   `ruling`: `facet` (one idea seen from several places, which is fine) or
@@ -331,8 +336,6 @@ skipped a rule you wrote.
   `core_token_lines` and `crate` (both together are refused). Each package's
   size before and after a change is reported, and growth is for the project
   to approve.
-- `[population] amended_by = { bead = "...", covers = ["population"] }`: the
-  reference that allows a package to leave `core`, as in `[concentration]`.
 - `[concentration] function_lines` and `function_nesting`: the longest a
   function body may be, in lines of code, and how deep it may nest (the
   measures of Clippy's `too_many_lines` and `excessive_nesting`).
@@ -340,7 +343,6 @@ skipped a rule you wrote.
   functions are not measured. `function = [{ file, function, lines,
   nesting, owner }]` lists functions allowed over a limit at their measure;
   `function` is written as `cargo atlas callers` takes it (`Type::method`).
-- `owner` on an `entry` or `file` row: the reference that answers for it.
 - In an `authority` entry:
   - `allowed_readers = [{ file, reads, owner, reason }]`: the only files
     whose production code may use the home, each with its exact number of

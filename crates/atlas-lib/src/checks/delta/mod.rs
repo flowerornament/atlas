@@ -24,6 +24,9 @@ pub struct Raise {
     pub before: Option<usize>,
     pub after: usize,
     pub measured: usize,
+    /// The owner of the row that rose; a ceiling raise has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
 }
 #[derive(Default, Serialize)]
 #[non_exhaustive]
@@ -183,6 +186,13 @@ pub fn check(
             reason: error.to_string(),
         }),
     }
+    out.violations.extend(ceilings::population_changes(
+        published,
+        policy,
+        &inputs.description,
+        inputs.concentration.citations.as_ref(),
+        &mut out.unavailable,
+    ));
     if let Some(concentration) = &policy.concentration {
         let held = concentration::landing_workspaces(
             concentration,

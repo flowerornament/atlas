@@ -591,7 +591,28 @@ impl Policy {
                 );
             }
         }
+        if let Some(amendment) = &self.population.amended_by {
+            add(
+                vec!["population".into(), "amended_by".into(), "bead".into()],
+                &amendment.bead,
+            );
+        }
         if let Some(policy) = &self.concentration {
+            for (rows, name) in [(&policy.entry, "entry"), (&policy.file, "file")] {
+                for (index, row) in rows.iter().enumerate() {
+                    if let Some(owner) = &row.owner {
+                        add(
+                            vec![
+                                "concentration".into(),
+                                name.into(),
+                                index.to_string(),
+                                "owner".into(),
+                            ],
+                            owner,
+                        );
+                    }
+                }
+            }
             if let Some(amendment) = &policy.amended_by {
                 add(
                     vec!["concentration".into(), "amended_by".into(), "bead".into()],
@@ -625,9 +646,6 @@ impl Policy {
         if self.size.approve_growth {
             out.push("size.approve_growth".to_owned());
         }
-        if self.population.amended_by.is_some() {
-            out.push("population.amended_by".to_owned());
-        }
         if let Some(policy) = &self.concentration {
             for (written, field) in [
                 (policy.function_lines.is_some(), "function_lines"),
@@ -637,13 +655,6 @@ impl Policy {
             ] {
                 if written {
                     out.push(format!("concentration.{field}"));
-                }
-            }
-            for (rows, name) in [(&policy.entry, "entry"), (&policy.file, "file")] {
-                for (index, row) in rows.iter().enumerate() {
-                    if row.owner.is_some() {
-                        out.push(format!("concentration.{name}.{index}.owner"));
-                    }
                 }
             }
         }

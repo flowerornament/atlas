@@ -46,6 +46,11 @@ impl ConcentrationPolicy {
         self.population.iter().any(|member| member == name)
     }
 }
+/// One row's finding: refused, or passed with a hint.
+enum Finding {
+    Refusal(String),
+    Hint(String),
+}
 /// What one fold found: growth refuses; an improvement passes with a hint
 /// naming the lower row it now permits.
 #[derive(Default)]
@@ -180,6 +185,7 @@ fn loosening(
         .filter(|amendment| published.amended_by.as_ref() != Some(*amendment));
     if let Some(amendment) = amendment
         && known_uncited(
+            "concentration",
             &amendment.bead,
             description,
             citations,
@@ -301,20 +307,36 @@ fn line_rows(
     } = *rule;
     for row in rows {
         let (path, held) = (&row.path, row.lines);
-        match measured.get(path).or_else(|| trees.now.file.get(path)).copied() {
-            None => out.hints.push(format!(
+        // A row with an owner is owned debt and must be current: what an
+        // ownerless row is told it may do, an owned one must do.
+        let stale = |change: String| match &row.owner {
+            Some(owner) => Finding::Refusal(format!(
+                "{change}; it is owned by `{owner}`, and an owned row must equal its measure"
+            )),
+            None => Finding::Hint(change),
+        };
+        let finding = match measured
+            .get(path)
+            .or_else(|| trees.now.file.get(path))
+            .copied()
+        {
+            None => stale(format!(
                 "{rule} row `{path}` can be deleted: no population {subject} has that path"
             )),
-            Some(lines) if lines > held => out.refusals.push(format!(
+            Some(lines) if lines > held => Finding::Refusal(format!(
                 "{subject} `{path}` is {lines} body lines, above its row {held}; {fix} (a row never rises)"
             )),
-            Some(lines) if lines <= limit => out.hints.push(format!(
+            Some(lines) if lines <= limit => stale(format!(
                 "{rule} row `{path}` can be deleted: {lines} body lines, within the {limit}-line limit"
             )),
-            Some(lines) if lines < held => out.hints.push(format!(
+            Some(lines) if lines < held => stale(format!(
                 "{rule} row `{path}` can ratchet to {lines} (row {held})"
             )),
-            Some(_) => {}
+            Some(_) => continue,
+        };
+        match finding {
+            Finding::Refusal(text) => out.refusals.push(text),
+            Finding::Hint(text) => out.hints.push(text),
         }
     }
     let listed: BTreeSet<&str> = rows.iter().map(|row| row.path.as_str()).collect();
@@ -480,7 +502,7 @@ fn name_rows(
                         None => out.refusals.push(format!(
                             "module name `{name}` is a published collision re-ruled a facet without naming who re-ruled it; add `reruled_by = \"<bead id>\"` to its row and cite the bead, or keep it a collision"
                         )),
-                        Some(bead) if known_uncited(bead, description, citations, &mut out.unavailable) => out.refusals.push(format!(
+                        Some(bead) if known_uncited("concentration", bead, description, citations, &mut out.unavailable) => out.refusals.push(format!(
                             "module name `{name}` is re-ruled a facet by `{bead}`, which this landing's description does not cite; cite it as ({bead}) so the bead-citations gate checks it exists"
                         )),
                         Some(_) => {}
@@ -607,8 +629,10 @@ fn header_counts(
     }
 }
 
-// False means no known absence: missing/stale interpretation records unavailable.
-fn known_uncited(
+// False means no known absence: missing/stale interpretation records
+// unavailable, under `section`.
+pub(in crate::checks) fn known_uncited(
+    section: &str,
     bead: &str,
     description: &str,
     citations: Option<&Citations>,
@@ -623,7 +647,7 @@ fn known_uncited(
         }
         supplied => {
             unavailable.push(MissingInput {
-                field: format!("concentration.citation.{bead}"),
+                field: format!("{section}.citation.{bead}"),
                 reason: if supplied.is_some() {
                     "parsed commit citations do not match the candidate description".into()
                 } else {

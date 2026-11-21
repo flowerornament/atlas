@@ -12,6 +12,7 @@ use crate::{
     population::{Population, TestSelection, VisibilitySelection},
 };
 pub use measure::Measure;
+pub(in crate::checks) use ratchets::known_uncited;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 

@@ -470,7 +470,8 @@ fn source_scopes_exclude_siblings_and_forbidden_paths_stop_at_intermediate_symli
 /// Every field 0.21's policy extensions add, written once: the policy
 /// parses, and each field this build reads but does not judge yet is
 /// reported unavailable by its address, so the check is never a complete
-/// PASS. Without them the same policy passes as before.
+/// PASS. Without them the same policy passes as before. The owners and
+/// citations judged since wait for the host's resolution instead.
 const EXTENDED: &str = r#"
 schema = 1
 provenance = "authored"
@@ -532,12 +533,10 @@ fn every_extension_field_parses_and_is_unavailable_until_judged() {
         .collect();
     for field in [
         "size.approve_growth",
-        "population.amended_by",
         "concentration.function_lines",
         "concentration.function_nesting",
         "concentration.generated",
         "concentration.function",
-        "concentration.entry.0.owner",
         "authority.0.allowed_readers",
         "authority.0.forbid_new_pattern",
         "authority.0.forbid_new_observed",
@@ -546,6 +545,25 @@ fn every_extension_field_parses_and_is_unavailable_until_judged() {
         "stage_seams.fixture.final_stages",
     ] {
         assert!(fields.contains(&field), "{field} missing from {fields:?}");
+    }
+    // Judged fields that name project authority wait for the host to
+    // resolve it, like every other owner.
+    for (field, written) in [
+        ("population.amended_by.bead", "ticket-3"),
+        ("concentration.entry.0.owner", "ticket-5"),
+    ] {
+        let missing = report.unavailable.iter().find(|m| m.field == field);
+        assert!(
+            missing.is_some_and(|m| m
+                .reason
+                .contains(&format!("`{written}` has not been resolved"))),
+            "{field}: {:?}",
+            report
+                .unavailable
+                .iter()
+                .map(|m| (&m.field, &m.reason))
+                .collect::<Vec<_>>()
+        );
     }
     // `allowed = "any"` is today's meaning of an absent `allowed`: judged.
     assert!(policy.crate_graph.rule[0].allowed.is_none());

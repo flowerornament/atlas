@@ -62,6 +62,7 @@ pub(super) fn ceiling_changes(
                     before: old,
                     after: ceiling,
                     measured: quantity,
+                    owner: None,
                 });
                 if ceiling != quantity {
                     violations.push(format!(
@@ -73,6 +74,68 @@ pub(super) fn ceiling_changes(
         }
     }
     (raises, violations)
+}
+
+/// The core population's loosening law: a crate leaving `population.core`
+/// needs `population.amended_by` naming the ruling, covering `population`,
+/// and cited by the candidate's description, as a concentration loosening
+/// does. An amendment that loosens nothing is refused.
+pub(super) fn population_changes(
+    before: &Policy,
+    after: &Policy,
+    description: &str,
+    citations: Option<&crate::checks::concentration::Citations>,
+    unavailable: &mut Vec<crate::checks::policy::MissingInput>,
+) -> Vec<String> {
+    use crate::checks::policy::Knob;
+    let mut refusals = Vec::new();
+    let amendment = after
+        .population
+        .amended_by
+        .as_ref()
+        .filter(|amendment| before.population.amended_by.as_ref() != Some(*amendment));
+    let left: Vec<&String> = before
+        .population
+        .core
+        .iter()
+        .filter(|name| !after.population.core.contains(name))
+        .collect();
+    if let Some(amendment) = amendment {
+        if crate::checks::concentration::known_uncited(
+            "population",
+            &amendment.bead,
+            description,
+            citations,
+            unavailable,
+        ) {
+            refusals.push(format!(
+                "population amended_by names `{}`, which this landing's description does not cite; cite it as ({}) so the citation check can confirm it",
+                amendment.bead, amendment.bead
+            ));
+        }
+        if amendment
+            .covers
+            .iter()
+            .any(|knob| *knob != Knob::Population)
+        {
+            refusals.push(
+                "population amended_by covers only `population`, the crates that leave `core`"
+                    .into(),
+            );
+        }
+        if left.is_empty() {
+            refusals.push(
+                "population amended_by covers `population`, but no crate leaves `core` in this landing; remove it".into(),
+            );
+        }
+    }
+    let covered = amendment.is_some_and(|amendment| amendment.covers.contains(&Knob::Population));
+    for name in left.into_iter().filter(|_| !covered) {
+        refusals.push(format!(
+            "`{name}` leaves population.core; name the ruling with `amended_by = {{ bead = \"<reference>\", covers = [\"population\"] }}` in [population] and cite it, or keep the crate in core"
+        ));
+    }
+    refusals
 }
 
 pub(super) fn ceiling_violations(

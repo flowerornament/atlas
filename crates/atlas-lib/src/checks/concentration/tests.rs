@@ -274,6 +274,37 @@ fn an_entry_file_over_the_limit_needs_an_exact_row() {
     assert!(refusals(&policy(""), None, &single).is_empty());
 }
 
+/// An owned row is owned debt and must equal its measure: where an
+/// ownerless row is told it may ratchet or be deleted, an owned one refuses.
+#[test]
+fn an_owned_row_must_equal_its_measure() {
+    let lib = format!("{CITED}mod a;\n{}", lines(4));
+    let tree = workspace(&[("lib.rs", &lib), ("a.rs", "")]);
+    let exact =
+        policy("entry = [{ path = 'crates/fix/src/lib.rs', lines = 4, owner = 'ticket-1' }]");
+    assert!(refusals(&exact, Some(&exact), &tree).is_empty());
+    let stale =
+        policy("entry = [{ path = 'crates/fix/src/lib.rs', lines = 5, owner = 'ticket-1' }]");
+    let found = refusals(&stale, Some(&stale), &tree);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0].starts_with("entry row `crates/fix/src/lib.rs` can ratchet to 4 (row 5)"),
+        "{found:?}"
+    );
+    assert!(
+        found[0].contains("owned by `ticket-1`, and an owned row must equal its measure"),
+        "{found:?}"
+    );
+    let gone = policy("file = [{ path = 'crates/fix/src/a.rs', lines = 6, owner = 'ticket-2' }]");
+    let found = refusals(&gone, Some(&gone), &workspace(&[("lib.rs", CITED)]));
+    assert!(
+        found
+            .iter()
+            .any(|text| text.contains("can be deleted") && text.contains("ticket-2")),
+        "{found:?}"
+    );
+}
+
 #[test]
 fn deleting_a_listed_file_passes_with_a_hint() {
     let published = policy("file = [{ path = 'crates/fix/src/a.rs', lines = 6 }]");

@@ -211,3 +211,61 @@ fn dependency_cycle_refuses() {
     let violations = policy.crate_graph.violations(&members, &dag);
     assert!(violations.iter().any(|row| row.starts_with("CYCLE")));
 }
+
+/// A crate leaving `population.core` is a loosening: it needs a cited
+/// `population.amended_by` covering `population`, as concentration's.
+#[test]
+fn leaving_the_core_needs_a_cited_amendment() {
+    use crate::checks::concentration::Citations;
+    let mut before = fixture_policy();
+    before.population.core.push("other".into());
+    let after = fixture_policy();
+    let cited = |description: &str, beads: &[&str]| Citations {
+        description_fingerprint: crate::discovery::fingerprint(description.as_bytes()),
+        beads: beads.iter().map(|bead| (*bead).to_owned()).collect(),
+    };
+    let check = |after: &Policy, description: &str, citations: &Citations| {
+        let mut unavailable = Vec::new();
+        let refusals = super::ceilings::population_changes(
+            &before,
+            after,
+            description,
+            Some(citations),
+            &mut unavailable,
+        );
+        assert!(unavailable.is_empty());
+        refusals
+    };
+    let refused = check(&after, "", &cited("", &[]));
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert!(
+        refused[0].starts_with("`other` leaves population.core"),
+        "{refused:?}"
+    );
+    let mut amended = after.clone();
+    amended.population.amended_by =
+        Some(toml::from_str("bead = 'ruling-1'\ncovers = ['population']").expect("amendment"));
+    assert!(check(&amended, "(ruling-1)", &cited("(ruling-1)", &["ruling-1"])).is_empty());
+    let uncited = check(&amended, "", &cited("", &[]));
+    assert!(
+        uncited.iter().any(|text| text.contains("does not cite")),
+        "{uncited:?}"
+    );
+    // An amendment with nothing to cover is refused.
+    let mut idle = before.clone();
+    idle.population.amended_by = amended.population.amended_by.clone();
+    let mut unavailable = Vec::new();
+    let refused = super::ceilings::population_changes(
+        &before,
+        &idle,
+        "(ruling-1)",
+        Some(&cited("(ruling-1)", &["ruling-1"])),
+        &mut unavailable,
+    );
+    assert!(
+        refused
+            .iter()
+            .any(|text| text.contains("no crate leaves `core`")),
+        "{refused:?}"
+    );
+}

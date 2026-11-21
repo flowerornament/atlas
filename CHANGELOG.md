@@ -6,6 +6,16 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Policy owners and citations. A concentration `entry` or `file` row may
+ name an `owner`; an owned row must equal its measure (a stale owned row
+ refuses with the lower value or the deletion it owes), while a row without
+ an owner keeps the hint. **Breaking:** a crate leaving `population.core`
+ now needs `[population] amended_by = { bead = "<reference>", covers =
+ ["population"] }`, cited in the description, as a concentration
+ loosening does; without it `delta` refuses and names that line. Row owners
+ and the amendment's reference join the authority a project wrapper
+ resolves (`Policy::external_references`). `Raise` gains `owner` (none for
+ ceiling raises).
 - Policy: the format reads the 0.21 extensions (`[size] approve_growth`,
  `population.amended_by`, concentration `function_lines`,
  `function_nesting`, `generated`, `function` rows and row `owner`,
