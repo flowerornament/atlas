@@ -3,8 +3,10 @@
 //! Construction binds Cargo mounts, boundaries, functions, names and method owners.
 //! Resolution never chooses among ambiguous names; Analysis owns the syntax cache.
 mod build;
+mod doors;
 mod mounts;
 mod resolve;
+pub mod sites;
 
 use super::{
     sources::{Sources, read_sources},

@@ -153,7 +153,7 @@ impl Index {
     /// Whether the module at `scope` declares `name` itself: an item, a
     /// re-export, or a module with items under it. Such a name shadows every
     /// glob import.
-    fn declares_name(&self, scope: &[String], name: &str) -> bool {
+    pub(super) fn declares_name(&self, scope: &[String], name: &str) -> bool {
         if self
             .modules
             .get(scope)
@@ -497,6 +497,12 @@ fn local_owner(f: &Function, binding: &Binding) -> Option<String> {
             .any(|b| b.name == initializer[0] && b.visible_at(&binding.site));
     let first = initializer.into_iter().next()?;
     (value || shadowed(&f.flow.local_names, &first)).then_some(first)
+}
+
+/// One step of following a path: to a new path, or ambiguous.
+pub(super) enum Resolved {
+    To(Vec<String>),
+    Ambiguous,
 }
 
 /// What glob imports bind a name to.

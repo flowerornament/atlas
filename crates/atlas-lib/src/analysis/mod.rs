@@ -73,6 +73,12 @@ impl<'a> Analysis<'a> {
             self.tests,
         )
     }
+    /// Every path written in production code, resolved through the
+    /// qualified index (see [`index::sites`]).
+    pub fn path_sites(&self) -> Result<Vec<index::sites::PathSite>> {
+        let index = self.index(&Architecture::empty())?;
+        index.path_sites(&self.sources)
+    }
     /// Bind the same captured names to a caller's declared architecture.
     pub fn index(&self, architecture: &Architecture) -> Result<Index> {
         self.require_selected_syntax()?;

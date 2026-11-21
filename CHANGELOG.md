@@ -6,6 +6,15 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- **Library:** `Analysis::path_sites` reads every path written in
+ production code as a site (`analysis::index::sites::PathSite`): each `use`
+ tree leaf and each whole written path in code, a macro's input read as
+ code when it parses as comma-separated expressions and otherwise as the
+ paths it spells, each resolved through the qualified index in every
+ production scope of its file, glob re-exports (`pub use self::m::*`) and
+ type aliases followed, with what binds its first segment (an import, a
+ glob or an alias) and, for an ambiguous path, its candidates. The
+ groundwork for counting the readers of a home.
 - `delta` judges function limits over a change: a raised or removed
  `function_lines`/`function_nesting` refuses, as does a new `generated`
  path; a new or raised `function` row is a `Raise` for the host to admit
