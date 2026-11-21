@@ -146,7 +146,6 @@ function = [
   { file = "crates/atlas-lib/src/checks/delta/coupling.rs", function = "CrateGraphPolicy::violations", lines = 79 },
   { file = "crates/atlas-lib/src/checks/delta/mod.rs", function = "stage_judgment", lines = 95 },
   { file = "crates/atlas-lib/src/checks/mod.rs", function = "seam_readings", lines = 91 },
-  { file = "crates/atlas-lib/src/checks/stages/interfaces.rs", function = "interface_policy_violations", lines = 112 },
   { file = "crates/atlas-lib/src/checks/stages/mod.rs", function = "StageReport::from_root", lines = 89 },
   { file = "crates/atlas-lib/src/checks/stages/roots.rs", function = "RootTable::edges", lines = 75 },
   { file = "crates/atlas-lib/src/checks/stages/seams/boundary.rs", function = "boundaries", lines = 147, nesting = 7 },

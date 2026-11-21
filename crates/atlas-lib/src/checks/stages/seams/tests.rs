@@ -758,3 +758,160 @@ fn a_test_only_stage_is_absent_from_production_paths_and_boundaries() {
         SeamReading::of(&map, &order(), &report, &held, &declarations(&map), &root).unwrap();
     assert!(reading.json()["boundaries"].get("front").is_none());
 }
+
+fn final_refusals(files: &[(&str, String)], policy: &str, finals: &str) -> Vec<String> {
+    let seams = format!("{SEAMS}\n    final_stages = {finals}\n");
+    refusals(files, policy, &seams)
+        .into_iter()
+        .filter(|refusal| refusal.starts_with("stage final"))
+        .collect()
+}
+
+#[test]
+fn a_final_stage_is_read_by_no_stage_but_the_composition() {
+    // Only back, the composition, reads middle.
+    assert_eq!(
+        final_refusals(&tree(), POLICY, r#"["middle"]"#),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn an_observed_final_stage_read_is_refused_at_its_site() {
+    let found = final_refusals(&tree(), POLICY, r#"["front"]"#);
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert!(
+        found[0].starts_with("stage final `fix`: crates/fix/src/middle/mod.rs:2 middle reads front (`crate::front::Presentation`), a final stage only back reads"),
+        "{found:#?}"
+    );
+    // A row naming the final stage is a read even with no path observed.
+    let quiet = with(
+        MIDDLE_ROOT,
+        "//! Boundary (SPEC-1-2): `Graph`.\npub(crate) struct Graph;\n",
+    );
+    let found = final_refusals(&quiet, POLICY, r#"["front"]"#);
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert!(
+        found[0].contains("middle's stage_reads row names front"),
+        "{found:#?}"
+    );
+}
+
+#[test]
+fn a_final_stage_is_a_staged_non_floor_stage_other_than_the_composition() {
+    let seams: policy::StageSeams = toml::from_str(&format!(
+        "{SEAMS}\n    final_stages = [\"nowhere\", \"vocabulary\", \"back\", \"middle\", \"middle\"]\n    amended_by = {{ bead = \"x-1\", covers = [\"population\"] }}\n"
+    ))
+    .expect("seams");
+    let found = final_stage_shape(&order(), &seams);
+    for problem in [
+        "`nowhere`, which is not a stage",
+        "`vocabulary`, which is a floor stage",
+        "`back`, which is the composition",
+        "`middle`, which is listed twice",
+        "amended_by covers only `final_stages`",
+    ] {
+        assert!(
+            found.iter().any(|v| v.contains(problem)),
+            "{problem}: {found:#?}"
+        );
+    }
+    assert_eq!(found.len(), 5, "{found:#?}");
+}
+
+/// A whole policy whose crate `fix` runs `stages` and writes `seams`.
+fn list_policy(stages: &str, seams: &str) -> policy::Policy {
+    policy::Policy::parse(&format!(
+        "schema=1\nprovenance='authored'\nsurface={{fix=50}}\nauthority=[{{fact='f',home='src/lib.rs::X'}}]\nstage_order=[{{crate='fix',stages={stages}}}]\n[population]\ncore=['fix']\n[size]\ncore_token_lines=1000\ncrate={{fix=1000}}\n[crate_graph]\nrule=[{{name='fix',allowed=[],law='leaf'}}]\n[stage_seams.fix]\nfloor=[]\n{seams}\n"
+    ))
+    .expect("fixture policy")
+}
+fn list_law(published: &policy::Policy, candidate: &policy::Policy, cited: &[&str]) -> Vec<String> {
+    let description = format!("change ({})", cited.join(", "));
+    let citations = crate::checks::concentration::Citations {
+        description_fingerprint: crate::discovery::fingerprint(description.as_bytes()),
+        beads: cited.iter().map(|bead| (*bead).to_owned()).collect(),
+    };
+    let mut unavailable = Vec::new();
+    let found = final_stage_list_refusals(
+        published,
+        candidate,
+        &description,
+        Some(&citations),
+        &mut unavailable,
+    );
+    assert!(unavailable.is_empty());
+    found
+}
+
+#[test]
+fn the_final_stage_list_is_held_to_the_published_one() {
+    let stages = "['a','b','c']";
+    let at = |seams: &str| list_policy(stages, seams);
+    let one = at("final_stages=['a']");
+    // absent → anything passes; the same set passes.
+    assert!(list_law(&at(""), &one, &[]).is_empty());
+    assert!(list_law(&at(""), &at("final_stages=[]"), &[]).is_empty());
+    assert!(list_law(&one, &one, &[]).is_empty());
+    for (candidate, refusal) in [
+        ("final_stages=['a','b']", "b is not a published final stage"),
+        ("final_stages=[]", "the published final stage a is gone"),
+        ("", "the published final_stages list is gone"),
+    ] {
+        let found = list_law(&one, &at(candidate), &[]);
+        assert!(
+            found.iter().any(|v| v.contains(refusal)),
+            "{candidate}: {found:#?}"
+        );
+    }
+    let found = list_law(&at("final_stages=[]"), &at("final_stages=['a']"), &[]);
+    assert!(
+        found
+            .iter()
+            .any(|v| v.contains("a is not a published final stage")),
+        "{found:#?}"
+    );
+}
+
+#[test]
+fn a_cited_amendment_changes_the_list_and_nothing_else_does() {
+    let stages = "['a','b','c']";
+    let one = list_policy(stages, "final_stages=['a']");
+    let amended = list_policy(
+        stages,
+        "final_stages=['a','b']\namended_by={bead='x-1',covers=['final_stages']}",
+    );
+    assert_eq!(list_law(&one, &amended, &["x-1"]), Vec::<String>::new());
+    let uncited = list_law(&one, &amended, &[]);
+    assert!(
+        uncited.iter().any(|v| v
+            .contains("amended_by names `x-1`, which this landing's description does not cite")),
+        "{uncited:#?}"
+    );
+    let idle = list_policy(
+        stages,
+        "final_stages=['a']\namended_by={bead='x-1',covers=['final_stages']}",
+    );
+    let found = list_law(&one, &idle, &["x-1"]);
+    assert!(
+        found
+            .iter()
+            .any(|v| v.contains("does not change the published list")),
+        "{found:#?}"
+    );
+}
+
+#[test]
+fn the_composition_cannot_move_while_final_stages_are_published() {
+    let one = list_policy("['a','b','c']", "final_stages=['a']");
+    let moved = list_policy("['a','c','b']", "final_stages=['a']");
+    let found = list_law(&one, &moved, &[]);
+    assert!(
+        found
+            .iter()
+            .any(|v| v.contains("the composition moves from c to b")),
+        "{found:#?}"
+    );
+    let unpublished = list_policy("['a','b','c']", "");
+    assert!(list_law(&unpublished, &list_policy("['a','c','b']", ""), &[]).is_empty());
+}

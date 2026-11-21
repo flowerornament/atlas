@@ -11,6 +11,7 @@ impl Knob {
             Self::FileLines => "file_lines",
             Self::Population => "population",
             Self::ConventionalNames => "conventional_names",
+            Self::FinalStages => "final_stages",
         }
     }
 }

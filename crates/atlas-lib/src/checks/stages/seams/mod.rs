@@ -7,6 +7,8 @@ use super::{Edge, RootTable, StageReport, test_source_lines};
 use crate::population::TestSelection;
 
 mod boundary;
+mod finals;
+pub(in crate::checks) use finals::{final_stage_list_refusals, final_stage_shape};
 mod ratchets;
 mod view;
 pub use view::Totals;
@@ -95,6 +97,8 @@ pub struct SeamReading {
     writer_census: BTreeMap<String, writers::WriterCensus>,
     /// The seam rows the candidate policy records.
     held: policy::StageSeams,
+    /// The crate's stages, upstream first; the last is the composition.
+    stages: Vec<String>,
 }
 
 impl SeamReading {
@@ -131,9 +135,11 @@ impl SeamReading {
             boundaries,
             floor_boundaries,
             writer_census: writers::census(crate_map, &seams.writers),
+            stages: order.stages.clone(),
             held: policy::StageSeams {
                 floor: seams.floor.clone(),
                 final_stages: seams.final_stages.clone(),
+                amended_by: seams.amended_by.clone(),
                 exports: seams.exports.clone(),
                 writers: seams.writers.clone(),
                 test_coupling: seams.test_coupling.clone(),

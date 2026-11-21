@@ -171,10 +171,16 @@ impl StageReads {
 #[non_exhaustive]
 pub struct StageSeams {
     pub floor: Vec<String>,
-    /// Stages no other stage reads, except the one that runs them all.
-    /// Written empty, it claims there are none; absent, it claims nothing.
+    /// Stages no other stage reads, except the one that runs them all (the
+    /// last stage of the crate's `stage_order`). Written empty, it claims
+    /// there are none; absent, it claims nothing. Once published, the list
+    /// and the composition stay unless `amended_by` covers `final_stages`.
     #[serde(default)]
     pub final_stages: Option<Vec<String>>,
+    /// The ruling that changes the published `final_stages` list or its
+    /// composition, cited in the landing's description.
+    #[serde(default)]
+    pub amended_by: Option<Amendment>,
     #[serde(default)]
     pub exports: BTreeMap<String, DebtRow>,
     #[serde(default)]
@@ -479,6 +485,8 @@ pub enum Knob {
     FileLines,
     Population,
     ConventionalNames,
+    /// A crate's `stage_seams.final_stages` list, or its composition.
+    FinalStages,
 }
 
 /// One file held above a limit at its measured body lines.
@@ -632,6 +640,13 @@ impl Policy {
                     &row.owner,
                 );
             }
+            if let Some(amendment) = &seams.amended_by {
+                push(
+                    out,
+                    &["stage_seams", package, "amended_by", "bead"],
+                    &amendment.bead,
+                );
+            }
         }
     }
     fn authority_owner_references(&self, out: &mut Vec<Reference>) {
@@ -721,9 +736,6 @@ impl Policy {
     pub fn unjudged(&self) -> Vec<String> {
         let mut out = Vec::new();
         for (package, seams) in &self.stage_seams {
-            if seams.final_stages.is_some() {
-                out.push(format!("stage_seams.{package}.final_stages"));
-            }
             for (name, writers) in &seams.writers {
                 for (written, field) in [
                     (writers.test_sites.is_some(), "test_sites"),

@@ -554,12 +554,12 @@ fn every_extension_field_parses_and_is_unavailable_until_judged() {
         "{:?}",
         report.violations
     );
-    for field in [
-        "stage_seams.fixture.final_stages",
-        "stage_seams.fixture.writers.Model.production_sites",
-    ] {
-        assert!(fields.contains(&field), "{field} missing from {fields:?}");
-    }
+    assert!(
+        !fields.contains(&"stage_seams.fixture.final_stages"),
+        "{fields:?}"
+    );
+    let field = "stage_seams.fixture.writers.Model.production_sites";
+    assert!(fields.contains(&field), "{field} missing from {fields:?}");
     // Judged fields that name project authority wait for the host to
     // resolve it, like every other owner.
     for (field, written) in [
@@ -673,15 +673,9 @@ fn an_explicitly_empty_field_is_a_claim_not_an_absence() {
     assert!(
         policy
             .unjudged()
-            .contains(&"stage_seams.fixture.final_stages".to_owned())
-    );
-    assert!(
-        policy
-            .unjudged()
             .contains(&"stage_seams.fixture.writers.Model.production_sites".to_owned())
     );
-    let absent = EXTENDED.replace("final_stages = [\"check\"]\n", "");
-    let policy = Policy::parse(&absent).expect("parses");
+    // final_stages is judged (by `stages` and `delta`) whether empty or not.
     assert!(
         !policy
             .unjudged()

@@ -140,22 +140,19 @@ impl StageReport {
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
+/// The shape of the declared `stage_seams` and `stage_reads` rows, for
+/// `stages` and `delta` alike.
 pub(in crate::checks) fn interface_policy_violations(
     orders: &[StageOrder],
     interfaces: &BTreeMap<String, BTreeMap<String, policy::StageReads>>,
     seams: &BTreeMap<String, policy::StageSeams>,
     key: Option<&str>,
 ) -> Vec<String> {
+    let selected = |name: &&String| key.is_none_or(|key| name.as_str() == key);
+    let order = |name: &str| orders.iter().find(|order| order.crate_name == name);
     let mut violations = Vec::new();
-    for (crate_name, declared) in seams
-        .iter()
-        .filter(|(name, _)| key.is_none_or(|key| name.as_str() == key))
-    {
-        let Some(order) = orders.iter().find(|order| &order.crate_name == crate_name) else {
+    for (crate_name, declared) in seams.iter().filter(|(name, _)| selected(name)) {
+        let Some(order) = order(crate_name) else {
             violations.push(format!(
                 "stage seams `{crate_name}`: stage_seams names a crate with no stage_order row; fix the crate name or add its stage_order row"
             ));
@@ -170,100 +167,129 @@ pub(in crate::checks) fn interface_policy_violations(
                 "stage seams `{crate_name}`: floor names `{stage}`, which is not a stage in its stage_order row"
             ));
         }
+        violations.extend(super::seams::final_stage_shape(order, declared));
     }
-    for (crate_name, rows) in interfaces
-        .iter()
-        .filter(|(name, _)| key.is_none_or(|key| name.as_str() == key))
-    {
-        let Some(order) = orders.iter().find(|order| &order.crate_name == crate_name) else {
+    for (crate_name, rows) in interfaces.iter().filter(|(name, _)| selected(name)) {
+        let Some(order) = order(crate_name) else {
             violations.push(format!(
                 "stage interface `{crate_name}`: stage_reads names a crate with no stage_order row; fix the crate name or add its stage_order row"
             ));
             continue;
         };
         let floor = seams.get(crate_name).map(|seams| &seams.floor);
-        let rank = |stage: &str| order.stages.iter().position(|named| named == stage);
         for (reader, declared) in rows {
-            let Some(reader_rank) = rank(reader) else {
-                violations.push(format!(
-                    "stage interface `{crate_name}`: `{reader}` is not a stage in its stage_order row"
-                ));
-                continue;
-            };
-            let listed: Vec<&str> = declared
-                .reads
-                .iter()
-                .chain(&declared.input)
-                .map(String::as_str)
-                .chain(declared.debt.stages())
-                .collect();
-            // An input may also owe a debt row (its interior); a stage read
-            // whole needs neither.
-            let mut once = BTreeSet::new();
-            let whole_or_owed = declared
-                .reads
-                .iter()
-                .map(String::as_str)
-                .chain(declared.debt.stages());
-            for read in whole_or_owed
-                .chain(
-                    declared
-                        .input
-                        .iter()
-                        .map(String::as_str)
-                        .filter(|read| !declared.debt.contains(read)),
-                )
-                .filter(|read| !once.insert(*read))
-            {
-                violations.push(format!(
-                    "stage interface `{crate_name}`: {reader} lists `{read}` twice among its reads, input and debt; keep one"
-                ));
-            }
-            if let policy::StageDebt::Bare(stages) = &declared.debt
-                && !stages.is_empty()
-            {
-                violations.push(format!(
-                    "stage interface `{crate_name}`: {reader} names its debt bare; write each as a row, `{} = {{ items = N, owner = \"<bead>\" }}`, counting the distinct items `cargo atlas seams` lists",
-                    stages[0]
-                ));
-            }
-            if let Some(floor) = floor {
-                // The floor holds names and laws every stage shares: it
-                // reads nothing but the floor.
-                if floor.contains(reader) && !listed.is_empty() {
-                    violations.push(format!(
-                        "stage interface `{crate_name}`: {reader} is a floor stage and lists {}; a floor stage reads only the floor, so move what it needs below it or take {reader} out of the floor",
-                        listed.join(", ")
-                    ));
-                }
-                let named: BTreeSet<&str> = listed.iter().copied().collect();
-                for read in named
-                    .iter()
-                    .filter(|read| floor.contains(&(**read).to_owned()))
-                {
-                    violations.push(format!(
-                        "stage interface `{crate_name}`: {reader} lists `{read}`, a floor stage every stage reads whole; drop it from the row"
-                    ));
-                }
-                for read in &declared.reads {
-                    violations.push(format!(
-                        "stage interface `{crate_name}`: {reader} reads `{read}` whole, but in a crate with item-level seams only the floor is read whole; name `{read}` as an input (its boundary items) or a debt row"
-                    ));
-                }
-            }
-            let mut ranked = BTreeSet::new();
-            for read in listed.into_iter().filter(|read| ranked.insert(*read)) {
-                match rank(read) {
-                    None => violations.push(format!(
-                        "stage interface `{crate_name}`: {reader} reads `{read}`, which is not a stage in its stage_order row"
-                    )),
-                    Some(read_rank) if read_rank >= reader_rank => violations.push(format!(
-                        "stage interface `{crate_name}`: {reader} reads `{read}`, which is not upstream of it; a stage reads only earlier stages"
-                    )),
-                    Some(_) => {}
-                }
-            }
+            row_violations(order, floor, reader, declared, &mut violations);
         }
     }
     violations
+}
+
+/// One stage's `stage_reads` row: a stage, upstream reads only, each read
+/// listed once, debt written as rows, and the floor read whole.
+fn row_violations(
+    order: &StageOrder,
+    floor: Option<&Vec<String>>,
+    reader: &str,
+    declared: &policy::StageReads,
+    violations: &mut Vec<String>,
+) {
+    let crate_name = &order.crate_name;
+    let rank = |stage: &str| order.stages.iter().position(|named| named == stage);
+    let Some(reader_rank) = rank(reader) else {
+        violations.push(format!(
+            "stage interface `{crate_name}`: `{reader}` is not a stage in its stage_order row"
+        ));
+        return;
+    };
+    let listed: Vec<&str> = declared
+        .reads
+        .iter()
+        .chain(&declared.input)
+        .map(String::as_str)
+        .chain(declared.debt.stages())
+        .collect();
+    listed_once(crate_name, reader, declared, violations);
+    if let policy::StageDebt::Bare(stages) = &declared.debt
+        && !stages.is_empty()
+    {
+        violations.push(format!(
+            "stage interface `{crate_name}`: {reader} names its debt bare; write each as a row, `{} = {{ items = N, owner = \"<bead>\" }}`, counting the distinct items `cargo atlas seams` lists",
+            stages[0]
+        ));
+    }
+    if let Some(floor) = floor {
+        floor_violations(crate_name, floor, reader, declared, &listed, violations);
+    }
+    let mut ranked = BTreeSet::new();
+    for read in listed.into_iter().filter(|read| ranked.insert(*read)) {
+        match rank(read) {
+            None => violations.push(format!(
+                "stage interface `{crate_name}`: {reader} reads `{read}`, which is not a stage in its stage_order row"
+            )),
+            Some(read_rank) if read_rank >= reader_rank => violations.push(format!(
+                "stage interface `{crate_name}`: {reader} reads `{read}`, which is not upstream of it; a stage reads only earlier stages"
+            )),
+            Some(_) => {}
+        }
+    }
+}
+/// A read listed twice among `reads`, `input` and `debt`. An input may
+/// also owe a debt row (its interior); a stage read whole needs neither.
+fn listed_once(
+    crate_name: &str,
+    reader: &str,
+    declared: &policy::StageReads,
+    violations: &mut Vec<String>,
+) {
+    let mut once = BTreeSet::new();
+    let whole_or_owed = declared
+        .reads
+        .iter()
+        .map(String::as_str)
+        .chain(declared.debt.stages());
+    for read in whole_or_owed
+        .chain(
+            declared
+                .input
+                .iter()
+                .map(String::as_str)
+                .filter(|read| !declared.debt.contains(read)),
+        )
+        .filter(|read| !once.insert(*read))
+    {
+        violations.push(format!(
+            "stage interface `{crate_name}`: {reader} lists `{read}` twice among its reads, input and debt; keep one"
+        ));
+    }
+}
+/// The floor holds names and laws every stage shares: it reads nothing but
+/// the floor, no row names it, and in a seamed crate only it is read whole.
+fn floor_violations(
+    crate_name: &str,
+    floor: &[String],
+    reader: &str,
+    declared: &policy::StageReads,
+    listed: &[&str],
+    violations: &mut Vec<String>,
+) {
+    if floor.iter().any(|stage| stage == reader) && !listed.is_empty() {
+        violations.push(format!(
+            "stage interface `{crate_name}`: {reader} is a floor stage and lists {}; a floor stage reads only the floor, so move what it needs below it or take {reader} out of the floor",
+            listed.join(", ")
+        ));
+    }
+    let named: BTreeSet<&str> = listed.iter().copied().collect();
+    for read in named
+        .iter()
+        .filter(|read| floor.iter().any(|stage| stage == *read))
+    {
+        violations.push(format!(
+            "stage interface `{crate_name}`: {reader} lists `{read}`, a floor stage every stage reads whole; drop it from the row"
+        ));
+    }
+    for read in &declared.reads {
+        violations.push(format!(
+            "stage interface `{crate_name}`: {reader} reads `{read}` whole, but in a crate with item-level seams only the floor is read whole; name `{read}` as an input (its boundary items) or a debt row"
+        ));
+    }
 }

@@ -444,6 +444,16 @@ header_uncited = { tutorial = 2 }
 - `stage_seams`: item-level boundaries between stages: what each stage
   exports, who may build shared types, and how far tests reach into other
   stages. This needs a [project wrapper](#project-wrappers).
+  `final_stages` lists stages no stage reads except the composition, the
+  last stage of the crate's `stage_order`. A stage reads a final stage
+  when its `stage_reads` row names it or a production path into it is
+  observed; each such reader refuses once, at its first site. A final
+  stage must be a stage, outside the floor, and not the composition.
+  `final_stages = []` claims there are none. Once published, the list is
+  the policy author's: `delta` refuses a landing that adds a final stage,
+  drops one, removes the list, or moves the composition, unless
+  `amended_by = { bead, covers = ["final_stages"] }` in the crate's
+  `stage_seams` names the ruling and the landing's description cites it.
 
 The Rust documentation for `atlas_lib::checks::policy::Policy` describes each
 field in more detail.
@@ -457,10 +467,8 @@ skipped a rule you wrote. A field written empty, such as `final_stages = []` or
 `production_sites = {}`, is a claim ("none") and counts as written; only a
 field left out claims nothing.
 
-- In `stage_seams`: `final_stages`, stages no other stage uses except the
-  one that runs them all; and per writer, `test_sites` and
-  `production_sites`, writer calls outside the producing stage counted
-  apart by population.
+- In `stage_seams`, per writer: `test_sites` and `production_sites`,
+  writer calls outside the producing stage counted apart by population.
 
 ## Project wrappers
 

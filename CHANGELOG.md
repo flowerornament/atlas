@@ -6,6 +6,14 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `stage_seams.final_stages` is judged by `stages` and `delta`: no stage
+ but the composition (the last stage of `stage_order`) reads a final stage,
+ by its `stage_reads` row or by an observed production path (one refusal
+ per reader, at its first site); a final stage is a staged, non-floor
+ stage other than the composition. Once published, the list and the
+ composition stay unless `stage_seams.amended_by = { bead, covers =
+ ["final_stages"] }` (new `Knob::FinalStages`), cited in the description,
+ rules the change.
 - `stage_order.pipeline` is judged by `policy::validate` (so `cargo atlas policy` and
  `delta`): each function, chosen with `flow`'s selector among production
  functions, makes exactly its `calls` as written (paths, `.method`,

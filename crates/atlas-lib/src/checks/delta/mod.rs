@@ -254,6 +254,14 @@ fn judge_landing(
     out: &mut Report,
 ) {
     judge_concentration(published, policy, workspaces, inputs, out);
+    let finals = super::stages::seams::final_stage_list_refusals(
+        published,
+        policy,
+        &inputs.description,
+        inputs.concentration.citations.as_ref(),
+        &mut out.unavailable,
+    );
+    out.violations.extend(finals);
     let side = |name, snapshot, inputs| spellings::Side {
         name,
         snapshot,

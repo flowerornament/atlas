@@ -24,6 +24,7 @@ impl SeamReading {
         let mut refusals = self.debt_refusals(base, report, published.reads.get(&self.crate_name));
         refusals.extend(self.export_refusals(base, published_seams));
         refusals.extend(self.writer_refusals(base, published_seams));
+        refusals.extend(self.final_read_refusals(report));
         refusals.extend(self.policy_refusals(published));
         refusals.extend(self.test_refusals(base, published_seams));
         refusals
