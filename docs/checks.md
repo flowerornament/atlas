@@ -348,7 +348,9 @@ field in more detail.
 These fields are part of the policy format and parse today. Their rules
 arrive in later builds of 0.21, so until then a policy that writes one is
 reported `UNAVAILABLE`, naming the field: never a complete `PASS` that
-skipped a rule you wrote.
+skipped a rule you wrote. A field written empty, such as `final_stages = []` or
+`production_sites = {}`, is a claim ("none") and counts as written; only a
+field left out claims nothing.
 
 - `[concentration] function_lines` and `function_nesting`: the longest a
   function body may be, in lines of code, and how deep it may nest (the

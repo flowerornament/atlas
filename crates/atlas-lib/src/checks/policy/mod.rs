@@ -165,8 +165,9 @@ impl StageReads {
 pub struct StageSeams {
     pub floor: Vec<String>,
     /// Stages no other stage reads, except the one that runs them all.
+    /// Written empty, it claims there are none; absent, it claims nothing.
     #[serde(default)]
-    pub final_stages: Vec<String>,
+    pub final_stages: Option<Vec<String>>,
     #[serde(default)]
     pub exports: BTreeMap<String, DebtRow>,
     #[serde(default)]
@@ -198,12 +199,13 @@ pub struct Writers {
     #[serde(default)]
     pub sites: BTreeMap<String, usize>,
     /// Writer call sites outside the producing stage in test code, per
-    /// owner; `sites` counts both populations together.
+    /// owner; `sites` counts both populations together. Written empty
+    /// (`{}`), it claims there are none; absent, it claims nothing.
     #[serde(default)]
-    pub test_sites: BTreeMap<String, usize>,
+    pub test_sites: Option<BTreeMap<String, usize>>,
     /// The same, in production code.
     #[serde(default)]
-    pub production_sites: BTreeMap<String, usize>,
+    pub production_sites: Option<BTreeMap<String, usize>>,
 }
 
 /// One test owner's coupling: the distinct (test file, item) pairs its tests
@@ -701,13 +703,13 @@ impl Policy {
             }
         }
         for (package, seams) in &self.stage_seams {
-            if !seams.final_stages.is_empty() {
+            if seams.final_stages.is_some() {
                 out.push(format!("stage_seams.{package}.final_stages"));
             }
             for (name, writers) in &seams.writers {
                 for (written, field) in [
-                    (!writers.test_sites.is_empty(), "test_sites"),
-                    (!writers.production_sites.is_empty(), "production_sites"),
+                    (writers.test_sites.is_some(), "test_sites"),
+                    (writers.production_sites.is_some(), "production_sites"),
                 ] {
                     if written {
                         out.push(format!("stage_seams.{package}.writers.{name}.{field}"));

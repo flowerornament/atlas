@@ -6,6 +6,10 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- An extension field written empty (`final_stages = []`, a writer's
+ `test_sites = {}` or `production_sites = {}`) is a claim and is reported
+ like any written field, no longer read as absent. **Library:** those
+ three fields are `Option`s.
 - `cargo atlas policy` refuses a second `stage_order` for one package, as
  `stages` already did.
 - `[size] approve_growth = true` is judged: no stored ceilings; `delta`

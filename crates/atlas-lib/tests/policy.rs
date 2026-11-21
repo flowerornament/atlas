@@ -510,6 +510,7 @@ rule = [{ name = "fixture", allowed = "any", law = "leaf" }]
 [stage_seams.fixture]
 floor = []
 final_stages = ["check"]
+writers = { Model = { stage = "parse", reason = "read whole", producers = ["parse"], owner = "ticket-6", production_sites = {} } }
 
 [concentration]
 population = ["fixture"]
@@ -552,6 +553,7 @@ fn every_extension_field_parses_and_is_unavailable_until_judged() {
         "authority.0.allowed_in",
         "stage_order.fixture.pipeline.0",
         "stage_seams.fixture.final_stages",
+        "stage_seams.fixture.writers.Model.production_sites",
     ] {
         assert!(fields.contains(&field), "{field} missing from {fields:?}");
     }
@@ -656,5 +658,31 @@ fn a_duplicate_stage_order_is_refused() {
     assert!(
         error.contains("duplicate stage_order for fixture"),
         "{error}"
+    );
+}
+
+/// An explicitly empty claim ("no final stages", "no production writers")
+/// is a claim to judge, unlike a field left out.
+#[test]
+fn an_explicitly_empty_field_is_a_claim_not_an_absence() {
+    let empty = EXTENDED.replace("final_stages = [\"check\"]", "final_stages = []");
+    let policy = Policy::parse(&empty).expect("parses");
+    assert!(
+        policy
+            .unjudged()
+            .contains(&"stage_seams.fixture.final_stages".to_owned())
+    );
+    assert!(
+        policy
+            .unjudged()
+            .contains(&"stage_seams.fixture.writers.Model.production_sites".to_owned())
+    );
+    let absent = EXTENDED.replace("final_stages = [\"check\"]\n", "");
+    let policy = Policy::parse(&absent).expect("parses");
+    assert!(
+        !policy
+            .unjudged()
+            .iter()
+            .any(|field| field.ends_with("final_stages"))
     );
 }
