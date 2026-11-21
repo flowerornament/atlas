@@ -102,11 +102,12 @@ pub(super) fn display(
         )?;
     }
     write!(out, "\nverdict   {}", verdict(report.status()))?;
-    for hint in report
-        .concentration
-        .iter()
-        .flat_map(|summary| &summary.hints)
-    {
+    for hint in report.policy.hints.iter().chain(
+        report
+            .concentration
+            .iter()
+            .flat_map(|summary| &summary.hints),
+    ) {
         write!(out, "\nhint      {hint}")?;
     }
     for refusal in &report.violations {

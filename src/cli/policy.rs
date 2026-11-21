@@ -73,6 +73,9 @@ pub(crate) fn run(
         for violation in &report.violations {
             println!("{violation}");
         }
+        for hint in &report.hints {
+            println!("hint: {hint}");
+        }
         for missing in &report.unavailable {
             println!("{}: {}", missing.field, missing.reason);
         }

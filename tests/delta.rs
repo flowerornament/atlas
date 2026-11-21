@@ -250,3 +250,49 @@ fn forbid_new_pattern_counts_both_sides_with_their_own_policies() {
         result["violations"]
     );
 }
+
+#[test]
+fn delta_prints_the_policy_hints_in_text() {
+    let fixture = fixture();
+    fixture.write(
+        "src/lib.rs",
+        "//! fixture: meaning\npub struct Home;\npub mod reader;\n",
+    );
+    fixture.write(
+        "src/reader.rs",
+        "//! fixture: meaning\nuse crate::Home;\npub fn read(_: &Home) {}\n",
+    );
+    fixture.write(
+        ".config/architecture.toml",
+        &POLICY.replace(
+            "home='src/lib.rs::Home'",
+            "home='src/lib.rs::Home',allowed_readers=[{file='src/reader.rs',reads=2,reason='reads it'}]",
+        ).replace("surface={fixture=1}", "surface={fixture=2}"),
+    );
+    let candidate = commit(&fixture);
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir("/")
+        .args(["delta", &candidate, "--root"])
+        .arg(fixture.path())
+        .args([
+            "--candidate",
+            &candidate,
+            "--policy",
+            ".config/architecture.toml",
+            "--citation-markers",
+            "fixture:",
+        ])
+        .output()
+        .expect("Atlas process");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        text.contains(
+            "hint      authority `home`: the row for src/reader.rs can ratchet to reads = 1 (row 2)"
+        ),
+        "{text}"
+    );
+}

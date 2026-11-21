@@ -6,6 +6,9 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `cargo atlas policy` and `delta` print the policy's hints in text too
+ (`hint:` and `hint      ` lines, such as a reader row that can be lowered),
+ not only in JSON, so a row above its measure no longer looks unchecked.
 - The tutorial policy uses the new authority rules: only `check` reads the
  syntax tree (`allowed_readers`), only `main` writes to standard error
  (`forbid_new_pattern`), and `function_lines`/`function_nesting` hold its
