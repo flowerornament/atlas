@@ -193,6 +193,19 @@ Without it, citations are not checked. The audit reads `//!` and `///`
 comments only, not `#[doc]` attributes or block comments. It reports coverage
 and gives no verdict.
 
+## A larger example: Atlas's own policy
+
+Atlas checks itself with a policy of its own,
+[`.config/architecture.toml`](https://github.com/flowerornament/atlas/blob/main/.config/architecture.toml).
+It shows the sections a real project grows into: a crate graph for two
+packages, a measured stage order with exact `stage_reads` rows, ten authority
+homes with `forbid_item` rows, and a `[concentration]` section with ratchet
+rows for today's large files, rulings for every repeated module name and the
+crate-root re-exports kept for compatibility. Its
+[ARCHITECTURE.md](https://github.com/flowerornament/atlas/blob/main/ARCHITECTURE.md#rules)
+states each rule in words and names the policy field, test or lint that
+checks it.
+
 ## Policy reference
 
 A policy is a TOML file, usually at `.config/architecture.toml`. Atlas rejects
