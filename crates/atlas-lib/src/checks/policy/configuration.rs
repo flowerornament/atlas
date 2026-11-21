@@ -16,7 +16,11 @@ impl Policy {
         }
         let core: BTreeSet<_> = self.population.core.iter().collect();
         let ceilings: BTreeSet<_> = self.size.crates.keys().collect();
-        if core != ceilings {
+        if self.size.approve_growth {
+            if !ceilings.is_empty() || self.size.core_token_lines != 0 {
+                return Err("policy: size.approve_growth stores no ceilings; remove size.crate and size.core_token_lines, or approve_growth".into());
+            }
+        } else if core != ceilings {
             return Err("policy: size.crate keys must equal population.core".into());
         }
         let sum = self

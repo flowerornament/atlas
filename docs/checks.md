@@ -241,8 +241,9 @@ rule = [
 ```
 
 Every workspace package needs a `rule`, unless it is listed as `vendored` or
-`terminal`. `allowed` lists the workspace packages it may depend on; leave it
-out to allow any. `law` is a note shown when the rule is broken. Dependency
+`terminal`. `allowed` lists the workspace packages it may depend on;
+`allowed = "any"` (or, for now, leaving it out) allows any. `law` is a note
+shown when the rule is broken. Dependency
 cycles are always refused.
 
 Optional lists:
@@ -318,6 +319,46 @@ header_uncited = { tutorial = 2 }
 
 The Rust documentation for `atlas_lib::checks::policy::Policy` describes each
 field in more detail.
+
+### Fields read but not judged yet
+
+These fields are part of the policy format and parse today. Their rules
+arrive in later builds of 0.21, so until then a policy that writes one is
+reported `UNAVAILABLE`, naming the field: never a complete `PASS` that
+skipped a rule you wrote.
+
+- `[size] approve_growth = true`: no stored ceilings. Write it instead of
+  `core_token_lines` and `crate` (both together are refused). Each package's
+  size before and after a change is reported, and growth is for the project
+  to approve.
+- `[population] amended_by = { bead = "...", covers = ["population"] }`: the
+  reference that allows a package to leave `core`, as in `[concentration]`.
+- `[concentration] function_lines` and `function_nesting`: the longest a
+  function body may be, in lines of code, and how deep it may nest (the
+  measures of Clippy's `too_many_lines` and `excessive_nesting`).
+  `generated = [{ path, reason }]` lists files or directories whose
+  functions are not measured. `function = [{ file, function, lines,
+  nesting, owner }]` lists functions allowed over a limit at their measure;
+  `function` is written as `cargo atlas callers` takes it (`Type::method`).
+- `owner` on an `entry` or `file` row: the reference that answers for it.
+- In an `authority` entry:
+  - `allowed_readers = [{ file, reads, owner, reason }]`: the only files
+    whose production code may use the home, each with its exact number of
+    uses; `[]` for none.
+  - `forbid_new_pattern = [{ name, pattern }]`: ast-grep patterns that may
+    not appear anew or grow outside the home; existing matches are counted
+    from the baseline. `forbid_new_observed = [name]` is the same for
+    spellings a project wrapper observes.
+  - `allowed_in = [{ file, item, counts, owner, reason }]`: items that may
+    hold a `forbid_new` spelling, up to `counts` (by path inside the item,
+    `""` for the item itself, then by spelling name).
+- `pipeline = { file, function, calls, loops }` in a `stage_order` entry:
+  the function that runs the stages makes exactly `calls`, in a straight
+  line; `loops = true` allows one `for` around them.
+- In `stage_seams`: `final_stages`, stages no other stage uses except the
+  one that runs them all; and per writer, `test_sites` and
+  `production_sites`, writer calls outside the producing stage counted
+  apart by population.
 
 ## Project wrappers
 

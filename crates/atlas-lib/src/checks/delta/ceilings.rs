@@ -14,16 +14,23 @@ pub(super) fn ceiling_changes(
         .iter()
         .map(|name| size.get(name).copied().unwrap_or(0))
         .sum();
-    let mut subjects = vec![(
-        "size.core_token_lines".to_owned(),
-        Some(before.size.core_token_lines),
-        Some(after.size.core_token_lines),
-        Some(core),
-    )];
-    for (prefix, old, new, measured) in [
-        ("size.crate", &before.size.crates, &after.size.crates, size),
-        ("surface", &before.surface, &after.surface, surface),
-    ] {
+    // Growth the host approves has no ceiling to raise (reported unjudged).
+    let ceilings = !(before.size.approve_growth || after.size.approve_growth);
+    let mut subjects = Vec::new();
+    if ceilings {
+        subjects.push((
+            "size.core_token_lines".to_owned(),
+            Some(before.size.core_token_lines),
+            Some(after.size.core_token_lines),
+            Some(core),
+        ));
+    }
+    let sizes = ceilings.then_some(("size.crate", &before.size.crates, &after.size.crates, size));
+    for (prefix, old, new, measured) in
+        sizes
+            .into_iter()
+            .chain([("surface", &before.surface, &after.surface, surface)])
+    {
         let names = old.keys().chain(new.keys()).collect::<BTreeSet<_>>();
         subjects.extend(names.into_iter().map(|name| {
             (
@@ -74,7 +81,9 @@ pub(super) fn ceiling_violations(
     surface: &BTreeMap<String, usize>,
 ) -> Vec<String> {
     let mut violations = Vec::new();
-    for (name, ceiling) in &policy.size.crates {
+    // Growth approved by the host is judged elsewhere (reported unjudged).
+    let ceilings = !policy.size.approve_growth;
+    for (name, ceiling) in policy.size.crates.iter().filter(|_| ceilings) {
         let actual = size.get(name).copied().unwrap_or(0);
         if actual > *ceiling {
             violations.push(format!(
@@ -88,7 +97,7 @@ pub(super) fn ceiling_violations(
         .iter()
         .map(|name| size.get(name).copied().unwrap_or(0))
         .sum::<usize>();
-    if core > policy.size.core_token_lines {
+    if ceilings && core > policy.size.core_token_lines {
         violations.push(format!(
             "core size is {core} token lines, above {}; shrink it or edit {POLICY_PATH} naming what the growth buys",
             policy.size.core_token_lines

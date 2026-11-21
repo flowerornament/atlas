@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct Policy {
     pub schema: u32,
     pub provenance: String,
@@ -48,6 +49,22 @@ pub struct StageOrder {
     #[serde(rename = "crate")]
     pub crate_name: String,
     pub stages: Vec<String>,
+    /// The function that runs the stages, and the calls it must make.
+    #[serde(default)]
+    pub pipeline: Option<Pipeline>,
+}
+
+/// The function that runs a crate's stages: straight-line, making exactly
+/// `calls` as written; `loops` allows one `for` around them.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct Pipeline {
+    pub file: String,
+    pub function: String,
+    pub calls: Vec<String>,
+    #[serde(default)]
+    pub loops: bool,
 }
 
 /// One stage's interface: the earlier stages it reads. `reads` are stages
@@ -146,6 +163,9 @@ impl StageReads {
 #[non_exhaustive]
 pub struct StageSeams {
     pub floor: Vec<String>,
+    /// Stages no other stage reads, except the one that runs them all.
+    #[serde(default)]
+    pub final_stages: Vec<String>,
     #[serde(default)]
     pub exports: BTreeMap<String, DebtRow>,
     #[serde(default)]
@@ -176,6 +196,13 @@ pub struct Writers {
     pub owner: String,
     #[serde(default)]
     pub sites: BTreeMap<String, usize>,
+    /// Writer call sites outside the producing stage in test code, per
+    /// owner; `sites` counts both populations together.
+    #[serde(default)]
+    pub test_sites: BTreeMap<String, usize>,
+    /// The same, in production code.
+    #[serde(default)]
+    pub production_sites: BTreeMap<String, usize>,
 }
 
 /// One test owner's coupling: the distinct (test file, item) pairs its tests
@@ -194,15 +221,23 @@ pub struct TestCoupling {
 #[non_exhaustive]
 pub struct CorePopulation {
     pub core: Vec<String>,
+    /// The citation that lets a crate leave `core`, as concentration's.
+    #[serde(default)]
+    pub amended_by: Option<Amendment>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct SizeCeilings {
+    #[serde(default)]
     pub core_token_lines: usize,
-    #[serde(rename = "crate")]
+    #[serde(rename = "crate", default)]
     pub crates: BTreeMap<String, usize>,
+    /// No stored ceilings: each crate's growth is reported for the host to
+    /// approve.
+    #[serde(default)]
+    pub approve_growth: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -222,10 +257,34 @@ pub struct CrateGraphPolicy {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct CrateRule {
     pub name: String,
+    /// The crates this one may depend on; `"any"` (or absent, for now) for
+    /// no limit.
+    #[serde(default, deserialize_with = "allowed_crates")]
     pub allowed: Option<Vec<String>>,
     pub law: Option<String>,
+}
+
+/// `allowed = ["a", "b"]`, or `allowed = "any"`: no limit, which an absent
+/// `allowed` also means until it is refused (0.21's crate-graph item).
+fn allowed_crates<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Vec<String>>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Written {
+        Crates(Vec<String>),
+        Word(String),
+    }
+    match Written::deserialize(deserializer)? {
+        Written::Crates(crates) => Ok(Some(crates)),
+        Written::Word(word) if word == "any" => Ok(None),
+        Written::Word(word) => Err(serde::de::Error::custom(format!(
+            "allowed must be a list of crates or \"any\", not \"{word}\""
+        ))),
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -240,6 +299,56 @@ pub struct AuthorityRule {
     pub forbid_path: Vec<String>,
     #[serde(default)]
     pub forbid_pattern: Vec<String>,
+    /// The only files whose production code may read the home, each with
+    /// its exact count of reads; `[]` for none.
+    #[serde(default)]
+    pub allowed_readers: Option<Vec<Reader>>,
+    /// Spellings (ast-grep patterns) that may not appear anew or grow
+    /// outside the home; existing ones are counted from the baseline.
+    #[serde(default)]
+    pub forbid_new_pattern: Vec<NamedPattern>,
+    /// The same, for spellings the host observes and supplies per item.
+    #[serde(default)]
+    pub forbid_new_observed: Vec<String>,
+    /// Items that may hold up to these counts of a `forbid_new` spelling.
+    #[serde(default)]
+    pub allowed_in: Vec<Allowance>,
+}
+
+/// A file allowed to read an authority's home, and how many times.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct Reader {
+    pub file: String,
+    pub reads: usize,
+    #[serde(default)]
+    pub owner: Option<String>,
+    pub reason: String,
+}
+
+/// A named spelling, as an ast-grep pattern.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct NamedPattern {
+    pub name: String,
+    pub pattern: String,
+}
+
+/// An item allowed to hold a `forbid_new` spelling: `counts` maps a path
+/// relative to the item (`""` for the item itself) to each spelling's
+/// largest count there.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct Allowance {
+    pub file: String,
+    pub item: String,
+    pub counts: BTreeMap<String, BTreeMap<String, usize>>,
+    #[serde(default)]
+    pub owner: Option<String>,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -266,11 +375,49 @@ pub struct ConcentrationPolicy {
     /// knobs it covers.
     #[serde(default)]
     pub amended_by: Option<Amendment>,
+    /// The longest a function body may be, in code lines.
+    #[serde(default)]
+    pub function_lines: Option<usize>,
+    /// The deepest a function may nest (clippy's excessive_nesting).
+    #[serde(default)]
+    pub function_nesting: Option<usize>,
+    /// Paths whose functions are not measured.
+    #[serde(default)]
+    pub generated: Vec<Generated>,
+    /// Functions allowed over a function limit, at their measure.
+    #[serde(default)]
+    pub function: Vec<FunctionRow>,
+}
+
+/// A path (file or directory) whose functions are not measured, and why.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct Generated {
+    pub path: String,
+    pub reason: String,
+}
+
+/// One function held above a function limit at its measure. `function` is
+/// written as `callers` takes it (`Type::method`, `module::f`).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct FunctionRow {
+    pub file: String,
+    pub function: String,
+    #[serde(default)]
+    pub lines: Option<usize>,
+    #[serde(default)]
+    pub nesting: Option<usize>,
+    #[serde(default)]
+    pub owner: Option<String>,
 }
 
 /// A bead that rules a loosening, and exactly what it loosens.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct Amendment {
     pub bead: String,
     pub covers: BTreeSet<Knob>,
@@ -294,6 +441,9 @@ pub enum Knob {
 pub struct LineRow {
     pub path: String,
     pub lines: usize,
+    /// The reference that answers for the row.
+    #[serde(default)]
+    pub owner: Option<String>,
 }
 
 /// One module name with several homes, and what the repetition means.
@@ -467,6 +617,70 @@ impl Policy {
 }
 
 impl Policy {
+    /// The fields this policy writes whose rule this build of Atlas reads
+    /// but does not judge yet, by address. A check over such a policy is
+    /// unavailable, never a complete PASS.
+    pub fn unjudged(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.size.approve_growth {
+            out.push("size.approve_growth".to_owned());
+        }
+        if self.population.amended_by.is_some() {
+            out.push("population.amended_by".to_owned());
+        }
+        if let Some(policy) = &self.concentration {
+            for (written, field) in [
+                (policy.function_lines.is_some(), "function_lines"),
+                (policy.function_nesting.is_some(), "function_nesting"),
+                (!policy.generated.is_empty(), "generated"),
+                (!policy.function.is_empty(), "function"),
+            ] {
+                if written {
+                    out.push(format!("concentration.{field}"));
+                }
+            }
+            for (rows, name) in [(&policy.entry, "entry"), (&policy.file, "file")] {
+                for (index, row) in rows.iter().enumerate() {
+                    if row.owner.is_some() {
+                        out.push(format!("concentration.{name}.{index}.owner"));
+                    }
+                }
+            }
+        }
+        for (index, rule) in self.authority.iter().enumerate() {
+            for (written, field) in [
+                (rule.allowed_readers.is_some(), "allowed_readers"),
+                (!rule.forbid_new_pattern.is_empty(), "forbid_new_pattern"),
+                (!rule.forbid_new_observed.is_empty(), "forbid_new_observed"),
+                (!rule.allowed_in.is_empty(), "allowed_in"),
+            ] {
+                if written {
+                    out.push(format!("authority.{index}.{field}"));
+                }
+            }
+        }
+        for order in &self.stage_order {
+            if order.pipeline.is_some() {
+                out.push(format!("stage_order.{}.pipeline", order.crate_name));
+            }
+        }
+        for (package, seams) in &self.stage_seams {
+            if !seams.final_stages.is_empty() {
+                out.push(format!("stage_seams.{package}.final_stages"));
+            }
+            for (name, writers) in &seams.writers {
+                for (written, field) in [
+                    (!writers.test_sites.is_empty(), "test_sites"),
+                    (!writers.production_sites.is_empty(), "production_sites"),
+                ] {
+                    if written {
+                        out.push(format!("stage_seams.{package}.writers.{name}.{field}"));
+                    }
+                }
+            }
+        }
+        out
+    }
     /// Project authority required by selected item-level seams.
     pub fn seam_references(&self, package: Option<&str>) -> Vec<Reference> {
         self.stage_references(package)

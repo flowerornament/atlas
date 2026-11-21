@@ -125,6 +125,12 @@ pub fn validate(
         report.violations.push(error.to_string());
         return Ok(report);
     }
+    for field in policy.unjudged() {
+        report.missing(
+            field,
+            "read by this build of Atlas, which does not judge it yet",
+        );
+    }
     if inputs.workspace != snapshot.metadata().workspace_root.as_std_path() {
         report.missing(
             "inputs.workspace",

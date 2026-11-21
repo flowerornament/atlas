@@ -6,6 +6,26 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Policy: the format reads the 0.21 extensions (`[size] approve_growth`,
+ `population.amended_by`, concentration `function_lines`,
+ `function_nesting`, `generated`, `function` rows and row `owner`,
+ authority `allowed_readers`, `forbid_new_pattern`, `forbid_new_observed`
+ and `allowed_in`, `stage_order` `pipeline`, `stage_seams` `final_stages`
+ and writers' `test_sites`/`production_sites`, and `allowed = "any"` in a
+ crate rule). Their rules are not judged yet: a policy that writes one is
+ `UNAVAILABLE` naming each field (`Policy::unjudged`), never a complete
+ `PASS`. Policies without them are judged as before. `[size]`'s
+ `core_token_lines` and `crate` may be left out with `approve_growth`, and
+ written together with it are refused. **Library:** `Policy` and several
+ of its section structs gain public fields (`StageOrder::pipeline`,
+ `SizeCeilings::approve_growth`, ...), and new types `Pipeline`, `Reader`,
+ `NamedPattern`, `Allowance`, `Generated`, `FunctionRow`.
+- **Breaking (atlas-lib, whose next version is 0.10.0):** every policy
+ schema type is `#[non_exhaustive]` (`Policy`, `CrateRule` and `Amendment`
+ join the rest), so 0.21's remaining fields and later ones are additive.
+ Build a policy, or any part of one, by deserializing it
+ (`Policy::parse`, or `toml::from_str` for a section) rather than with a
+ struct literal.
 - Fixed: on Unix a source file whose name holds a backslash
  (`src/odd\name.rs`) was keyed as `src/odd/name.rs`, so output protection
  guarded a path that does not exist and `--out 'src/odd\name.rs'` could

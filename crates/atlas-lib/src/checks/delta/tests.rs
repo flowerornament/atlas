@@ -8,10 +8,12 @@ fn fixture_policy() -> Policy {
             provenance: "authored".into(),
             population: CorePopulation {
                 core: vec!["core".into()],
+                amended_by: None,
             },
             size: SizeCeilings {
                 core_token_lines: 2,
                 crates: BTreeMap::from([("core".into(), 2)]),
+                approve_growth: false,
             },
             surface: BTreeMap::from([("core".into(), 1)]),
             crate_graph: CrateGraphPolicy {
@@ -31,6 +33,10 @@ fn fixture_policy() -> Policy {
                 forbid_item: vec![],
                 forbid_path: vec![],
                 forbid_pattern: vec![],
+                allowed_readers: None,
+                forbid_new_pattern: vec![],
+                forbid_new_observed: vec![],
+                allowed_in: vec![],
             }],
             stage_order: vec![],
             stage_reads: BTreeMap::new(),

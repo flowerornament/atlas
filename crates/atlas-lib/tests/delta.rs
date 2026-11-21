@@ -249,14 +249,9 @@ fn paired_capture_uses_each_revisions_package_members_without_reopening_the_base
     let before = snapshot_workspace(root.path()).unwrap();
     let mut published = Policy::parse(POLICY).unwrap();
     published.crate_graph.rule[0].allowed = Some(vec!["retired".into()]);
-    published
-        .crate_graph
-        .rule
-        .push(atlas_lib::checks::policy::CrateRule {
-            name: "retired".into(),
-            allowed: Some(Vec::new()),
-            law: Some("leaf".into()),
-        });
+    published.crate_graph.rule.push(
+        toml::from_str("name = 'retired'\nallowed = []\nlaw = 'leaf'\n").expect("crate rule"),
+    );
     write(
         root.path(),
         "Cargo.toml",

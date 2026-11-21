@@ -133,6 +133,7 @@ impl SeamReading {
             writer_census: writers::census(crate_map, &seams.writers),
             held: policy::StageSeams {
                 floor: seams.floor.clone(),
+                final_stages: seams.final_stages.clone(),
                 exports: seams.exports.clone(),
                 writers: seams.writers.clone(),
                 test_coupling: seams.test_coupling.clone(),

@@ -92,6 +92,7 @@ fn order() -> StageOrder {
     StageOrder {
         crate_name: "fix".to_owned(),
         stages: STAGES.map(str::to_owned).to_vec(),
+        pipeline: None,
     }
 }
 

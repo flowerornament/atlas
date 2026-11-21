@@ -208,10 +208,9 @@ fn project_resolutions_are_bound_to_the_exact_written_reference() {
     let snapshot = snapshot_workspace(root.path()).unwrap();
     let analysis = Analysis::new(&snapshot).unwrap();
     let mut policy = Policy::parse(POLICY).unwrap();
-    policy.concentration.as_mut().unwrap().amended_by = Some(policy::Amendment {
-        bead: "project-ruling".into(),
-        covers: [policy::Knob::EntryLines].into(),
-    });
+    policy.concentration.as_mut().unwrap().amended_by = Some(
+        toml::from_str("bead = 'project-ruling'\ncovers = ['entry_lines']\n").expect("amendment"),
+    );
     let needed = policy.external_references().remove(0);
     let mut inputs = Inputs::new(&snapshot);
     assert_eq!(
@@ -466,4 +465,110 @@ fn source_scopes_exclude_siblings_and_forbidden_paths_stop_at_intermediate_symli
             .status(),
         Status::Refuse
     );
+}
+
+/// Every field 0.21's policy extensions add, written once: the policy
+/// parses, and each field this build reads but does not judge yet is
+/// reported unavailable by its address, so the check is never a complete
+/// PASS. Without them the same policy passes as before.
+const EXTENDED: &str = r#"
+schema = 1
+provenance = "authored"
+surface = { fixture = 10 }
+typed_errors = []
+authority = [
+  { fact = "one home", home = "src/lib.rs::Home",
+    allowed_readers = [{ file = "src/reader.rs", reads = 2, owner = "ticket-1", reason = "compares against it" }],
+    forbid_new_pattern = [{ name = "narrow-cast", pattern = "$X as u8" }],
+    forbid_new_observed = ["byte-width"],
+    allowed_in = [{ file = "src/lib.rs", item = "Home", counts = { "" = { narrow-cast = 1 } }, owner = "ticket-2", reason = "the one conversion" }] },
+]
+stage_order = [{ crate = "fixture", stages = ["parse", "check"],
+                 pipeline = { file = "src/lib.rs", function = "run", calls = ["parse::parse", "check::check"], loops = false } }]
+
+[population]
+core = ["fixture"]
+amended_by = { bead = "ticket-3", covers = ["population"] }
+
+[size]
+approve_growth = true
+
+[crate_graph]
+rule = [{ name = "fixture", allowed = "any", law = "leaf" }]
+
+[stage_seams.fixture]
+floor = []
+final_stages = ["check"]
+
+[concentration]
+population = ["fixture"]
+entry_lines = 300
+file_lines = 2000
+conventional_names = []
+function_lines = 70
+function_nesting = 5
+generated = [{ path = "src/generated", reason = "written by a build script" }]
+function = [{ file = "src/lib.rs", function = "Home::long", lines = 90, nesting = 6, owner = "ticket-4" }]
+entry = [{ path = "src/lib.rs", lines = 400, owner = "ticket-5" }]
+"#;
+
+#[test]
+fn every_extension_field_parses_and_is_unavailable_until_judged() {
+    let policy = Policy::parse(EXTENDED).expect("every new field parses");
+    let root = fixture("pub struct Home;\n");
+    let snapshot = snapshot_workspace(root.path()).unwrap();
+    let analysis = Analysis::new(&snapshot).unwrap();
+    let report = policy::validate(&analysis, &policy, &Inputs::new(&snapshot)).unwrap();
+    assert_eq!(
+        report.status(),
+        Status::Unavailable,
+        "{:?}",
+        report.violations
+    );
+    let fields: Vec<_> = report
+        .unavailable
+        .iter()
+        .map(|m| m.field.as_str())
+        .collect();
+    for field in [
+        "size.approve_growth",
+        "population.amended_by",
+        "concentration.function_lines",
+        "concentration.function_nesting",
+        "concentration.generated",
+        "concentration.function",
+        "concentration.entry.0.owner",
+        "authority.0.allowed_readers",
+        "authority.0.forbid_new_pattern",
+        "authority.0.forbid_new_observed",
+        "authority.0.allowed_in",
+        "stage_order.fixture.pipeline",
+        "stage_seams.fixture.final_stages",
+    ] {
+        assert!(fields.contains(&field), "{field} missing from {fields:?}");
+    }
+    // `allowed = "any"` is today's meaning of an absent `allowed`: judged.
+    assert!(policy.crate_graph.rule[0].allowed.is_none());
+    assert!(!fields.iter().any(|f| f.starts_with("crate_graph")));
+}
+
+#[test]
+fn approve_growth_stores_no_ceilings_and_allowed_names_crates_or_any() {
+    let both = EXTENDED.replace(
+        "approve_growth = true",
+        "approve_growth = true\ncrate = { fixture = 10 }",
+    );
+    let policy = Policy::parse(&both).expect("parses");
+    let members = std::collections::BTreeSet::from(["fixture"]);
+    let error = policy
+        .validate_configuration(&members)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("approve_growth stores no ceilings"),
+        "{error}"
+    );
+    let word = EXTENDED.replace(r#"allowed = "any""#, r#"allowed = "every""#);
+    let error = Policy::parse(&word).unwrap_err().to_string();
+    assert!(error.contains(r#"a list of crates or "any""#), "{error}");
 }

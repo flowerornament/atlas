@@ -180,6 +180,7 @@ impl Measure {
                 .map(|(path, lines)| LineRow {
                     path: path.clone(),
                     lines: *lines,
+                    owner: None,
                 })
                 .collect()
         };
