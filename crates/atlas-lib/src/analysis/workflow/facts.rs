@@ -64,6 +64,11 @@ fn type_path(ty: &syn::Type) -> Option<Vec<String>> {
         _ => None,
     }
 }
+/// A module's re-exports: every `pub` `use`, restricted ones (`pub(crate)`,
+/// `pub(super)`, `pub(in path)`) included. Code that names an item through a
+/// restricted re-export compiles only where the restriction allows it, so
+/// following one never resolves a path the compiler would not; a private
+/// `use` is an import, not an export.
 pub(super) fn exports(
     items: &[Item],
     selection: crate::population::SyntaxSelection<'_>,
@@ -73,13 +78,13 @@ pub(super) fn exports(
 fn bindings(
     items: &[Item],
     selection: crate::population::SyntaxSelection<'_>,
-    public_only: bool,
+    exported_only: bool,
 ) -> BTreeMap<String, Vec<Vec<String>>> {
     let mut out = BTreeMap::<String, Vec<Vec<String>>>::new();
     for item in items {
         if let Item::Use(item) = item
             && selection.admits(item.span())
-            && (!public_only || matches!(item.vis, syn::Visibility::Public(_)))
+            && (!exported_only || !matches!(item.vis, syn::Visibility::Inherited))
         {
             for binding in crate::scan::item_use_bindings(item) {
                 // A glob remains an unresolved import; qualification never expands it.

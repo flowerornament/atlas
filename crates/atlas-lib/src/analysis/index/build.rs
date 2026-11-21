@@ -129,8 +129,9 @@ impl Index {
     /// where it is written, is one (an alias of a foreign type, such as
     /// `type Rational = Ratio<i128>` with `use num_rational::Ratio`, is not).
     /// A workspace type reached through an import the index does not follow
-    /// (a restricted re-export) still declares its name somewhere, so an
-    /// unknown path whose name the workspace declares is kept.
+    /// (a glob, or a private `use` named from outside) still declares its
+    /// name somewhere, so an unknown path whose name the workspace declares
+    /// is kept.
     fn declares(&self, key: &[String]) -> bool {
         self.declares_within(key, 0)
     }

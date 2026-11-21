@@ -6,6 +6,14 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- **Fix:** a method on a receiver whose type is named through a restricted
+ re-export (`pub(crate) use standing::Standing;`, then `standing:
+ &mut select::Standing<'_, Entry>` with `standing.could_place()`) stayed an
+ unresolved path; only `pub use` re-exports were followed. Restricted ones
+ (`pub(crate)`, `pub(super)`, `pub(in path)`) are now followed too: code
+ that names an item through one compiles only where it may. Private `use`
+ imports are still not exports. Resolved calls: Atlas 1,908 to 1,945; a
+ large private workspace 23,418 to 24,103; a mid-size one 5,962 to 6,023.
 - `types` chooses between types that share a name, the way `name` and
  `callers` do: `module::Name` (the end of its module path), `FILE:Name`, or
  `--in PATH`. A shared bare name is refused with a runnable spelling for
