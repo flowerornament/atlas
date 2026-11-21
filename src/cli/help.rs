@@ -14,6 +14,11 @@ pub(crate) const TOPICS: &[(&str, &str, &str)] = &[
         include_str!("../../docs/agent.md"),
     ),
     (
+        "skill",
+        "the Agent Skill file: save it as ~/.claude/skills/atlas/SKILL.md (or ~/.agents/skills/atlas/SKILL.md)",
+        include_str!("../../skills/atlas/SKILL.md"),
+    ),
+    (
         "getting-started",
         "a fifteen-minute tour on a tiny example project",
         include_str!("../../docs/getting-started.md"),

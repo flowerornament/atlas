@@ -6,6 +6,10 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- The Atlas Agent Skill ships with the binary: `cargo atlas help skill`
+ prints `skills/atlas/SKILL.md` exactly (listed in `help topics`), and the
+ README's "Use with agents" section saves it for Claude Code
+ (`~/.claude/skills/atlas/SKILL.md`) or Codex (`~/.agents/skills/atlas/`).
 - **Fix:** a method on a receiver whose type is named through a restricted
  re-export (`pub(crate) use standing::Standing;`, then `standing:
  &mut select::Standing<'_, Entry>` with `standing.could_place()`) stayed an

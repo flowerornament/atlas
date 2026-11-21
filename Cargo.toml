@@ -18,6 +18,7 @@ categories = ["development-tools::cargo-plugins", "command-line-utilities", "vis
 include = [
     "/src/**",
     "/docs/**",
+    "/skills/**",
     "!/docs/**/.*/**",
     # The README links its images by URL; the package does not need them.
     "!/docs/images/**",

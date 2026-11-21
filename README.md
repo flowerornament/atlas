@@ -158,6 +158,20 @@ to the install command. To try unreleased changes, install from the
 repository instead: `cargo install --locked --git
 https://github.com/flowerornament/atlas.git cargo-atlas`.
 
+## Use with agents
+
+Atlas ships an Agent Skill (a `SKILL.md` file) that tells an agent to
+read `cargo atlas help agent` and then run `cargo atlas orient`. After
+installing, save it where your agent looks for skills:
+
+```sh
+mkdir -p ~/.claude/skills/atlas && cargo atlas help skill > ~/.claude/skills/atlas/SKILL.md   # Claude Code
+mkdir -p ~/.agents/skills/atlas && cargo atlas help skill > ~/.agents/skills/atlas/SKILL.md   # Codex
+```
+
+`cargo atlas help skill` prints the skill exactly as this release ships it,
+so run it again after upgrading.
+
 ## Try it in five minutes
 
 This repository includes a tiny project to practise on. The `dependencies`

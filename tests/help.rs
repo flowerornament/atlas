@@ -5,6 +5,7 @@ use std::process::Command;
 
 const TOPICS: &[&str] = &[
     "agent",
+    "skill",
     "getting-started",
     "concepts",
     "query",
@@ -28,11 +29,15 @@ fn atlas(args: &[&str]) -> (bool, String, String) {
         String::from_utf8_lossy(&output.stderr).into_owned(),
     )
 }
+/// A topic's source: `docs/TOPIC.md`, or for `skill` the Agent Skill file.
 fn file(topic: &str) -> String {
-    std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("docs/{topic}.md")),
-    )
-    .expect("topic file")
+    let path = if topic == "skill" {
+        "skills/atlas/SKILL.md".to_owned()
+    } else {
+        format!("docs/{topic}.md")
+    };
+    std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(path))
+        .expect("topic file")
 }
 
 #[test]
