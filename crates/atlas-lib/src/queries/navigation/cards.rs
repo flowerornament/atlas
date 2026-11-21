@@ -160,52 +160,45 @@ impl Navigation<'_> {
     /// Sort every outside-test declaration the selector admits into the card's
     /// groups: visible matches, hidden ones (counted only), impls, and
     /// re-exports, which a path selector names by their own module path.
-    #[expect(
-        clippy::excessive_nesting,
-        reason = "nested deeper than 6 blocks; to be flattened along its decisions"
-    )]
     fn declarations(&self, selector: &Selector<'_>) -> Declarations<'_> {
         let mut found = Declarations::default();
-        for package in &self.workspace.crates {
-            for file in &package.files {
-                let modules = crate::source::InlineModules::of(file.source.outline());
-                for item in file.items(TestSelection::OutsideTestModules) {
-                    let inline = || modules.enclosing(item);
-                    if item.kind == ItemKind::PubUse {
-                        let Some(name) = selector.name() else {
-                            continue;
-                        };
-                        // A re-export is selected by its own module path.
-                        if selector.admits(name, &file.rel, item.line, None, inline)
-                            && file.source.import_for(item).is_some_and(|import| {
-                                import.bindings.as_ref().is_ok_and(|bindings| {
-                                    bindings.iter().any(|binding| {
-                                        binding.source == name || binding.local_name == name
-                                    })
-                                })
-                            })
-                        {
-                            found
-                                .reexports
-                                .push(Site::of(&package.name, &file.rel, item));
-                        }
-                    } else if selector.admits(&item.name, &file.rel, item.line, None, inline) {
-                        let site = Site::of(&package.name, &file.rel, item);
-                        if item.kind == ItemKind::Impl {
-                            found.impls.push(site);
-                            continue;
-                        }
-                        found.defining.insert((file.rel.as_str(), item.line));
-                        if self.visibility.admits(item.visibility) {
-                            found.matches.push(site);
-                        } else {
-                            found.hidden += 1;
-                        }
+        let files = self
+            .workspace
+            .crates
+            .iter()
+            .flat_map(|package| package.files.iter().map(move |file| (package, file)));
+        for (package, file) in files {
+            let modules = crate::source::InlineModules::of(file.source.outline());
+            for item in file.items(TestSelection::OutsideTestModules) {
+                let inline = || modules.enclosing(item);
+                if item.kind == ItemKind::PubUse {
+                    if reexport_selected(selector, file, item, inline) {
+                        found
+                            .reexports
+                            .push(Site::of(&package.name, &file.rel, item));
                     }
+                } else if selector.admits(&item.name, &file.rel, item.line, None, inline) {
+                    let site = Site::of(&package.name, &file.rel, item);
+                    self.record(&mut found, site, file, item);
                 }
             }
         }
         found
+    }
+    /// Count one selected declaration: an impl block apart; otherwise its
+    /// defining site, and a match when its visibility is selected or a hidden
+    /// declaration when it is not.
+    fn record<'w>(&self, found: &mut Declarations<'w>, site: Site, file: &'w FileMap, item: &Item) {
+        if item.kind == ItemKind::Impl {
+            found.impls.push(site);
+            return;
+        }
+        found.defining.insert((file.rel.as_str(), item.line));
+        if self.visibility.admits(item.visibility) {
+            found.matches.push(site);
+        } else {
+            found.hidden += 1;
+        }
     }
     /// Lexical identifier tokens spelled `name` on outside-test code lines,
     /// excluding the defining lines themselves: an approximation, not resolved uses.
@@ -380,4 +373,25 @@ fn fan_in(package: &CrateMap, file: &FileMap) -> Option<Vec<String>> {
             .map(|other| other.rel.clone())
             .collect(),
     )
+}
+
+/// Whether a `pub use` is selected: by its own module path, and binding the
+/// selector's name as its source or its local name.
+fn reexport_selected<'s>(
+    selector: &Selector<'_>,
+    file: &'s FileMap,
+    item: &Item,
+    inline: impl FnOnce() -> Vec<&'s str>,
+) -> bool {
+    let Some(name) = selector.name() else {
+        return false;
+    };
+    selector.admits(name, &file.rel, item.line, None, inline)
+        && file.source.import_for(item).is_some_and(|import| {
+            import.bindings.as_ref().is_ok_and(|bindings| {
+                bindings
+                    .iter()
+                    .any(|binding| binding.source == name || binding.local_name == name)
+            })
+        })
 }

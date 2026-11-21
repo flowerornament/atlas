@@ -1232,10 +1232,24 @@ fn demanded(rels: &[RelInfo], rules: &[CRule], queries: &[CQuery]) -> BTreeSet<u
 /// Strata: a relation sits above every relation it negates or counts over,
 /// and no lower than those it reads. A cycle through negation or `count`
 /// has no single answer and is refused.
-#[expect(
-    clippy::excessive_nesting,
-    reason = "nested deeper than 6 blocks; to be flattened along its decisions"
-)]
+/// The refusal for a rule whose relation depends on itself through a
+/// negation or `count`, located in the program that wrote the rule.
+fn self_dependency(rels: &[RelInfo], user: &Program, prelude: &Program, rule: &CRule) -> Error {
+    let program = if rule.origin == Origin::Prelude {
+        prelude
+    } else {
+        user
+    };
+    program.error(
+        ErrorKind::Stratification,
+        rule.at,
+        format!(
+            "`{}` depends on itself through a negation or `count`; such a program has no single answer",
+            rels[rule.head].name
+        ),
+    )
+}
+
 fn stratify(
     rels: &[RelInfo],
     user: &Program,
@@ -1257,19 +1271,7 @@ fn stratify(
                 let need = level[rel] + usize::from(strict);
                 if level[rule.head] < need {
                     if need > ceiling {
-                        let program = if rule.origin == Origin::Prelude {
-                            prelude
-                        } else {
-                            user
-                        };
-                        return Err(program.error(
-                            ErrorKind::Stratification,
-                            rule.at,
-                            format!(
-                                "`{}` depends on itself through a negation or `count`; such a program has no single answer",
-                                rels[rule.head].name
-                            ),
-                        ));
+                        return Err(self_dependency(rels, user, prelude, rule));
                     }
                     level[rule.head] = need;
                     changed = true;

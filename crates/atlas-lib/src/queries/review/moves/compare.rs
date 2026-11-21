@@ -214,10 +214,6 @@ impl<'a> BodyReport<'a> {
     /// before rerooted ones; returns the new sites left unpaired. Same-file
     /// pairs cancel before cross-file ones, so identical sources never
     /// relocate; old sites keep source order.
-    #[expect(
-        clippy::excessive_nesting,
-        reason = "nested deeper than 6 blocks; to be flattened along its decisions"
-    )]
     fn cancel_equal(
         &mut self,
         key: &'a Key,
@@ -239,28 +235,40 @@ impl<'a> BodyReport<'a> {
                     };
                     let candidate = old.remove(index);
                     if scope.admits(key, site) && !binding {
-                        let change = Change {
-                            key,
-                            before: candidate,
-                            after: site,
-                            ambiguous,
-                        };
-                        let moved = candidate.file != site.file;
-                        self.relocated += usize::from(moved);
-                        if rerooted {
-                            self.rerooted.push(change);
-                        } else {
-                            self.exact += 1;
-                            if moved {
-                                self.exact_relocated.push(change);
-                            }
-                        }
+                        self.record_equal(key, candidate, site, ambiguous, rerooted);
                     }
                     false
                 });
             }
         }
         unpaired
+    }
+    /// Count one equal pair, exact or rerooted, and keep it as a change
+    /// when it moved files (an exact pair) or was rerooted.
+    fn record_equal(
+        &mut self,
+        key: &'a Key,
+        before: &'a Site,
+        after: &'a Site,
+        ambiguous: bool,
+        rerooted: bool,
+    ) {
+        let change = Change {
+            key,
+            before,
+            after,
+            ambiguous,
+        };
+        let moved = before.file != after.file;
+        self.relocated += usize::from(moved);
+        if rerooted {
+            self.rerooted.push(change);
+        } else {
+            self.exact += 1;
+            if moved {
+                self.exact_relocated.push(change);
+            }
+        }
     }
     /// Pair each unpaired new site with an old one as changed (same file
     /// first); without old sites left it is an addition, and old sites left

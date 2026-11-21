@@ -52,10 +52,6 @@ struct Lineage {
     ancestry: BTreeSet<RelId>,
 }
 
-#[expect(
-    clippy::excessive_nesting,
-    reason = "nested deeper than 6 blocks; to be flattened along its decisions"
-)]
 fn lineage(rels: &[RelInfo], rules: &[CRule]) -> Vec<Lineage> {
     let by_name = |name: &str| rels.iter().position(|r| r.name == name);
     let mut lineage: Vec<Lineage> = rels
@@ -81,11 +77,7 @@ fn lineage(rels: &[RelInfo], rules: &[CRule]) -> Vec<Lineage> {
             for literal in &rule.body {
                 if let CLit::Pos(rel, terms) = literal {
                     let from = &lineage[*rel];
-                    for &c in &from.basis {
-                        if let Some(CTerm::Var(v)) = terms.get(c) {
-                            basis_vars.insert(*v);
-                        }
-                    }
+                    basis_vars.extend(basis_variables(from, terms));
                     unknowns.extend(from.unknowns.iter().copied());
                     ancestry.extend(from.ancestry.iter().copied());
                 }
@@ -108,6 +100,14 @@ fn lineage(rels: &[RelInfo], rules: &[CRule]) -> Vec<Lineage> {
             return lineage;
         }
     }
+}
+
+/// The variables a positive literal writes in its relation's basis columns.
+fn basis_variables<'a>(from: &'a Lineage, terms: &'a [CTerm]) -> impl Iterator<Item = usize> + 'a {
+    from.basis.iter().filter_map(|&c| match terms.get(c) {
+        Some(CTerm::Var(v)) => Some(*v),
+        _ => None,
+    })
 }
 
 fn names(rels: &[RelInfo], ids: &BTreeSet<RelId>) -> String {
