@@ -264,8 +264,9 @@ commits or touches your working files.
 
 The example declares its structure in
 [`.config/architecture.toml`](../examples/tutorial/.config/architecture.toml):
-the steps run in the order `parse`, `check`, `emit`, and each step may only use
-the one before it. To see a rule broken, make `emit` use `parse` directly:
+the steps run in the order `parse`, `check`, `emit`, each step may only use
+the one before it, and only `check` reads the syntax tree. To see these
+rules broken, make `emit` use `parse` directly:
 
 ```sh
 # In src/emit.rs, add this line below the existing `use` line:
@@ -282,12 +283,13 @@ git commit -am "emit reads the tree directly"
 $ cargo atlas delta HEAD~1 --policy .config/architecture.toml --citation-markers docs/
 ...
 verdict   REFUSE
+refusal   authority `the syntax tree`: src/emit.rs:3 reads the home `src/parse.rs::Tree` through `crate::parse::Tree`; src/emit.rs is not an allowed reader; read it through a listed reader, or add { file = "src/emit.rs", reads = 1, reason = "..." }
 refusal   stage interface `tutorial`: src/emit.rs:3 emit reads parse (`crate::parse::Tree`), which its stage_reads row does not list; read it through the stage's input, or add `parse` to the row's reads with the reason in a comment
 ```
 
 `delta` compares the current commit (the *candidate*) with the commit you name,
 here `HEAD~1` (the *baseline*). It refuses the candidate because `emit` now
-uses `parse`, which the rules do not allow. You can fix the code, or change the
+uses `parse` and reads the tree, which the rules do not allow. You can fix the code, or change the
 rules if the new dependency is intended.
 
 `--citation-markers docs/` tells Atlas what text in a `//!` header counts as a

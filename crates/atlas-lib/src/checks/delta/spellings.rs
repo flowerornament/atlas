@@ -304,12 +304,12 @@ fn ratchet(fact: &str, base: &Census, now: &Census, after: &Snapshot, out: &mut 
         let at = format!("{}:{}", key.file, held.line);
         out.violations.push(if base.keys.contains_key(key) {
             format!(
-                "authority `{fact}`: `{}::{}` holds {} `{}` outside its home (base {before}) at {at}; spell it through the home or remove the growth (held debt only falls)",
+                "authority `{fact}`: `{}::{}` holds {} `{}` outside its home (base {before}) at {at}; spell it through the home, or remove the growth: an item's count only falls",
                 key.file, key.item, held.debt(), key.spelling
             )
         } else {
             format!(
-                "authority `{fact}`: `{}::{}` newly holds {} `{}` outside its home at {at}; held debt stays with its item, so a renamed, copied or new item starts at 0",
+                "authority `{fact}`: `{}::{}` newly holds {} `{}` outside its home at {at}; spell it through the home, or give the item an `allowed_in` row (a count stays with its item, so a renamed, copied or new item starts at 0)",
                 key.file, key.item, held.debt(), key.spelling
             )
         });

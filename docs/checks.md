@@ -38,40 +38,64 @@ The [tutorial project](getting-started.md) (`cargo atlas help getting-started`) 
 `emit` turns a `Checked` into text. Its policy,
 [`examples/tutorial/.config/architecture.toml`](../examples/tutorial/.config/architecture.toml),
 says that the stages run in that order and that each stage only uses the one
-before it:
+before it. It also says that only `check` reads the syntax tree, that only
+`main` writes to standard error, and how long and deeply nested a function
+may be:
 
 ```toml
 schema = 1
 provenance = "authored"
-authority = [{ fact = "the syntax tree", home = "src/parse.rs::Tree" }]
 
+# Each fact has one home. Atlas checks that the home exists, that only the
+# listed files read it (each with its exact number of reads), and that the
+# listed spellings do not spread or grow outside it.
+authority = [
+  { fact = "the syntax tree", home = "src/parse.rs::Tree", allowed_readers = [
+    { file = "src/check.rs", reads = 1, reason = "checks parsed trees" },
+  ] },
+  { fact = "error output", home = "src/main.rs::main", forbid_new_pattern = [
+    { name = "stderr", pattern = "eprintln!($$$)" },
+  ] },
+]
+
+# Packages the size and surface rules apply to.
 [population]
 core = ["tutorial"]
 
+# Upper limits on size, in lines that contain code.
 [size]
 core_token_lines = 200
 crate = { tutorial = 200 }
 
+# Upper limit on the number of public declarations per package.
 [surface]
 tutorial = 20
 
+# Which workspace packages each package may depend on.
 [crate_graph]
 rule = [{ name = "tutorial", allowed = [] }]
 
+# The stages, earliest first. A stage may only use earlier stages.
 [[stage_order]]
 crate = "tutorial"
 stages = ["parse", "check", "emit"]
 
+# What each stage may use from earlier stages.
 [stage_reads.tutorial]
 check = { reads = ["parse"] }
 emit = { reads = ["check"] }
 
+# Limits on how large files may grow, and other shape rules.
 [concentration]
 population = ["tutorial"]
 entry_lines = 300
 file_lines = 2000
 conventional_names = []
 header_uncited = { tutorial = 2 }
+# The longest a function may be, in lines of code, and how deeply it may
+# nest: the measures of Clippy's too_many_lines and excessive_nesting.
+function_lines = 40
+function_nesting = 4
 ```
 
 The [policy reference](#policy-reference) below explains every section. First,
@@ -79,7 +103,7 @@ check that the policy is valid:
 
 ```console
 $ cargo atlas policy --policy .config/architecture.toml
-policy inputs: PASS · 1 core crates · 1 authority homes
+policy inputs: PASS · 1 core crates · 2 authority homes
 ```
 
 ## Checking a change with `delta`
@@ -91,19 +115,25 @@ measures both and refuses the candidate if it breaks a rule or makes a measured
 number worse.
 
 Suppose someone adds a function to `emit.rs` that uses `Tree` from `parse`
-directly. The policy only lets `emit` use `check`:
+directly. The policy only lets `emit` use `check`, and only lets `check`
+read the tree:
 
 ```console
 $ cargo atlas delta HEAD~1 --policy .config/architecture.toml --citation-markers docs/
-atlas: cargo atlas delta 08811eb74b74 -> 81668df96124 · 376ms
+atlas: cargo atlas delta 8d58f188991e -> e0b7a38e0663 · 152ms
 size      +4 core token-lines · 45/200 · 9.8 tokens/line
 shape     src/emit.rs::emit block 3->5 · items 1->2 · 1 touched · DENSER
 tree      entry files 0 lines over 300 (0) · files 0 lines over 2000 (0) · 0 ruled names · 0 aliases · 2 uncited roots
 coupling  +0 -0 edges · 0 graph violations
-surface   +1 public declarations · tutorial 11/20 · 1 authorities
+surface   +1 public declarations · tutorial 11/20 · 2 authorities
+spelling  error output: debt 0 -> 0 outside the home · 0 in tests or literals left out · files with macros a pattern cannot see into: 1
 verdict   REFUSE
+refusal   authority `the syntax tree`: src/emit.rs:3 reads the home `src/parse.rs::Tree` through `crate::parse::Tree`; src/emit.rs is not an allowed reader; read it through a listed reader, or add { file = "src/emit.rs", reads = 1, reason = "..." }
 refusal   stage interface `tutorial`: src/emit.rs:3 emit reads parse (`crate::parse::Tree`), which its stage_reads row does not list; read it through the stage's input, or add `parse` to the row's reads with the reason in a comment
 ```
+
+The one line breaks two rules: `emit` uses a stage it may not, and reads a
+home it is not listed as reading.
 
 Each line summarizes one kind of measurement:
 
@@ -112,6 +142,8 @@ Each line summarizes one kind of measurement:
 - **tree**: file sizes and module names, against `[concentration]`.
 - **coupling**: dependencies between workspace crates, against `[crate_graph]`.
 - **surface**: the number of public items, against `[surface]`.
+- **spelling**: for each `forbid_new_*` rule, how many of its spellings sit
+  outside the home before and after the change.
 
 The verdict is one of:
 
@@ -150,6 +182,24 @@ The candidate must match your files on disk: if you have uncommitted changes to
 tracked files, or new untracked source files, `delta` refuses rather than
 guessing which version you meant. In jj, Atlas never snapshots your working
 copy, so commit your work first.
+
+### Spellings that may not spread
+
+The tutorial's `error output` fact says `main` is the one place that writes
+to standard error. If `check` starts printing a warning with `eprintln!`,
+`delta` refuses:
+
+```console
+$ cargo atlas delta HEAD~1 --policy .config/architecture.toml --citation-markers docs/
+...
+spelling  error output: debt 0 -> 1 outside the home · 0 in tests or literals left out · files with macros a pattern cannot see into: 2
+verdict   REFUSE
+refusal   authority `error output`: `src/check.rs::check` newly holds 1 `stderr` outside its home at src/check.rs:12; spell it through the home, or give the item an `allowed_in` row (a count stays with its item, so a renamed, copied or new item starts at 0)
+```
+
+A project adopting such a rule usually has spellings outside the home
+already. They may stay: `delta` counts them in the baseline, per item, and
+refuses only growth (see [Authority](#authority-one-home-for-each-fact)).
 
 ### Rules that only go down
 
@@ -273,33 +323,48 @@ a path a macro spells without parsing as code, makes the check
 `UNAVAILABLE`, naming the site and the fix; a macro's arguments that
 parse as expressions are read as code.
 
-`forbid_new_pattern = [{ name, pattern }]` names [ast-grep](https://ast-grep.github.io/)
-patterns that may not appear anew or grow outside the home, though the
-ones already there may stay; `forbid_new_observed = [name]` does the same
-for spellings a project wrapper observes (each written text is its own
-spelling, `name:text`). `delta` counts them on both sides, per file, item
-and spelling: an item's count may only fall. A count that falls is freed
-only when its item left its file, for the same item and spelling arriving
-elsewhere, so moving an item or renaming a file is neutral, but a fix in
-one item never pays for growth in another (not even one of the same
-name), and a renamed or copied item starts at 0. Test code and literal
-text never count. `allowed_in = [{ file, item, counts, owner, reason }]`
-lets an item hold a spelling up to `counts` (by path inside the item, `""`
-for the item itself); `item` is a function, type, const or static, or a
-top-level trait impl by its header (`impl Display for Width`, generics and
-`where` kept, whitespace collapsed). A new or raised bound is a raise for
-the project to approve and must equal what the item uses. Removing a
-spelling, or changing its pattern, while the base holds it refuses. A
-pattern cannot see inside a macro's input; `delta` reports how many files
-invoke macros, and a project that needs them counted supplies those
-spellings as an observed class. `amended_by = { bead, covers }` in the
-authority entry, naming the spellings it covers and cited in the landing's
-description, is the one way to remove a spelling or change its pattern
-while the base holds it; it may cover only what the landing changes.
-Removing the whole authority entry removes its spellings, with no place to
-amend, so it refuses while the base holds any. The command line observes
-`forbid_new_pattern` on both sides; a `forbid_new_observed` class needs a
-wrapper to supply it, and is unavailable from the plain command line.
+`forbid_new_pattern` names [ast-grep](https://ast-grep.github.io/)
+patterns that may not appear anew or grow outside the home; the ones
+already there may stay. `allowed_in` lets a named item hold some:
+
+```toml
+[[authority]]
+fact = "narrowing casts"
+home = "src/width.rs::Width"
+forbid_new_pattern = [{ name = "narrow", pattern = "$X as u8" }]
+allowed_in = [
+  { file = "src/render.rs", item = "render", counts = { "" = { narrow = 2 } }, reason = "one byte per colour channel" },
+  { file = "src/show.rs", item = "impl Display for Width", counts = { fmt = { narrow = 1 } }, owner = "issue-12", reason = "prints the narrowed value" },
+]
+```
+
+- `delta` counts each spelling on both sides, per file, owning item and
+  spelling, each side under its own policy. An item's count may only fall.
+  Test code and the text of string and character literals never count.
+- A count moves only with its item: moving an item to another file, or
+  renaming a whole file, is neutral. A fix in one item never pays for
+  growth in another (not even one of the same name), and a renamed or
+  copied item starts at 0.
+- `allowed_in = [{ file, item, counts, owner, reason }]` lets an item hold
+  a spelling up to `counts`, keyed by the path inside the item (`""` for
+  the item itself, `"fmt"` for a method of an impl). `item` is a function,
+  type, const or static, or a top-level trait impl by its header (generics
+  and `where` kept, whitespace collapsed). A new or raised bound is a raise
+  for the project to approve, and must equal what the item uses.
+- `forbid_new_observed = [name]` does the same for spellings a project
+  wrapper observes, each written text its own spelling (`name:text` in
+  `counts`). The command line observes `forbid_new_pattern` on both sides;
+  a `forbid_new_observed` class needs a wrapper to supply it, and is
+  unavailable from the plain command line.
+- A pattern cannot see inside a macro's input; `delta` reports how many
+  files invoke macros, and a project that needs those counted supplies
+  them as an observed class.
+- Removing a spelling, or changing its pattern, while the baseline holds
+  it refuses, unless `amended_by = { bead, covers = ["narrow"] }` in the
+  authority entry names the ruling, covers only what the change alters,
+  and the change's description cites it. Removing the whole authority
+  entry leaves nowhere to amend, so it refuses while the baseline holds
+  any.
 
 ### Crate graph
 
@@ -346,6 +411,15 @@ emit = { input = ["check"] }
 `stage_order` lists one package's top-level modules in the order data flows
 through them, earliest first, once per package. A stage may never use a
 later stage.
+
+```toml
+[[stage_order]]
+crate = "compiler"
+stages = ["parse", "check", "emit"]
+pipeline = [
+  { file = "src/lib.rs", function = "compile", calls = ["parse::parse", "check::check", "emit::emit"] },
+]
+```
 
 `pipeline = [{ file, function, calls, loops }]` in a `stage_order` entry
 names each function that runs the stages (a package may have several). The
@@ -444,6 +518,21 @@ header_uncited = { tutorial = 2 }
 - `stage_seams`: item-level boundaries between stages: what each stage
   exports, who may build shared types, and how far tests reach into other
   stages. This needs a [project wrapper](#project-wrappers).
+
+  ```toml
+  [stage_seams.compiler]
+  floor = ["vocabulary"]
+  final_stages = ["report"]
+
+  [stage_seams.compiler.writers.Graph]
+  stage = "lower"
+  reason = "every later stage reads the graph"
+  producers = ["lower"]
+  owner = "issue-30"
+  test_sites = { "check" = 2 }
+  production_sites = {}
+  ```
+
   `final_stages` lists stages no stage reads except the composition, the
   last stage of the crate's `stage_order`. A stage reads a final stage
   when its `stage_reads` row names it or a production path into it is

@@ -230,7 +230,7 @@ fn forbid_new_pattern_counts_both_sides_with_their_own_policies() {
         result["display"]
             .as_str()
             .unwrap()
-            .contains("spelling  home: debt 1 -> 1"),
+            .contains("spelling  home: debt 1 -> 1 outside the home"),
         "{}",
         result["display"]
     );

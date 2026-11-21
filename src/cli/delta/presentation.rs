@@ -97,7 +97,7 @@ pub(super) fn display(
     for (fact, held) in &report.spellings {
         write!(
             out,
-            "\nspelling  {fact}: debt {} -> {} outside the home ({} in tests or literals left out; {} files invoke macros a pattern cannot see into)",
+            "\nspelling  {fact}: debt {} -> {} outside the home · {} in tests or literals left out · files with macros a pattern cannot see into: {}",
             held.debt_before, held.debt_after, held.dropped, held.files_with_macros
         )?;
     }

@@ -126,6 +126,13 @@ fn the_example_policy_passes_and_delta_refuses_a_skipped_stage() {
     assert!(text.contains(
         "refusal   stage interface `tutorial`: src/emit.rs:3 emit reads parse (`crate::parse::Tree`)"
     ));
+    assert!(text.contains(
+        "refusal   authority `the syntax tree`: src/emit.rs:3 reads the home `src/parse.rs::Tree` through `crate::parse::Tree`; src/emit.rs is not an allowed reader"
+    ), "{text}");
+    assert!(
+        text.contains("surface   +1 public declarations · tutorial 11/20 · 2 authorities"),
+        "{text}"
+    );
     let unavailable = delta(false);
     assert!(!unavailable.status.success());
     assert!(String::from_utf8_lossy(&unavailable.stderr).contains("verdict   UNAVAILABLE"));
@@ -145,4 +152,56 @@ fn the_example_adapter_reads_the_tutorial_pipeline() {
     ));
     assert!(overview.contains("src/emit.rs:5  emit"));
     assert!(overview.contains("(Checked [& program]) -> ()"));
+}
+
+#[test]
+fn delta_refuses_a_second_writer_to_standard_error() {
+    let project = tutorial();
+    let root = project.path();
+    git(root, &["init", "-q"]);
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-qm", "start"]);
+    let check = fs::read_to_string(root.join("src/check.rs")).expect("check.rs");
+    let check = check.replace(
+        "        return Err(\"empty program\".into());",
+        "        eprintln!(\"warning: nothing to check\");\n        return Err(\"empty program\".into());",
+    );
+    fs::write(root.join("src/check.rs"), check).expect("edit check.rs");
+    git(root, &["commit", "-qam", "check reports to stderr"]);
+    let refused = atlas(
+        root,
+        &[
+            "delta",
+            "HEAD~1",
+            "--policy",
+            ".config/architecture.toml",
+            "--citation-markers",
+            "docs/",
+        ],
+    );
+    assert!(!refused.status.success());
+    let text = String::from_utf8_lossy(&refused.stderr);
+    for quoted in [
+        "spelling  error output: debt 0 -> 1 outside the home · 0 in tests or literals left out · files with macros a pattern cannot see into: 2",
+        "refusal   authority `error output`: `src/check.rs::check` newly holds 1 `stderr` outside its home at src/check.rs:12; spell it through the home, or give the item an `allowed_in` row",
+    ] {
+        assert!(text.contains(quoted), "{quoted}\n{text}");
+    }
+}
+
+/// The policy docs/checks.md shows is the tutorial's, as written.
+#[test]
+fn the_checks_guide_shows_the_tutorial_policy() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let guide = fs::read_to_string(manifest.join("docs/checks.md")).expect("checks.md");
+    let policy = fs::read_to_string(manifest.join("examples/tutorial/.config/architecture.toml"))
+        .expect("tutorial policy");
+    let shown = policy
+        .split_once('\n')
+        .map_or("", |(_, rest)| rest)
+        .trim_end();
+    assert!(
+        guide.contains(&format!("```toml\n{shown}\n```")),
+        "docs/checks.md must quote examples/tutorial/.config/architecture.toml below its first line"
+    );
 }

@@ -6,6 +6,13 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- The tutorial policy uses the new authority rules: only `check` reads the
+ syntax tree (`allowed_readers`), only `main` writes to standard error
+ (`forbid_new_pattern`), and `function_lines`/`function_nesting` hold its
+ functions. docs/checks.md, getting-started and the README quote its
+ outputs, and gain examples for `forbid_new_pattern` with `allowed_in`,
+ `pipeline` and `stage_seams` writers and final stages. `delta`'s
+ `spelling` line and the `forbid_new_*` refusals use plainer words.
 - **Breaking:** `stage_seams` writers rows count calls apart by
  population, per calling owner: `test_sites` and `production_sites` are
  both required, each exact to its measure and only falling (a new owner is

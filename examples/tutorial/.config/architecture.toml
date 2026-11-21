@@ -2,8 +2,17 @@
 schema = 1
 provenance = "authored"
 
-# Each fact has one home. Atlas checks that the home exists.
-authority = [{ fact = "the syntax tree", home = "src/parse.rs::Tree" }]
+# Each fact has one home. Atlas checks that the home exists, that only the
+# listed files read it (each with its exact number of reads), and that the
+# listed spellings do not spread or grow outside it.
+authority = [
+  { fact = "the syntax tree", home = "src/parse.rs::Tree", allowed_readers = [
+    { file = "src/check.rs", reads = 1, reason = "checks parsed trees" },
+  ] },
+  { fact = "error output", home = "src/main.rs::main", forbid_new_pattern = [
+    { name = "stderr", pattern = "eprintln!($$$)" },
+  ] },
+]
 
 # Packages the size and surface rules apply to.
 [population]
@@ -39,3 +48,7 @@ entry_lines = 300
 file_lines = 2000
 conventional_names = []
 header_uncited = { tutorial = 2 }
+# The longest a function may be, in lines of code, and how deeply it may
+# nest: the measures of Clippy's too_many_lines and excessive_nesting.
+function_lines = 40
+function_nesting = 4

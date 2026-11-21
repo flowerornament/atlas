@@ -139,12 +139,14 @@ size      +4 core token-lines · 45/200 · 9.8 tokens/line
 ...
 surface   +1 public declarations · tutorial 11/20
 verdict   REFUSE
+refusal   authority `the syntax tree`: src/emit.rs:3 reads the home `src/parse.rs::Tree`
+          through `crate::parse::Tree`; src/emit.rs is not an allowed reader; ...
 refusal   stage interface `tutorial`: src/emit.rs:3 emit reads parse (`crate::parse::Tree`),
           which its stage_reads row does not list; read it through the stage's input, or add
           `parse` to the row's reads with the reason in a comment
 ```
 
-The refusal names the exact line and gives you two ways to fix it. In CI this
+Each refusal names the exact line and how to fix it. In CI this
 fails the build, so the rule holds without anyone having to remember it.
 [Architecture checks](https://github.com/flowerornament/atlas/blob/main/docs/checks.md) explains how to write rules, including
 what `--citation-markers` is for.
