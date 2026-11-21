@@ -491,3 +491,28 @@ fn query_reads_its_rules_and_bounds_text_like_every_command() {
     );
     assert!(String::from_utf8_lossy(&example.stdout).contains("src/lib.rs"));
 }
+
+/// A call under a test gate inside a production function is test code by
+/// its own site: no production reading records it, and with tests it is
+/// `test_only` (codex finding 9).
+#[test]
+fn a_call_in_a_test_gated_block_is_test_code() {
+    let fixture = Fixture::new(&[(
+        "src/lib.rs",
+        "pub fn target() {}\n\npub fn caller() {\n    #[cfg(test)]\n    {\n        target();\n    }\n    #[cfg(test)]\n    let _ = target();\n}\n",
+    )]);
+    let program = "?- call{line: L, test_only: T}.";
+    assert_eq!(rows(fixture.path(), program), Vec::<Vec<Value>>::new());
+    let with_tests = json(
+        fixture.path(),
+        &["query", "--with-tests", "--json", program],
+    );
+    assert_eq!(
+        with_tests["tables"][0]["rows"],
+        serde_json::json!([[6, true], [9, true]]),
+        "{with_tests}"
+    );
+    let callers = run(fixture.path(), &["callers", "target"]);
+    let text = String::from_utf8_lossy(&callers.stdout);
+    assert!(text.contains("no resolved callers"), "{text}");
+}

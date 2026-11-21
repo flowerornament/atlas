@@ -158,7 +158,7 @@ impl Reader<'_> {
     fn cfg_gated(&self, stmt: &Stmt, steps: Vec<Step>) -> Vec<Step> {
         let attrs = match stmt {
             Stmt::Local(local) => local.attrs.as_slice(),
-            Stmt::Expr(expr, _) => expr_attrs(expr),
+            Stmt::Expr(expr, _) => crate::source::expression_attrs(expr),
             Stmt::Macro(m) => m.attrs.as_slice(),
             Stmt::Item(_) => &[],
         };
@@ -467,24 +467,6 @@ const fn compound(op: &syn::BinOp) -> bool {
             | syn::BinOp::BitOrAssign(_)
             | syn::BinOp::ShlAssign(_)
             | syn::BinOp::ShrAssign(_)
-    )
-}
-
-/// An expression's outer attributes, as written.
-fn expr_attrs(expr: &Expr) -> &[syn::Attribute] {
-    macro_rules! attrs {
-        ($($variant:ident),* $(,)?) => {
-            match expr {
-                $(Expr::$variant(e) => &e.attrs,)*
-                _ => &[],
-            }
-        };
-    }
-    attrs!(
-        Array, Assign, Async, Await, Binary, Block, Break, Call, Cast, Closure, Const, Continue,
-        Field, ForLoop, Group, If, Index, Infer, Let, Lit, Loop, Macro, Match, MethodCall, Paren,
-        Path, Range, RawAddr, Reference, Repeat, Return, Struct, Try, TryBlock, Tuple, Unary,
-        Unsafe, While, Yield,
     )
 }
 

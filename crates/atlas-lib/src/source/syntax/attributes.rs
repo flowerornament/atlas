@@ -42,3 +42,21 @@ pub(crate) fn implies(meta: &Meta, features: &[&str]) -> bool {
         _ => false,
     }
 }
+
+/// An expression's outer attributes, as written.
+pub(crate) fn expression_attrs(expr: &syn::Expr) -> &[syn::Attribute] {
+    macro_rules! attrs {
+        ($($variant:ident),* $(,)?) => {
+            match expr {
+                $(syn::Expr::$variant(e) => &e.attrs,)*
+                _ => &[],
+            }
+        };
+    }
+    attrs!(
+        Array, Assign, Async, Await, Binary, Block, Break, Call, Cast, Closure, Const, Continue,
+        Field, ForLoop, Group, If, Index, Infer, Let, Lit, Loop, Macro, Match, MethodCall, Paren,
+        Path, Range, RawAddr, Reference, Repeat, Return, Struct, Try, TryBlock, Tuple, Unary,
+        Unsafe, While, Yield,
+    )
+}

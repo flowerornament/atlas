@@ -100,6 +100,9 @@ pub struct ResolvedCall {
     pub from: String,
     pub to: String,
     pub site: Site,
+    /// Whether the call's own site is test code, whatever `from` is.
+    #[serde(skip)]
+    pub test_only: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[non_exhaustive]

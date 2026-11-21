@@ -756,6 +756,11 @@ impl<'a> TestItems<'a> {
     fn contain(&self, from: &str) -> Cell {
         self.0.contains(from).into()
     }
+    /// An observation whose own site may be test code: test when it is, or
+    /// when its item is.
+    fn contain_or(&self, from: &str, site: bool) -> Cell {
+        (site || self.0.contains(from)).into()
+    }
 }
 
 /// Qualified functions and types, each bridged to the lexical declaration at
@@ -812,7 +817,7 @@ fn calls(facts: &Facts, tests: &TestItems<'_>) -> [Relation; 2] {
             (&c.site.path).into(),
             c.site.line.into(),
             c.site.column.into(),
-            tests.contain(&c.from),
+            tests.contain_or(&c.from, c.test_only),
         ]);
     }
     let mut unknown_call = Relation::new("unknown_call");
@@ -833,7 +838,7 @@ fn calls(facts: &Facts, tests: &TestItems<'_>) -> [Relation; 2] {
                     .map(|r| r.subject.clone().unwrap_or_default()),
             )
             .into(),
-            tests.contain(&u.from),
+            tests.contain_or(&u.from, u.call.test_only),
         ]);
     }
     [call, unknown_call]

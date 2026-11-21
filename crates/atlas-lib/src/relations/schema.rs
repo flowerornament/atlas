@@ -407,7 +407,7 @@ pub const RELATIONS: &[Relation] = &[
             integer("column", "Column of the call site."),
             boolean(
                 "test_only",
-                "The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`).",
+                "The call is test code: its `from` item is `test_only`, or the call itself is under a test gate or in a test module. Always false unless the capture includes tests (`--with-tests`).",
             ),
         ],
         basis: None,
@@ -443,7 +443,7 @@ pub const RELATIONS: &[Relation] = &[
             ),
             boolean(
                 "test_only",
-                "The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`).",
+                "The call is test code: its `from` item is `test_only`, or the call itself is under a test gate or in a test module. Always false unless the capture includes tests (`--with-tests`).",
             ),
         ],
         basis: None,

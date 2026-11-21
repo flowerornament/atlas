@@ -191,6 +191,11 @@ pub struct Call {
     /// from source only; workflow JSON does not carry it.
     #[serde(skip)]
     pub method: Option<Site>,
+    /// Whether the call's own site is test code (under a test gate, or in
+    /// a test module), whatever its function is. A reading that selects
+    /// production records no such call.
+    #[serde(skip)]
+    pub test_only: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]

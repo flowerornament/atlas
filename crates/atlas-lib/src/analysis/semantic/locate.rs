@@ -121,6 +121,7 @@ mod tests {
     }
     fn call(line: usize, column: usize, spelling: &str, receiver: Option<&str>) -> Call {
         Call {
+            test_only: false,
             spelling: spelling.into(),
             receiver: receiver.map(Into::into),
             arguments: vec![],
@@ -131,6 +132,7 @@ mod tests {
     /// A method call whose method name the parser saw at `name`.
     fn method(line: usize, column: usize, spelling: &str, receiver: &str, name: usize) -> Call {
         Call {
+            test_only: false,
             method: Some(site(line, name)),
             ..call(line, column, spelling, Some(receiver))
         }

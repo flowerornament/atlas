@@ -382,6 +382,21 @@ impl<'a> Walk<'a> {
     }
 }
 impl<'ast> Visit<'ast> for Walk<'_> {
+    /// A statement under a test-only gate (`#[cfg(test)] { ... }`, a gated
+    /// `let`) is test code by its bytes, so a site in it is selected with
+    /// the tests. Its lines are left to line accounting, which reads items.
+    fn visit_stmt(&mut self, stmt: &'ast syn::Stmt) {
+        let attrs: &[syn::Attribute] = match stmt {
+            syn::Stmt::Local(local) => &local.attrs,
+            syn::Stmt::Macro(mac) => &mac.attrs,
+            syn::Stmt::Expr(expr, _) => attributes::expression_attrs(expr),
+            syn::Stmt::Item(_) => &[],
+        };
+        if attributes::requires(attrs, &[]) {
+            self.gated_bytes.push(stmt.span().byte_range());
+        }
+        visit::visit_stmt(self, stmt);
+    }
     fn visit_file(&mut self, file: &'ast syn::File) {
         if attributes::requires(&file.attrs, &[]) {
             self.gated.extend(1..=self.lines.len());

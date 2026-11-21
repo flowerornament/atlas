@@ -326,7 +326,11 @@ impl<'ast> Visit<'ast> for Facts<'_, '_> {
         for arg in &call.args {
             self.visit_expr(arg);
         }
+        if !self.reader.selection.admits(call.span()) {
+            return;
+        }
         self.calls.push(Call {
+            test_only: self.reader.selection.test_site(call.span()),
             spelling: self.reader.text(call.func.span()),
             method: None,
             receiver: None,
@@ -343,7 +347,11 @@ impl<'ast> Visit<'ast> for Facts<'_, '_> {
         for arg in &call.args {
             self.visit_expr(arg);
         }
+        if !self.reader.selection.admits(call.span()) {
+            return;
+        }
         self.calls.push(Call {
+            test_only: self.reader.selection.test_site(call.span()),
             spelling: call.method.to_string(),
             method: Some(self.reader.site(call.method.span())),
             receiver: Some(self.reader.text(call.receiver.span())),

@@ -554,6 +554,7 @@ fn settle_calls(observed: Vec<Observed>, facts: &mut Facts) {
                     from,
                     to,
                     site: call.site,
+                    test_only: call.test_only,
                 });
             }
             continue;

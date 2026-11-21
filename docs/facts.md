@@ -364,7 +364,7 @@ Qualified. A call whose target Atlas resolved to exactly one workspace function.
 | `path` | text | File of the call site. |
 | `line` | integer | Line of the call site. |
 | `column` | integer | Column of the call site. |
-| `test_only` | boolean | The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`). |
+| `test_only` | boolean | The call is test code: its `from` item is `test_only`, or the call itself is under a test gate or in a test module. Always false unless the capture includes tests (`--with-tests`). |
 
 Unknowns: [`unknown_call`](#unknown_call) holds what this relation could not resolve.
 
@@ -387,7 +387,7 @@ Qualified. A call Atlas could not resolve to exactly one workspace function: ext
 | `column` | integer | Column of the call site. |
 | `kind` | text | Each reason's stable kind, such as `unresolved-path`, joined with `; ` like `reason`. |
 | `subject` | text | Each reason's path, name, receiver, type or module, or empty, joined the same way. |
-| `test_only` | boolean | The `from` item is `test_only`: the observation is in test code. Always false unless the capture includes tests (`--with-tests`). |
+| `test_only` | boolean | The call is test code: its `from` item is `test_only`, or the call itself is under a test gate or in a test module. Always false unless the capture includes tests (`--with-tests`). |
 
 - Includes calls into other crates and the standard library; an unknown call is not a missing call.
 

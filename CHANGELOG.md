@@ -6,6 +6,12 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- A call inside a test-gated statement of a production function
+ (`#[cfg(test)] { ... }`, a gated `let`) is test code by its own site: a
+ production reading (`callers`, `facts`, `query` by default) no longer
+ records it, and with `--with-tests` its `call` or `unknown_call` row is
+ `test_only`. Test-gated statements are recorded as test bytes in the
+ syntax facts; line accounting is unchanged.
 - The query absence check requires every unknowns relation a negated
  relation inherits: a rule negating a relation derived from `any_call` that
  reads `unknown_call` (through `possible_call`) but not `semantic_unknown`
