@@ -30,13 +30,17 @@ pub struct Measured {
     pub fingerprint: String,
 }
 
-/// Every production function of the population crates, outside
+/// Every production function of the function population's crates, outside
 /// `generated` paths, in file and source order.
 pub(in crate::checks) fn measured(ws: &Workspace, policy: &ConcentrationPolicy) -> Vec<Measured> {
     let generated = |path: &str| policy.generated.iter().any(|g| contains(&g.path, path));
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
-    for crate_map in ws.crates.iter().filter(|c| policy.in_population(&c.name)) {
+    for crate_map in ws
+        .crates
+        .iter()
+        .filter(|c| policy.in_function_population(&c.name))
+    {
         let files = crate_map
             .production_modules()
             .map(|(_, file)| file)

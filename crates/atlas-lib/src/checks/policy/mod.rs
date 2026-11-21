@@ -437,6 +437,10 @@ pub struct ConcentrationPolicy {
     /// The longest a function body may be, in code lines.
     #[serde(default)]
     pub function_lines: Option<usize>,
+    /// The crates whose functions `function_lines` and `function_nesting`
+    /// measure, when they differ from `population` (absent: `population`).
+    #[serde(default)]
+    pub function_population: Option<Vec<String>>,
     /// The deepest a function may nest (clippy's excessive_nesting).
     #[serde(default)]
     pub function_nesting: Option<usize>,

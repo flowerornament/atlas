@@ -191,21 +191,35 @@ fn require_unique_nonempty(field: &str, values: &[String]) -> Result<()> {
 }
 
 impl ConcentrationPolicy {
+    /// `population`, and `function_population` when written: nonempty,
+    /// workspace crates, each once.
+    fn crate_lists(&self, members: &BTreeSet<&str>) -> Result<()> {
+        let fail = |why: String| -> Result<()> { Err(format!("{SECTION}: {why}").into()) };
+        let lists = std::iter::once(("population", &self.population)).chain(
+            self.function_population
+                .iter()
+                .map(|list| ("function_population", list)),
+        );
+        for (field, list) in lists {
+            if list.is_empty() {
+                return fail(format!("{field} must not be empty"));
+            }
+            let mut seen = BTreeSet::new();
+            for name in list {
+                if !members.contains(name.as_str()) {
+                    return fail(format!("{field} names non-workspace crate `{name}`"));
+                }
+                if !seen.insert(name.as_str()) {
+                    return fail(format!("{field} names `{name}` twice"));
+                }
+            }
+        }
+        Ok(())
+    }
     /// Structure the section must have before any tree is measured.
     pub(crate) fn validate_configuration(&self, members: &BTreeSet<&str>) -> Result<()> {
         let fail = |why: String| -> Result<()> { Err(format!("{SECTION}: {why}").into()) };
-        if self.population.is_empty() {
-            return fail("population must not be empty".into());
-        }
-        let mut seen = BTreeSet::new();
-        for name in &self.population {
-            if !members.contains(name.as_str()) {
-                return fail(format!("population names non-workspace crate `{name}`"));
-            }
-            if !seen.insert(name.as_str()) {
-                return fail(format!("population names `{name}` twice"));
-            }
-        }
+        self.crate_lists(members)?;
         if self.entry_lines == 0 || self.file_lines == 0 {
             return fail("entry_lines and file_lines must be positive".into());
         }

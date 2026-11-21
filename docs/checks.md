@@ -519,7 +519,9 @@ header_uncited = { tutorial = 2 }
   the file's root (`impl`, `trait`, inline `mod` and each `{}` block add a
   level). They are the measures of Clippy's `too_many_lines` and
   `excessive_nesting`, so a project can use the same numbers as its Clippy
-  settings. Production functions of the `population` packages and their
+  settings. Production functions of the `population` packages (or of
+  `function_population`, when the function limits should cover other
+  crates than the file limits) and their
   build scripts are measured; tests are not. Atlas expands no macro: a
   function a `macro_rules!` writes is not measured, and blocks inside a
   macro's arguments are not counted, so Atlas can read lower than Clippy

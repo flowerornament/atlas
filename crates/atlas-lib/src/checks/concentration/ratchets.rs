@@ -46,6 +46,14 @@ impl ConcentrationPolicy {
     pub(super) fn in_population(&self, name: &str) -> bool {
         self.population.iter().any(|member| member == name)
     }
+    /// Whether the function limits measure crate `name`.
+    pub(super) fn in_function_population(&self, name: &str) -> bool {
+        self.function_population
+            .as_ref()
+            .unwrap_or(&self.population)
+            .iter()
+            .any(|member| member == name)
+    }
 }
 /// One row's finding: refused, or passed with a hint.
 enum Finding {

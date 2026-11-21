@@ -1066,3 +1066,54 @@ fn a_mod_item_home_is_its_module() {
         reading.reads
     );
 }
+
+/// `function_population` names the crates the function limits measure,
+/// apart from the file limits' `population` (atlas-3n1.7).
+#[test]
+fn function_population_widens_the_function_limits_alone() {
+    let long = "{\n    let a = 1;\n    let b = 2;\n    let c = 3;\n}\n";
+    let root = Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[package]\nname='fixture'\nversion='0.0.0'\nedition='2024'\n[workspace]\nmembers=['extra']\n",
+        ),
+        ("src/lib.rs", "pub struct Home;\n"),
+        (
+            "extra/Cargo.toml",
+            "[package]\nname='extra'\nversion='0.0.0'\nedition='2024'\n",
+        ),
+        ("extra/src/lib.rs", &format!("pub fn in_extra() {long}")),
+    ]);
+    let over = |population: &str| {
+        let text = POLICY
+            .replace(
+                "rule=[{name='fixture',allowed=[],law='leaf'}]",
+                "rule=[{name='fixture',allowed=[],law='leaf'},{name='extra',allowed=[],law='leaf'}]",
+            )
+            .replace(
+                "conventional_names=[]\n",
+                &format!("conventional_names=[]\nfunction_lines=2\n{population}"),
+            );
+        let snapshot = snapshot_workspace(root.path()).unwrap();
+        let analysis = Analysis::new(&snapshot).unwrap();
+        let policy = Policy::parse(&text).unwrap();
+        let report = policy::validate(&analysis, &policy, &Inputs::new(&snapshot)).unwrap();
+        report
+            .violations
+            .iter()
+            .filter_map(|text| {
+                Some(
+                    text.strip_prefix("function `")?
+                        .split('`')
+                        .next()?
+                        .to_owned(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(over(""), Vec::<String>::new());
+    assert_eq!(
+        over("function_population=['fixture','extra']\n"),
+        ["in_extra"]
+    );
+}

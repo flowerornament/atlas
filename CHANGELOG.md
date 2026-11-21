@@ -6,6 +6,9 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `[concentration] function_population`: the crates whose functions
+ `function_lines` and `function_nesting` measure, when they differ from
+ `population` (absent: `population`), checked as `population` is.
 - A function's identity (`flow --function` and `concentration` function
  rows) names an impl's self type and trait by their last segment with
  their type arguments, without lifetimes and with normalized spacing
