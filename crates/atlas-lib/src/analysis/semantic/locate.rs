@@ -1,6 +1,7 @@
 //! Where a call's callee name is written, as a SCIP position: the last name
-//! segment of a path call, or the method name after the receiver. A call
-//! whose name cannot be found at exactly the written text gets no position.
+//! segment of a path call, or a method call's method name where the parser
+//! saw it. A call whose name cannot be found at exactly the written text,
+//! or a method call read without its name's site, gets no position.
 use crate::workflow::Call;
 
 /// The callee name and its zero-based line and UTF-8 byte column.
@@ -26,9 +27,16 @@ impl Lines {
 /// line starts are `lines`.
 pub(super) fn callee(text: &str, lines: &Lines, call: &Call) -> Option<Callee> {
     let start = offset(text, lines, call.site.line, call.site.column)?;
-    let (at, name) = match call.receiver.as_deref() {
-        None => path_name(text, start, &call.spelling)?,
-        Some(receiver) => method_name(text, start, receiver, &call.spelling)?,
+    let (at, name) = match &call.method {
+        None if call.receiver.is_none() => path_name(text, start, &call.spelling)?,
+        // A method name is found where the parser saw it, never by
+        // searching the text: a comment or the receiver's own calls can
+        // stand between the receiver and the method.
+        None => return None,
+        Some(method) => {
+            let at = offset(text, lines, method.line, method.column)?;
+            written(text, at, &call.spelling).then(|| (at, call.spelling.clone()))?
+        }
     };
     // The line holding `at`: the last line start at or before it.
     let line = lines.0.partition_point(|&line_start| line_start <= at) - 1;
@@ -89,27 +97,6 @@ fn path_name(text: &str, start: usize, spelling: &str) -> Option<(usize, String)
     written(text, at, &name).then_some((at, name))
 }
 
-/// The method name after `receiver`: first where the receiver's written
-/// length ends, then the first `.name` that follows the call's start.
-fn method_name(text: &str, start: usize, receiver: &str, name: &str) -> Option<(usize, String)> {
-    let after_dot = |dot: usize| {
-        let rest = text.get(dot + 1..)?;
-        let at = dot + 1 + (rest.len() - rest.trim_start().len());
-        written(text, at, name).then_some(at)
-    };
-    let expected = text
-        .get(start + receiver.len()..)
-        .and_then(|rest| rest.trim_start().starts_with('.').then_some(rest))
-        .map(|rest| start + receiver.len() + (rest.len() - rest.trim_start().len()))
-        .and_then(after_dot);
-    let at = expected.or_else(|| {
-        text.get(start..)?
-            .match_indices('.')
-            .find_map(|(dot, _)| after_dot(start + dot))
-    })?;
-    Some((at, name.to_owned()))
-}
-
 /// `name` is written at `at` as a whole identifier.
 fn written(text: &str, at: usize, name: &str) -> bool {
     !name.is_empty()
@@ -123,18 +110,29 @@ mod tests {
     use super::*;
     use crate::workflow::Site;
 
+    fn site(line: usize, column: usize) -> Site {
+        Site {
+            path: "a.rs".into(),
+            line,
+            column,
+            end_line: line,
+            end_column: column,
+        }
+    }
     fn call(line: usize, column: usize, spelling: &str, receiver: Option<&str>) -> Call {
         Call {
             spelling: spelling.into(),
             receiver: receiver.map(Into::into),
             arguments: vec![],
-            site: Site {
-                path: "a.rs".into(),
-                line,
-                column,
-                end_line: line,
-                end_column: column,
-            },
+            site: site(line, column),
+            method: None,
+        }
+    }
+    /// A method call whose method name the parser saw at `name`.
+    fn method(line: usize, column: usize, spelling: &str, receiver: &str, name: usize) -> Call {
+        Call {
+            method: Some(site(line, name)),
+            ..call(line, column, spelling, Some(receiver))
         }
     }
 
@@ -154,10 +152,28 @@ mod tests {
     }
 
     #[test]
-    fn method_calls_name_the_method_after_the_receiver_in_bytes() {
+    fn method_calls_name_the_method_where_it_was_parsed_in_bytes() {
         let text = "fn f() { é.len().len(); }\n";
-        let c = callee(text, &Lines::of(text), &call(1, 9, "len", Some("é.len()"))).unwrap();
+        // The second `len` is at character 17, byte 18.
+        let c = callee(text, &Lines::of(text), &method(1, 9, "len", "é.len()", 17)).unwrap();
         assert_eq!(c.column, 18, "byte column of the second len");
-        assert!(callee(text, &Lines::of(text), &call(1, 9, "missing", Some("é"))).is_none());
+        assert!(callee(text, &Lines::of(text), &method(1, 9, "missing", "é", 11)).is_none());
+        // Without the name's site a method call gets no position.
+        assert!(callee(text, &Lines::of(text), &call(1, 9, "len", Some("é.len()"))).is_none());
+    }
+
+    /// The 2026-11-21 review's case: a comment between the receiver and the
+    /// method made a text search take the receiver's own `foo`.
+    #[test]
+    fn a_comment_before_the_method_does_not_move_it() {
+        let text = "pub fn chain(a: A) { a.foo() /* comment */ .foo(); }\n";
+        let outer = text.rfind("foo").unwrap();
+        let c = callee(
+            text,
+            &Lines::of(text),
+            &method(1, 21, "foo", "a.foo()", outer),
+        )
+        .unwrap();
+        assert_eq!(c.column as usize, outer);
     }
 }

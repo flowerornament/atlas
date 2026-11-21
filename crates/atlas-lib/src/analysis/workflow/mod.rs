@@ -187,6 +187,10 @@ pub struct Call {
     pub receiver: Option<String>,
     pub arguments: Vec<String>,
     pub site: Site,
+    /// A method call's method name as parsed, where it is written. Read
+    /// from source only; workflow JSON does not carry it.
+    #[serde(skip)]
+    pub method: Option<Site>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]

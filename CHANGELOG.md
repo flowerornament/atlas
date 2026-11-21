@@ -6,6 +6,13 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Fixed: the semantic reading found a method call's name by searching the
+ text after its receiver, so a comment before the method, or a call of the
+ same name inside the receiver's arguments, made the outer call take the
+ inner occurrence (a wrong semantic edge). Method calls now carry their
+ name's site as parsed; one read without it gets no semantic position. On
+ a large private workspace 6 outer calls in multi-line chains now read
+ their own method; this repository and a mid-size workspace are unchanged.
 - Fixed: `#[cfg_attr(PREDICATE, path = "...")] mod m;` was mounted from
  the default file only, so a call into `m` could resolve to the file a
  configuration does not read (a wrong edge). Each conditional path is now

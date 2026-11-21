@@ -328,6 +328,7 @@ impl<'ast> Visit<'ast> for Facts<'_, '_> {
         }
         self.calls.push(Call {
             spelling: self.reader.text(call.func.span()),
+            method: None,
             receiver: None,
             arguments: call
                 .args
@@ -344,6 +345,7 @@ impl<'ast> Visit<'ast> for Facts<'_, '_> {
         }
         self.calls.push(Call {
             spelling: call.method.to_string(),
+            method: Some(self.reader.site(call.method.span())),
             receiver: Some(self.reader.text(call.receiver.span())),
             arguments: call
                 .args
