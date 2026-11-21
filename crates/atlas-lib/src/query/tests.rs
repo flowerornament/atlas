@@ -452,6 +452,28 @@ fn absence_refuses_a_negation_that_ignores_unknowns() {
     checked("?- function{id: F}, !type{id: F}.", &Options::default()).unwrap();
 }
 
+/// A union inherits each family's unknowns: reading one of them leaves the
+/// other unaccounted for (codex finding 15).
+#[test]
+fn absence_requires_every_companion_of_a_union() {
+    let one = "known{f: F} :- any_call{to: F}.
+               open{f: F} :- possible_call{to: F}.
+               unobserved{f: F} :- function{id: F}, !known{f: F}, !open{f: F}.
+               ?- unobserved{f: F}.";
+    let error = findings(one);
+    assert!(
+        error.message.contains("negates `known`, whose unresolved observations are in `unknown_call`, `semantic_unknown`")
+            && error.message.contains("The rule reads `unknown_call` but not `semantic_unknown`."),
+        "{error}"
+    );
+    let both = "known{f: F} :- any_call{to: F}.
+                open{f: F} :- possible_call{to: F}.
+                stale{f: F} :- semantic_unknown{from: F}.
+                unobserved{f: F} :- function{id: F}, !known{f: F}, !open{f: F}, !stale{f: F}.
+                ?- unobserved{f: F}.";
+    checked(both, &Options::default()).unwrap_or_else(|e| panic!("{e}"));
+}
+
 #[test]
 fn accepting_a_check_runs_and_reports_it() {
     let (relations, nodes, edges) = graph(5);

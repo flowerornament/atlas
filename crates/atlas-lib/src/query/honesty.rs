@@ -199,8 +199,10 @@ fn basis_findings(rels: &[RelInfo], lineage: &[Lineage], rule: &CRule) -> Vec<St
     messages
 }
 
-/// One message per negated literal of `rule` whose relation has unknowns
-/// that no other literal of the rule derives from.
+/// One message per negated literal of `rule` whose relation has an
+/// unknowns companion no other literal of the rule derives from. A union
+/// (`any_call`) inherits each of its families' companions, and each must be
+/// read: accounting for one says nothing of the others.
 fn absence_findings(rels: &[RelInfo], lineage: &[Lineage], rule: &CRule) -> Vec<String> {
     let mut messages = Vec::new();
     for (i, literal) in rule.body.iter().enumerate() {
@@ -211,26 +213,43 @@ fn absence_findings(rels: &[RelInfo], lineage: &[Lineage], rule: &CRule) -> Vec<
         if unknowns.is_empty() {
             continue;
         }
-        let accounted = rule.body.iter().enumerate().any(|(j, other)| match other {
-            CLit::Pos(r, _) | CLit::Neg(r, _) if j != i => {
-                lineage[*r].ancestry.iter().any(|a| unknowns.contains(a))
-            }
-            _ => false,
-        });
-        if !accounted {
-            messages.push(format!(
-                "absence: {} negates `{}`, whose unresolved observations are in {}; no row there is not evidence of none. Read the unknowns in the same rule (for example, a separate outcome for names they could match){}\n    in: {}",
-                subject(rels, rule),
-                rels[*rel].name,
-                names(rels, unknowns),
-                if names(rels, unknowns).contains("unknown_call") {
-                    "; for calls, the prelude's possible_call{to: F, call: C} holds the unresolved calls written with F's name (cargo atlas help --topic query)"
-                } else {
-                    ""
-                },
-                rule.text
-            ));
+        let read: BTreeSet<RelId> = rule
+            .body
+            .iter()
+            .enumerate()
+            .filter_map(|(j, other)| match other {
+                CLit::Pos(r, _) | CLit::Neg(r, _) if j != i => Some(&lineage[*r].ancestry),
+                _ => None,
+            })
+            .flatten()
+            .copied()
+            .filter(|a| unknowns.contains(a))
+            .collect();
+        let unread: BTreeSet<RelId> = unknowns.difference(&read).copied().collect();
+        if unread.is_empty() {
+            continue;
         }
+        let missing = if read.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " The rule reads {} but not {}.",
+                names(rels, &read),
+                names(rels, &unread)
+            )
+        };
+        messages.push(format!(
+            "absence: {} negates `{}`, whose unresolved observations are in {}; no row there is not evidence of none.{missing} Read the unknowns in the same rule (for example, a separate outcome for names they could match){}\n    in: {}",
+            subject(rels, rule),
+            rels[*rel].name,
+            names(rels, unknowns),
+            if names(rels, &unread).contains("unknown_call") {
+                "; for calls, the prelude's possible_call{to: F, call: C} holds the unresolved calls written with F's name (cargo atlas help --topic query)"
+            } else {
+                ""
+            },
+            rule.text
+        ));
     }
     messages
 }

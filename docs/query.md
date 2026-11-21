@@ -113,7 +113,10 @@ observed. Each finding quotes the rule and its line and column.
   `mention_target` reads "no resolved row" as "none". Their unresolved
   observations are in `unknown_call`, `unknown_type` and
   `mention_unresolved`, and one of them could be the missing row. A rule that
-  negates such a relation must also read its unknowns relation.
+  negates such a relation must also read its unknowns relation. A relation
+  derived from several, such as `any_call` (qualified and semantic), needs
+  each of their unknowns read: `possible_call` accounts for `unknown_call`,
+  but not for `semantic_unknown`.
 
 A question about use therefore has three outcomes, not two:
 

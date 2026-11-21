@@ -6,6 +6,10 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- The query absence check requires every unknowns relation a negated
+ relation inherits: a rule negating a relation derived from `any_call` that
+ reads `unknown_call` (through `possible_call`) but not `semantic_unknown`
+ is now refused, naming the one it does not read, instead of passing.
 - `cargo atlas orient --json` holds every row of every section; it no
  longer applied the text's row budget (5 by default, or `--rows`), which
  left a JSON consumer an incomplete ranking. `--rows` and `--all` now
