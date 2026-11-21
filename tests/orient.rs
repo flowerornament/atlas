@@ -137,13 +137,26 @@ fn sections_state_units_and_count_what_they_measure() {
 #[test]
 fn every_list_reports_what_it_left_out_and_the_text_stays_one_page() {
     let fixture = workspace();
-    let report = report(&fixture, &["--rows", "1"]);
-    for section in report["sections"].as_array().unwrap() {
-        let shown = section["rows"].as_array().unwrap().len();
-        assert!(shown <= 1);
-        let rows_total = shown + usize::try_from(section["more"].as_u64().unwrap()).unwrap();
-        assert!(rows_total >= shown);
+    // JSON is never cut: the text's row budget, or --all, changes nothing.
+    let full = report(&fixture, &[]);
+    for args in [&["--rows", "1"][..], &["--rows", "0"], &["--all"]] {
+        assert_eq!(
+            report(&fixture, args)["sections"],
+            full["sections"],
+            "{args:?}"
+        );
     }
+    for section in full["sections"].as_array().unwrap() {
+        assert_eq!(section["more"], 0, "{section}");
+    }
+    assert!(
+        full["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|section| section["rows"].as_array().unwrap().len() > 1),
+        "the fixture has a section with several rows"
+    );
     let output = run_in(fixture.path(), &["orient", "--rows", "1"]);
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("more; cargo atlas concentration"), "{text}");

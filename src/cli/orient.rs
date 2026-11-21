@@ -33,7 +33,12 @@ pub(crate) fn run(
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let graph = snapshot.graph();
     let chosen = options.scope.choose(graph, metadata)?;
-    let rows = options.rows.limit(5);
+    // The row budget is the text's: JSON holds every row of every section.
+    let rows = if options.output.json() {
+        usize::MAX
+    } else {
+        options.rows.limit(5)
+    };
     let index = crate::cli::semantic::obtain(
         metadata.workspace_root.as_std_path(),
         metadata,

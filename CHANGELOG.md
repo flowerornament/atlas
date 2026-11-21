@@ -6,6 +6,10 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `cargo atlas orient --json` holds every row of every section; it no
+ longer applied the text's row budget (5 by default, or `--rows`), which
+ left a JSON consumer an incomplete ranking. `--rows` and `--all` now
+ change only the text.
 - atlas-lib has no production `Result<_, String>`: the last twelve sites in
  `analysis/` and `checks/` carry typed causes (a SCIP index that is
  malformed or unusable, a source that does not parse, a home that names no
