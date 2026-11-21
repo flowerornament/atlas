@@ -286,10 +286,10 @@ impl Index {
             ));
         };
         if p.len() == 1
-            && f.flow.bindings.iter().any(|b| {
-                b.name == p[0]
-                    && (b.site.end_line, b.site.end_column) <= (call.site.line, call.site.column)
-            })
+            && f.flow
+                .bindings
+                .iter()
+                .any(|b| b.name == p[0] && b.visible_at(&call.site))
         {
             return Target::Summarized(Summary::about(
                 SummaryKind::ValueCall,
@@ -352,10 +352,7 @@ impl Index {
             .flow
             .bindings
             .iter()
-            .filter(|b| {
-                b.name == receiver
-                    && (b.site.end_line, b.site.end_column) <= (call.site.line, call.site.column)
-            })
+            .filter(|b| b.name == receiver && b.visible_at(&call.site))
             .collect();
         if bindings.len() != 1 {
             return Target::Summarized(Summary::about(

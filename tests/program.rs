@@ -219,7 +219,9 @@ fn shadowed_receiver_bindings_are_not_guessed() {
         ),
         (
             "src/main.rs",
-            "use fixture::engine::Runner;\nfn main(){let r:Runner=make(); {let r:Other=other(); r.run();} r.run();}\n",
+            // Two bindings of `r` visible at the call: never a pick. (A
+            // binding inside a block that has ended is not visible.)
+            "use fixture::engine::Runner;\nfn main(){let r:Runner=make(); let r:Other=other(); r.run();}\n",
         ),
     ]);
     let p = build(

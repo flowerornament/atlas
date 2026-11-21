@@ -6,6 +6,14 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Fixed: a local binding typed a method receiver beyond its lexical scope,
+ so a call after a closure or `async` block, or in another block, branch or
+ match arm, could resolve through a binding it cannot see (a wrong edge,
+ from 0.19's closure reading). Bindings now carry their scope (block,
+ closure body, arm, `if let`/`while let` branch, `for` body). On this
+ repository and two private workspaces no resolved call is lost, and 5 to
+ 66 calls per workspace that two out-of-scope bindings had made ambiguous
+ now resolve; the SCIP index agrees with every one.
 - Glob imports of workspace modules are followed (`use super::*`, `use
  crate::model::*`). A glob of the module itself or an ancestor binds every
  name there, private items and that module's `use` imports included; a

@@ -162,17 +162,19 @@ pub(super) fn body(
         bindings: vec![],
         items: BTreeSet::new(),
         declared: vec![],
+        // Parameters are visible in the whole body.
+        region: Some(reader.site(block.span())),
     };
     for arg in &signature.inputs {
         if let FnArg::Typed(arg) = arg
             && let Some(name) = pattern(&arg.pat)
         {
-            facts.bindings.push(Binding {
+            facts.bind(
                 name,
-                ty: Some(reader.text(arg.ty.span())),
-                initializer: None,
-                site: reader.site(arg.span()),
-            });
+                Some(reader.text(arg.ty.span())),
+                None,
+                reader.site(arg.span()),
+            );
         } else if let FnArg::Typed(arg) = arg {
             facts.visit_pat(&arg.pat);
         }
@@ -192,6 +194,32 @@ struct Facts<'a, 'b> {
     /// Names bound by items and `use` declarations inside the body.
     items: BTreeSet<String>,
     declared: Vec<Declared>,
+    /// Where a name bound now is visible: the innermost block, closure
+    /// body, arm or branch being read.
+    region: Option<super::Site>,
+}
+impl Facts<'_, '_> {
+    fn bind(
+        &mut self,
+        name: String,
+        ty: Option<String>,
+        initializer: Option<String>,
+        site: super::Site,
+    ) {
+        self.bindings.push(Binding {
+            name,
+            ty,
+            initializer,
+            site,
+            scope: self.region.clone(),
+        });
+    }
+    /// Read `visit` with names bound in it visible only within `span`.
+    fn within(&mut self, span: proc_macro2::Span, visit: impl FnOnce(&mut Self)) {
+        let outer = self.region.replace(self.reader.site(span));
+        visit(self);
+        self.region = outer;
+    }
 }
 /// The names a body-local item binds; `*` for a glob import. A macro
 /// definition binds no call path.
@@ -245,12 +273,12 @@ impl<'ast> Visit<'ast> for Facts<'_, '_> {
         if let Expr::Path(left) = assignment.left.as_ref()
             && let Some(name) = left.path.get_ident()
         {
-            self.bindings.push(Binding {
-                name: name.to_string(),
-                ty: None,
-                initializer: None,
-                site: self.reader.site(assignment.span()),
-            });
+            self.bind(
+                name.to_string(),
+                None,
+                None,
+                self.reader.site(assignment.span()),
+            );
         }
         syn::visit::visit_expr_assign(self, assignment);
     }
@@ -273,12 +301,7 @@ impl<'ast> Visit<'ast> for Facts<'_, '_> {
                         None
                     }
                 });
-            self.bindings.push(Binding {
-                name,
-                ty,
-                initializer: call,
-                site: self.reader.site(local.span()),
-            });
+            self.bind(name, ty, call, self.reader.site(local.span()));
         } else {
             self.visit_pat(&local.pat);
         }
@@ -290,12 +313,12 @@ impl<'ast> Visit<'ast> for Facts<'_, '_> {
         }
     }
     fn visit_pat_ident(&mut self, pat: &'ast syn::PatIdent) {
-        self.bindings.push(Binding {
-            name: pat.ident.to_string(),
-            ty: None,
-            initializer: None,
-            site: self.reader.site(pat.span()),
-        });
+        self.bind(
+            pat.ident.to_string(),
+            None,
+            None,
+            self.reader.site(pat.span()),
+        );
         syn::visit::visit_pat_ident(self, pat);
     }
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
@@ -335,21 +358,43 @@ impl<'ast> Visit<'ast> for Facts<'_, '_> {
     /// with its type, an untyped one with none, so a method called on it
     /// stays unresolved rather than guessed.
     fn visit_expr_closure(&mut self, closure: &'ast syn::ExprClosure) {
-        for input in &closure.inputs {
-            if let Pat::Type(typed) = input
-                && let Some(name) = pattern(&typed.pat)
-            {
-                self.bindings.push(Binding {
-                    name,
-                    ty: Some(self.reader.text(typed.ty.span())),
-                    initializer: None,
-                    site: self.reader.site(input.span()),
-                });
-            } else {
-                self.visit_pat(input);
+        self.within(closure.body.span(), |facts| {
+            for input in &closure.inputs {
+                if let Pat::Type(typed) = input
+                    && let Some(name) = pattern(&typed.pat)
+                {
+                    let ty = facts.reader.text(typed.ty.span());
+                    let site = facts.reader.site(input.span());
+                    facts.bind(name, Some(ty), None, site);
+                } else {
+                    facts.visit_pat(input);
+                }
             }
+            facts.visit_expr(&closure.body);
+        });
+    }
+    /// A block's `let` bindings are visible to its end, and no further.
+    fn visit_block(&mut self, block: &'ast syn::Block) {
+        self.within(block.span(), |facts| syn::visit::visit_block(facts, block));
+    }
+    /// `if let` (and a `let` chain) binds in the then branch only.
+    fn visit_expr_if(&mut self, expr: &'ast syn::ExprIf) {
+        self.within(expr.then_branch.span(), |facts| {
+            facts.visit_expr(&expr.cond);
+        });
+        self.visit_block(&expr.then_branch);
+        if let Some((_, otherwise)) = &expr.else_branch {
+            self.visit_expr(otherwise);
         }
-        self.visit_expr(&closure.body);
+    }
+    fn visit_expr_while(&mut self, expr: &'ast syn::ExprWhile) {
+        self.within(expr.body.span(), |facts| facts.visit_expr(&expr.cond));
+        self.visit_block(&expr.body);
+    }
+    fn visit_expr_for_loop(&mut self, expr: &'ast syn::ExprForLoop) {
+        self.visit_expr(&expr.expr);
+        self.within(expr.body.span(), |facts| facts.visit_pat(&expr.pat));
+        self.visit_block(&expr.body);
     }
     // An `async` block's body is part of this function too (the default
     // visit walks it), as a closure's is.
@@ -370,7 +415,9 @@ impl<'ast> Visit<'ast> for Facts<'_, '_> {
         });
     }
     fn visit_arm(&mut self, arm: &'ast syn::Arm) {
-        self.visit_pat(&arm.pat);
-        self.visit_expr(&arm.body);
+        self.within(arm.span(), |facts| {
+            facts.visit_pat(&arm.pat);
+            facts.visit_expr(&arm.body);
+        });
     }
 }

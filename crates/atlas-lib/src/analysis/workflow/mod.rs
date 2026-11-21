@@ -195,6 +195,23 @@ pub struct Binding {
     pub ty: Option<String>,
     pub initializer: Option<String>,
     pub site: Site,
+    /// Where the name is visible: the block, closure body, match arm or
+    /// conditional branch it is bound in. A call outside it does not see the
+    /// binding, whatever comes after `site`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<Site>,
+}
+impl Binding {
+    /// Whether a call at `at` sees this binding: after it, and inside its
+    /// scope.
+    pub(crate) fn visible_at(&self, at: &Site) -> bool {
+        let start = (at.line, at.column);
+        (self.site.end_line, self.site.end_column) <= start
+            && self.scope.as_ref().is_none_or(|scope| {
+                (scope.line, scope.column) <= start
+                    && (at.end_line, at.end_column) <= (scope.end_line, scope.end_column)
+            })
+    }
 }
 /// An item or `use` written inside a body. It declares a name and runs
 /// nothing, so it is not a step.
