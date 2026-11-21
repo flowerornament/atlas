@@ -6,6 +6,13 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Fixed: a method receiver's type was read through the module's item even
+ when the body shadows it (`type A = B; let v: A = ...; v.run()` or a
+ body-local `fn make()` as the initializer), giving a wrong edge to the
+ module's item. Such a receiver is now `local-shadow`, naming what the body
+ binds, as a direct call through a shadowed name already was; so is an
+ initializer that is a local value. No call changes on this repository or
+ two private workspaces.
 - Fixed: a local binding typed a method receiver beyond its lexical scope,
  so a call after a closure or `async` block, or in another block, branch or
  match arm, could resolve through a binding it cannot see (a wrong edge,

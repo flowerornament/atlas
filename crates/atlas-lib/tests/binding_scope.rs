@@ -1,6 +1,7 @@
 //! A local binding types a receiver only inside its lexical scope: the
 //! block, closure body, match arm or conditional branch it is bound in.
-//! The first two cases are the 2026-11-21 review's fixture.
+//! The closure, async, alias and initializer cases are the 2026-11-21
+//! review's fixture.
 mod support;
 use atlas_lib::{analysis::Analysis, discovery};
 use std::collections::BTreeMap;
@@ -48,6 +49,24 @@ pub fn branches(flag: Option<B>) {
         let first: B = B;
         first.run();
     }
+}
+
+pub fn block_type_shadow() {
+    type A = B;
+    let value: A = B;
+    value.run();
+}
+
+fn make() -> A { A }
+pub fn initializer_shadow() {
+    fn make() -> B { B }
+    let value = make();
+    value.run();
+}
+pub fn value_initializer() {
+    let make = || B;
+    let value = make();
+    value.run();
 }
 ";
 
@@ -105,4 +124,16 @@ fn a_binding_types_a_receiver_only_inside_its_scope() {
     // Two blocks binding one name: each call sees only its own.
     assert_eq!(at(37), "A::run", "{calls:#?}");
     assert_eq!(at(41), "B::run", "{calls:#?}");
+    // A body-local alias, function or value names the receiver's type, not
+    // the module's item of that name: never the module's edge.
+    for line in [48, 55, 60] {
+        assert!(
+            at(line).starts_with("? receiver value"),
+            "{line}: {calls:#?}"
+        );
+        assert!(
+            at(line).contains("shadows the module's"),
+            "{line}: {calls:#?}"
+        );
+    }
 }

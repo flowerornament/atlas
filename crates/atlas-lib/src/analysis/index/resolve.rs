@@ -361,6 +361,15 @@ impl Index {
                 format!("receiver {receiver}: no unique explicit source type"),
             ));
         }
+        if let Some(name) = local_owner(f, bindings[0]) {
+            return Target::Summarized(Summary::about(
+                SummaryKind::LocalShadow,
+                &name,
+                format!(
+                    "receiver {receiver}: its type comes through {name}, which the body binds itself (a local item, `use` or value) and shadows the module's; not resolved"
+                ),
+            ));
+        }
         let owner = self.binding_owner(function, bindings[0]);
         let target = owner.map_or_else(
             || {
@@ -424,7 +433,13 @@ impl Index {
     }
 
     /// Prefer the written type; otherwise inspect a unique initializer's return type.
+    /// A binding whose type or initializer the body shadows has none: see
+    /// [`local_owner`].
     fn binding_owner(&self, function: usize, binding: &Binding) -> Option<Vec<String>> {
+        let f = self.functions.get(function)?;
+        if local_owner(f, binding).is_some() {
+            return None;
+        }
         if let Some(written) = binding.ty.as_deref().and_then(ty) {
             return self.canonical(function, &written);
         }
@@ -439,6 +454,25 @@ impl Index {
             output => self.canonical(*target, &ty(output)?),
         }
     }
+}
+
+/// The name through which a binding's type would come that the body binds
+/// itself: the first segment of its written type, or of its initializer's
+/// path, when a local item or `use` shadows it, or an initializer that is a
+/// local value. The module-level reading of it would name another item.
+fn local_owner(f: &Function, binding: &Binding) -> Option<String> {
+    if let Some(written) = binding.ty.as_deref().and_then(ty) {
+        let first = written.into_iter().next()?;
+        return shadowed(&f.flow.local_names, &first).then_some(first);
+    }
+    let initializer = path(binding.initializer.as_deref()?)?;
+    let value = initializer.len() == 1
+        && f.flow
+            .bindings
+            .iter()
+            .any(|b| b.name == initializer[0] && b.visible_at(&binding.site));
+    let first = initializer.into_iter().next()?;
+    (value || shadowed(&f.flow.local_names, &first)).then_some(first)
 }
 
 /// What glob imports bind a name to.
