@@ -147,7 +147,20 @@ fn every_list_reports_what_it_left_out_and_the_text_stays_one_page() {
     let output = run_in(fixture.path(), &["orient", "--rows", "1"]);
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("more; cargo atlas concentration"), "{text}");
-    assert!(text.contains("call sites resolved to a workspace function"));
+    // No share over a population mostly of calls into other packages.
+    let calls = text
+        .lines()
+        .find(|l| l.starts_with("  calls: "))
+        .expect("calls line");
+    assert!(
+        calls.contains("resolved to a workspace function;"),
+        "{calls}"
+    );
+    assert!(!calls.contains('%'), "{calls}");
+    assert!(
+        text.contains("an index tells them apart: cargo atlas orient --semantic"),
+        "{text}"
+    );
     assert!(text.contains("not absent"));
     assert!(text.contains("counts are not use"));
     let full = run_in(fixture.path(), &["orient"]);

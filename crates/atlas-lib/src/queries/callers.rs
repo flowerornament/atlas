@@ -264,7 +264,7 @@ struct Calls<'a> {
     inside: HashMap<&'a str, Vec<&'a UnknownCall>>,
     /// With a semantic reading: what it says of each recorded call, by site
     /// and spelling.
-    pins: HashMap<(&'a str, usize, usize, &'a str), Pin<'a>>,
+    pins: Pins<'a>,
 }
 /// One resolved call by one reading.
 #[derive(Clone, Copy)]
@@ -274,9 +274,44 @@ struct Edge<'a> {
     site: &'a crate::workflow::Site,
     reading: &'static str,
 }
+/// What a semantic reading says of each recorded call, by site and
+/// spelling; empty without a reading.
+#[derive(Default)]
+pub(super) struct Pins<'a>(HashMap<(&'a str, usize, usize, &'a str), Pin<'a>>);
+impl<'a> Pins<'a> {
+    pub(super) fn new(semantic: &[Named<'a>]) -> Self {
+        Self(
+            semantic
+                .iter()
+                .map(|named| {
+                    let site = &named.call.site;
+                    let key = (
+                        site.path.as_str(),
+                        site.line,
+                        site.column,
+                        named.call.spelling.as_str(),
+                    );
+                    (key, pin(named))
+                })
+                .collect(),
+        )
+    }
+    /// What the reading says of an unresolved call, if one was given.
+    pub(super) fn get(&self, unknown: &UnknownCall) -> Option<Pin<'a>> {
+        let site = &unknown.call.site;
+        self.0
+            .get(&(
+                site.path.as_str(),
+                site.line,
+                site.column,
+                unknown.call.spelling.as_str(),
+            ))
+            .copied()
+    }
+}
 /// What a semantic reading says of a call Atlas left unresolved.
 #[derive(Clone, Copy)]
-enum Pin<'a> {
+pub(super) enum Pin<'a> {
     /// A captured workspace function.
     Function(&'a str),
     /// A workspace item that is not a captured function (a struct or enum
@@ -293,7 +328,7 @@ impl<'a> Calls<'a> {
             from: HashMap::new(),
             written: HashMap::new(),
             inside: HashMap::new(),
-            pins: HashMap::new(),
+            pins: Pins::new(semantic),
         };
         let mut add = |edge: Edge<'a>| {
             calls.to.entry(edge.to).or_default().push(edge);
@@ -320,18 +355,6 @@ impl<'a> Calls<'a> {
                     reading: "semantic",
                 });
             }
-        }
-        for named in semantic {
-            let site = &named.call.site;
-            calls.pins.insert(
-                (
-                    site.path.as_str(),
-                    site.line,
-                    site.column,
-                    named.call.spelling.as_str(),
-                ),
-                pin(named),
-            );
         }
         for unknown in &facts.unknown_calls {
             calls
@@ -399,17 +422,8 @@ impl<'a> Calls<'a> {
     fn inside(&self, function: &str) -> &[&'a UnknownCall] {
         self.inside.get(function).map_or(&[], Vec::as_slice)
     }
-    /// What the semantic reading says of an unresolved call, if one was given.
     fn pin(&self, unknown: &UnknownCall) -> Option<Pin<'a>> {
-        let site = &unknown.call.site;
-        self.pins
-            .get(&(
-                site.path.as_str(),
-                site.line,
-                site.column,
-                unknown.call.spelling.as_str(),
-            ))
-            .copied()
+        self.pins.get(unknown)
     }
 }
 impl Calls<'_> {

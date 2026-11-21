@@ -400,3 +400,51 @@ fn an_index_selects_the_semantic_reading_and_the_evidence_needs_one() {
         "{stderr}"
     );
 }
+
+#[test]
+fn orient_with_an_index_splits_the_unresolved_calls_and_counts_its_callers() {
+    let f = fixture();
+    let report = atlas(&f, &["orient", "--json", "--scip", "index.scip"]);
+    let resolution = &report["resolution"];
+    let semantic = &resolution["semantic"];
+    let open: u64 = semantic["open"]
+        .as_object()
+        .expect("open")
+        .values()
+        .filter_map(Value::as_u64)
+        .sum();
+    let parts = ["workspace", "external", "other_items"]
+        .iter()
+        .map(|key| semantic[key].as_u64().expect(key))
+        .sum::<u64>()
+        + open;
+    // Every unknown call is in exactly one part.
+    assert_eq!(
+        Some(parts),
+        resolution["calls_unknown"].as_u64(),
+        "{semantic}"
+    );
+    assert!(semantic["workspace"].as_u64() >= Some(1), "{semantic}");
+    assert!(
+        semantic["reading"][0]
+            .as_str()
+            .is_some_and(|line| line.starts_with("Semantic reading (supplied): "))
+    );
+    // The most-called rows carry what the index adds.
+    let called = report["sections"]
+        .as_array()
+        .expect("sections")
+        .iter()
+        .find(|section| section["id"] == "called")
+        .expect("called");
+    assert!(
+        called["rows"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .all(|row| row["by_index"].is_u64())
+    );
+    // Without an index the JSON has neither.
+    let plain = atlas(&f, &["orient", "--json"]);
+    assert!(plain["resolution"].get("semantic").is_none());
+}

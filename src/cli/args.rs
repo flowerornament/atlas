@@ -88,7 +88,7 @@ pub(super) fn this_command_with(from: &str, to: &[&str]) -> Option<String> {
 pub(super) enum Command {
     /// Start here: entry points, where the code is, and what Atlas could not resolve.
     #[command(
-        after_help = "Answers: what is this project, where is its code, and how far can Atlas resolve it?\nOne page of measured lists. Each states its unit, its order and its total, and names the command that shows the rest; tied rows are reported, never picked. It ends with commands to run next, built from the names it found.\nEvidence: Cargo targets, non-test lines, resolved calls (a lower bound) and lexical type mentions. Nothing is ranked by importance.\nExample: cargo atlas orient src --rows 8"
+        after_help = "Answers: what is this project, where is its code, and how far can Atlas resolve it?\nOne page of measured lists. Each states its unit, its order and its total, and names the command that shows the rest; tied rows are reported, never picked. It ends with commands to run next, built from the names it found.\nEvidence: Cargo targets, non-test lines, resolved calls (a lower bound) and lexical type mentions. Nothing is ranked by importance.\n--scip FILE (or --semantic, which runs rust-analyzer and the project's build scripts) splits the unresolved calls into other packages, workspace functions and calls neither reading pins, and adds the callers the index finds to the most-called rows.\nExample: cargo atlas orient src --rows 8"
     )]
     Orient(orient::Options),
     /// Count the files and declarations in a project.

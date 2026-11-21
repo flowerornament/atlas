@@ -97,7 +97,9 @@ pub(crate) fn run() -> Result<()> {
         }
         Command::Program(options) => program::run(&root, &metadata, &options),
         Command::Map(options) => map::run(&root, &metadata, &options),
-        Command::Orient(options) => orient::run(&metadata, &selected_root, &options),
+        Command::Orient(options) => {
+            orient::run(&metadata, &selected_root, &options, &cache.semantic())
+        }
         Command::Dump(args) => navigation::run_dump(&root, &metadata, &args, &cache.semantic()),
         Command::Facts(options) => facts::run(&metadata, &options, &cache.semantic()),
         Command::Query(options) => query::run(&metadata, &options, &cache.semantic()),

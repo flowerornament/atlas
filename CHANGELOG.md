@@ -6,6 +6,17 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `orient` no longer gives a share of call sites resolved: most unresolved
+ calls are into other packages, which Atlas does not resolve, so a ratio
+ over all call sites read as poor coverage. It gives the resolved and
+ unresolved counts and says how to tell them apart. With `--scip FILE` or
+ `--semantic` it splits the unresolved calls into other packages, workspace
+ functions, workspace items that are no captured function, and calls
+ neither reading pins (by the index's reading), gives Atlas's share of the
+ workspace-function calls (Atlas: 2,004 of 2,750, 72%; the index the other
+ 746), and marks each most-called row with the callers the index adds
+ (`+21 by the index`). JSON: `resolution.semantic`, `Row::by_index`.
+ **Library:** `queries::orient::{semantic_orient, SemanticCalls}`.
 - `callers` and `callees` answer from the semantic reading with `--scip
  FILE` or `--semantic` (which select `--evidence semantic`). The calls the
  index names a captured function for that Atlas left unresolved are added as rows with reading `semantic` (marked

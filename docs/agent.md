@@ -6,7 +6,9 @@ project, or give `--root PATH`. It never changes the code it reads.
 
 Start every session with `cargo atlas orient`: one page of entry points,
 where the code is, the most-called functions, and commands to run next,
-built from real names.
+built from real names. Most unresolved calls are into other packages, which
+Atlas does not resolve; `orient --semantic` (or `--scip FILE`) has an index
+tell them apart and counts the callers it adds.
 
 ## What an answer means
 

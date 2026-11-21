@@ -5,12 +5,19 @@
 //! is never built from an arbitrary pick among equal rows or several binaries.
 //!
 //! Limits: called functions count resolved calls only, so they are a lower
-//! bound; type mentions count unique lexical targets only. Diagnostics and
+//! bound; type mentions count unique lexical targets only. Without a
+//! semantic index no share of calls is given: most unresolved calls are
+//! into other packages, which Atlas does not resolve, and only an index
+//! tells them apart. With one, the share is of workspace-function calls,
+//! and the calls neither reading pins are counted apart. Diagnostics and
 //! unknown-call reasons are grouped by their stable codes, each with the
 //! first message as an example.
 use crate::{
     Result,
-    analysis::Analysis,
+    analysis::{
+        Analysis,
+        semantic::{Agreement, SemanticIndex},
+    },
     discovery::Snapshot,
     model::{Declaration, Resolution},
     relations::code,
@@ -118,6 +125,10 @@ pub struct Row {
     /// Non-test lines of a directory row that are in `@generated` files.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generated_lines: Option<usize>,
+    /// With a semantic index, in the `called` section: calling functions the
+    /// index adds, beyond the resolved ones `count` holds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by_index: Option<usize>,
 }
 impl Row {
     /// A row for one declaration site.
@@ -129,6 +140,7 @@ impl Row {
             line: Some(line),
             files: None,
             generated_lines: None,
+            by_index: None,
         }
     }
 }
@@ -150,6 +162,27 @@ pub struct ResolutionSummary {
     pub diagnostics: usize,
     /// Diagnostics grouped by code; most first.
     pub diagnostic_kinds: Vec<Count>,
+    /// With a semantic index: what it says of the unknown calls.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantic: Option<SemanticCalls>,
+}
+
+/// A semantic index's reading of the unknown calls in scope. The resolved
+/// calls are workspace calls by Atlas's own reading and are not re-counted.
+#[derive(Debug, Default, Serialize)]
+#[non_exhaustive]
+pub struct SemanticCalls {
+    /// Unknown calls the index names a captured workspace function for.
+    pub workspace: usize,
+    /// Unknown calls the index names an item of another package for.
+    pub external: usize,
+    /// Unknown calls to a workspace item that is no captured function (a
+    /// struct or variant constructor, a macro-written function).
+    pub other_items: usize,
+    /// Unknown calls the index pins to nothing, by its reading.
+    pub open: BTreeMap<&'static str, usize>,
+    /// The index's provenance and coverage.
+    pub reading: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -182,6 +215,26 @@ pub struct NextCommand {
 /// A scope with no discovered files, a file whose syntax cannot be read, or
 /// a failed qualified analysis.
 pub fn orient(snapshot: &Snapshot, scope: Option<&str>, rows: usize) -> Result<Orientation> {
+    orient_by(snapshot, scope, rows, None)
+}
+/// As [`orient`], with a semantic index's reading of the calls: unknown
+/// calls split into other packages, workspace functions and open ones, and
+/// the most-called rows count the callers the index adds. An unavailable
+/// index is refused with its reason.
+pub fn semantic_orient(
+    snapshot: &Snapshot,
+    scope: Option<&str>,
+    rows: usize,
+    index: &SemanticIndex,
+) -> Result<Orientation> {
+    orient_by(snapshot, scope, rows, Some(index))
+}
+fn orient_by(
+    snapshot: &Snapshot,
+    scope: Option<&str>,
+    rows: usize,
+    index: Option<&SemanticIndex>,
+) -> Result<Orientation> {
     let graph = snapshot.graph();
     let observations = super::files(graph, scope)?;
     let paths: BTreeSet<&str> = observations.iter().map(|f| f.path.as_str()).collect();
@@ -249,10 +302,21 @@ pub fn orient(snapshot: &Snapshot, scope: Option<&str>, rows: usize) -> Result<O
             line: None,
             files: Some(files),
             generated_lines: (generated_lines > 0).then_some(generated_lines),
+            by_index: None,
         })
         .collect();
 
-    let facts = Analysis::new(snapshot)?.representations()?;
+    let analysis = Analysis::new(snapshot)?;
+    let facts = analysis.representations()?;
+    let reading = index.map(|index| analysis.semantic(index)).transpose()?;
+    if let Some(reason) = reading.as_ref().and_then(|r| r.unavailable.as_ref()) {
+        return Err(format!("the semantic index is unavailable: {reason}").into());
+    }
+    let named = reading
+        .as_ref()
+        .map(|r| r.named(&facts))
+        .unwrap_or_default();
+    let pins = super::callers::Pins::new(&named);
     let functions: BTreeMap<&str, &Function> =
         facts.functions.iter().map(|f| (f.id.as_str(), f)).collect();
     let file_of = |id: &str| functions.get(id).map(|f| f.file.as_str());
@@ -273,6 +337,19 @@ pub fn orient(snapshot: &Snapshot, scope: Option<&str>, rows: usize) -> Result<O
         .filter(|u| file_of(&u.from).is_some_and(in_scope))
     {
         resolution.calls_unknown += 1;
+        if let Some(semantic) = reading
+            .is_some()
+            .then(|| resolution.semantic.get_or_insert_default())
+        {
+            use super::callers::Pin;
+            match pins.get(unknown) {
+                Some(Pin::Function(_)) => semantic.workspace += 1,
+                Some(Pin::Elsewhere("external")) => semantic.external += 1,
+                Some(Pin::Elsewhere(_)) => semantic.other_items += 1,
+                Some(Pin::Open(open)) => *semantic.open.entry(open).or_default() += 1,
+                None => *semantic.open.entry("unread").or_default() += 1,
+            }
+        }
         let kind = unknown
             .reasons
             .iter()
@@ -282,6 +359,21 @@ pub fn orient(snapshot: &Snapshot, scope: Option<&str>, rows: usize) -> Result<O
         tally(&mut reasons, kind, &unknown.reason);
     }
     resolution.unknown_call_reasons = counts(reasons);
+    if let Some(reading) = &reading {
+        resolution.semantic.get_or_insert_default().reading = reading.describe();
+    }
+    // The calling functions the index adds to each called function: its
+    // workspace targets the qualified reading lacks.
+    let mut by_index: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for named in &named {
+        if let (Some(from), Some(to)) = (named.from, named.to)
+            && named.call.agreement != Some(Agreement::Agrees)
+            && file_of(to).is_some_and(in_scope)
+            && !callers.get(to).is_some_and(|known| known.contains(from))
+        {
+            by_index.entry(to).or_default().insert(from);
+        }
+    }
     let called: Vec<Row> = callers
         .iter()
         .filter_map(|(to, from)| {
@@ -291,7 +383,11 @@ pub fn orient(snapshot: &Snapshot, scope: Option<&str>, rows: usize) -> Result<O
             } else {
                 &f.qualified
             };
-            Some(Row::site(from.len(), name.clone(), f.file.clone(), f.line))
+            let mut row = Row::site(from.len(), name.clone(), f.file.clone(), f.line);
+            if reading.is_some() {
+                row.by_index = Some(by_index.get(to).map_or(0, BTreeSet::len));
+            }
+            Some(row)
         })
         .collect();
 
@@ -705,7 +801,12 @@ impl Orientation {
                     .line
                     .map_or_else(|| row.path.clone(), |line| format!("{}:{line}", row.path));
                 let detail = match (&row.name, row.files) {
-                    (Some(name), _) => format!("{name}  {site}"),
+                    (Some(name), _) => match row.by_index {
+                        Some(added) if added > 0 => {
+                            format!("{name}  {site}  (+{added} by the index)")
+                        }
+                        _ => format!("{name}  {site}"),
+                    },
                     (None, Some(files)) => {
                         let generated = row.generated_lines.map_or_else(String::new, |g| {
                             format!("; {g} lines in @generated files")
@@ -723,7 +824,7 @@ impl Orientation {
                 let _ = writeln!(out, "  … {} more; {}", section.more, render(&section.all));
             }
         }
-        self.write_resolution(&mut out);
+        self.write_resolution(&mut out, &render);
         if !self.next.is_empty() {
             let _ = writeln!(out, "\nNext");
             for next in &self.next {
@@ -735,6 +836,11 @@ impl Orientation {
             "\nAsk by question: what is X, who names X: name · what is in a directory: module · steps in a function: flow\n  who calls whom across files: dependencies · which functions take, return or build a type: types\n  what changed since REV: diff, moved, visibility · rules: policy, delta\n{}",
             self.basis
         );
+        if let Some(semantic) = &self.resolution.semantic {
+            for line in &semantic.reading {
+                let _ = writeln!(out, "{line}");
+            }
+        }
         out
     }
     fn write_targets(&self, out: &mut String) {
@@ -782,17 +888,52 @@ impl Orientation {
             );
         }
     }
-    fn write_resolution(&self, out: &mut String) {
+    fn write_resolution(&self, out: &mut String, render: &dyn Fn(&[String]) -> String) {
         const REASONS: usize = 3;
         let r = &self.resolution;
         let calls = r.calls_resolved + r.calls_unknown;
         let _ = writeln!(out, "\nWhat Atlas could not resolve");
-        let _ = writeln!(
-            out,
-            "  calls: {} of {calls} call sites resolved to a workspace function ({}%); the rest are external or unknown, not absent",
-            r.calls_resolved,
-            (r.calls_resolved * 100).checked_div(calls).unwrap_or(0)
-        );
+        match &r.semantic {
+            None => {
+                let _ = writeln!(
+                    out,
+                    "  calls: {calls} call sites in scope: {} resolved to a workspace function; {} unresolved, external or unknown, not absent (by kind below)\n    most unresolved calls are into other packages, which Atlas does not resolve; an index tells them apart: {} (runs rust-analyzer and the build scripts)",
+                    r.calls_resolved,
+                    r.calls_unknown,
+                    render(&["orient".to_owned(), "--semantic".to_owned()])
+                );
+            }
+            Some(semantic) => {
+                let open: usize = semantic.open.values().sum();
+                let workspace = r.calls_resolved + semantic.workspace;
+                let _ = writeln!(
+                    out,
+                    "  calls: {calls} call sites in scope: {workspace} to workspace functions, {} into other packages (the index), {} to workspace items that are no captured function, {open} that neither reading pins",
+                    semantic.external, semantic.other_items
+                );
+                let _ = writeln!(
+                    out,
+                    "    of the {workspace} workspace calls Atlas resolved {} ({}%) and the index the other {}",
+                    r.calls_resolved,
+                    (r.calls_resolved * 100).checked_div(workspace).unwrap_or(0),
+                    semantic.workspace
+                );
+                if open > 0 {
+                    let mut ordered: Vec<_> = semantic.open.iter().collect();
+                    ordered.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+                    let ordered: Vec<String> = ordered
+                        .iter()
+                        .map(|(reading, n)| format!("{reading} {n}"))
+                        .collect();
+                    let _ = writeln!(out, "    left open: {}", ordered.join(", "));
+                }
+                let _ = writeln!(
+                    out,
+                    "    Atlas's own unresolved calls ({}), by kind:",
+                    r.calls_unknown
+                );
+            }
+        }
         for reason in r.unknown_call_reasons.iter().take(REASONS) {
             let _ = writeln!(
                 out,

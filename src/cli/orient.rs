@@ -13,6 +13,13 @@ pub(crate) struct Options {
     rows: crate::cli::output::rows::Rows,
     #[command(flatten)]
     output: crate::cli::output::form::Report,
+    /// Read this SCIP index to split unresolved calls into other packages,
+    /// workspace functions and open ones (Atlas runs no indexer); --semantic
+    /// makes one instead.
+    #[arg(long, value_name = "FILE")]
+    scip: Option<std::path::PathBuf>,
+    #[command(flatten)]
+    indexer: crate::cli::semantic::IndexerArgs,
 }
 
 /// `root` is the project directory as the caller gave it, so printed commands
@@ -21,10 +28,24 @@ pub(crate) fn run(
     metadata: &cargo_metadata::Metadata,
     root: &Path,
     options: &Options,
+    cache: &crate::cli::semantic::IndexCache,
 ) -> Result<()> {
     let snapshot = discovery::snapshot_metadata(metadata)?;
-    let chosen = options.scope.choose(snapshot.graph(), metadata)?;
-    let report = orient::orient(&snapshot, chosen.query(), options.rows.limit(5))?;
+    let graph = snapshot.graph();
+    let chosen = options.scope.choose(graph, metadata)?;
+    let rows = options.rows.limit(5);
+    let index = crate::cli::semantic::obtain(
+        metadata.workspace_root.as_std_path(),
+        metadata,
+        options.scip.as_deref(),
+        &options.indexer,
+        cache,
+        || crate::cli::output::graph_sources(metadata, graph).collect(),
+    )?;
+    let report = match &index {
+        Some((index, _)) => orient::semantic_orient(&snapshot, chosen.query(), rows, index)?,
+        None => orient::orient(&snapshot, chosen.query(), rows)?,
+    };
     if options.output.json() {
         print!("{}", json(&report)?);
     } else {
