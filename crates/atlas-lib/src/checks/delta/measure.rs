@@ -94,14 +94,24 @@ pub(in crate::checks) fn read_workspace(
             },
         );
     }
-    let members: BTreeSet<_> = snapshot
-        .metadata()
+    let dependencies = member_dependencies(snapshot.metadata());
+    Ok(Measures {
+        crates,
+        dependencies,
+        sources,
+    })
+}
+/// Each workspace member's normal dependencies on other members, as Cargo
+/// declares them: the graph `[crate_graph]` judges.
+pub(in crate::checks) fn member_dependencies(
+    metadata: &cargo_metadata::Metadata,
+) -> BTreeMap<String, BTreeSet<String>> {
+    let members: BTreeSet<_> = metadata
         .workspace_packages()
         .into_iter()
         .map(|package| package.name.as_str())
         .collect();
-    let dependencies = snapshot
-        .metadata()
+    metadata
         .workspace_packages()
         .into_iter()
         .map(|package| {
@@ -116,10 +126,5 @@ pub(in crate::checks) fn read_workspace(
                 .collect();
             (package.name.to_string(), targets)
         })
-        .collect();
-    Ok(Measures {
-        crates,
-        dependencies,
-        sources,
-    })
+        .collect()
 }

@@ -241,15 +241,18 @@ rule = [
 ```
 
 Every workspace package needs a `rule`, unless it is listed as `vendored` or
-`terminal`. `allowed` lists the workspace packages it may depend on;
-`allowed = "any"` (or, for now, leaving it out) allows any. `law` is a note
-shown when the rule is broken. Dependency
-cycles are always refused.
+`terminal`. `allowed` lists the workspace packages it may depend on (`[]`
+for none), or is `"any"` for no limit; every rule must write it. Each
+listed package must be one the package really depends on: an allowance it
+does not use is refused, since a later dependency would use it without
+anyone deciding to. `law` is a note shown when the rule is broken.
+Dependency cycles are always refused. `cargo atlas policy` and `delta` both
+judge the graph, from the dependencies Cargo declares.
 
 Optional lists:
 
 - `vendored`: packages copied into the workspace from elsewhere. They need no
-  rule.
+  rule, and may depend on no other workspace package.
 - `terminal`: packages nothing else may depend on, such as a binary or a test
   harness.
 - `transparent`: packages anything may depend on. Each still needs a rule.

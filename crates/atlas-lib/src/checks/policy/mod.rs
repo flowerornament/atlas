@@ -260,18 +260,41 @@ pub struct CrateGraphPolicy {
 #[non_exhaustive]
 pub struct CrateRule {
     pub name: String,
-    /// The crates this one may depend on; `"any"` (or absent, for now) for
-    /// no limit.
+    /// The crates this one may depend on. A rule must write it: absent is
+    /// refused, so no reader has to guess between "none" and "any".
     #[serde(default, deserialize_with = "allowed_crates")]
-    pub allowed: Option<Vec<String>>,
+    pub allowed: Option<Allowed>,
     pub law: Option<String>,
 }
 
-/// `allowed = ["a", "b"]`, or `allowed = "any"`: no limit, which an absent
-/// `allowed` also means until it is refused (0.21's crate-graph item).
+/// What a crate rule allows: `allowed = "any"`, or `allowed = ["a", "b"]`
+/// (`[]` for none).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Allowed {
+    Any,
+    Crates(Vec<String>),
+}
+impl Allowed {
+    /// Whether a dependency on `target` is allowed.
+    pub fn admits(&self, target: &str) -> bool {
+        match self {
+            Self::Any => true,
+            Self::Crates(crates) => crates.iter().any(|name| name == target),
+        }
+    }
+}
+impl Serialize for Allowed {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Any => serializer.serialize_str("any"),
+            Self::Crates(crates) => crates.serialize(serializer),
+        }
+    }
+}
 fn allowed_crates<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
-) -> Result<Option<Vec<String>>, D::Error> {
+) -> Result<Option<Allowed>, D::Error> {
     #[derive(Deserialize)]
     #[serde(untagged)]
     enum Written {
@@ -279,8 +302,8 @@ fn allowed_crates<'de, D: serde::Deserializer<'de>>(
         Word(String),
     }
     match Written::deserialize(deserializer)? {
-        Written::Crates(crates) => Ok(Some(crates)),
-        Written::Word(word) if word == "any" => Ok(None),
+        Written::Crates(crates) => Ok(Some(Allowed::Crates(crates))),
+        Written::Word(word) if word == "any" => Ok(Some(Allowed::Any)),
         Written::Word(word) => Err(serde::de::Error::custom(format!(
             "allowed must be a list of crates or \"any\", not \"{word}\""
         ))),

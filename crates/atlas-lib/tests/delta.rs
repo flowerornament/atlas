@@ -248,7 +248,9 @@ fn paired_capture_uses_each_revisions_package_members_without_reopening_the_base
     write(root.path(), "retired/src/lib.rs", "pub struct Old;\n");
     let before = snapshot_workspace(root.path()).unwrap();
     let mut published = Policy::parse(POLICY).unwrap();
-    published.crate_graph.rule[0].allowed = Some(vec!["retired".into()]);
+    published.crate_graph.rule[0].allowed = Some(atlas_lib::checks::policy::Allowed::Crates(vec![
+        "retired".into(),
+    ]));
     published.crate_graph.rule.push(
         toml::from_str("name = 'retired'\nallowed = []\nlaw = 'leaf'\n").expect("crate rule"),
     );
@@ -266,7 +268,9 @@ fn paired_capture_uses_each_revisions_package_members_without_reopening_the_base
     fs::remove_dir_all(root.path().join("retired")).unwrap();
     let after = snapshot_workspace(root.path()).unwrap();
     let mut policy = published.clone();
-    policy.crate_graph.rule[0].allowed = Some(vec!["fresh".into()]);
+    policy.crate_graph.rule[0].allowed = Some(atlas_lib::checks::policy::Allowed::Crates(vec![
+        "fresh".into(),
+    ]));
     policy.crate_graph.rule[1].name = "fresh".into();
     let result = delta::check(
         &before,

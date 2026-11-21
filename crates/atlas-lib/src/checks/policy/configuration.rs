@@ -100,7 +100,18 @@ impl CrateGraphPolicy {
             if !names.insert(rule.name.as_str()) {
                 return Err(format!("{POLICY_PATH}: duplicate crate rule `{}`", rule.name).into());
             }
-            if let Some(allowed) = &rule.allowed {
+            let allowed = match &rule.allowed {
+                None => {
+                    return Err(format!(
+                        "{POLICY_PATH}: crate rule `{}` has no `allowed`; write `allowed = []` for no workspace dependencies, or `allowed = \"any\"` for no limit",
+                        rule.name
+                    )
+                    .into());
+                }
+                Some(crate::checks::policy::Allowed::Any) => None,
+                Some(crate::checks::policy::Allowed::Crates(crates)) => Some(crates),
+            };
+            if let Some(allowed) = allowed {
                 require_unique("crate rule allowed set", allowed)?;
                 for target in allowed {
                     if !members.contains(target.as_str()) && !vendored.contains(target.as_str()) {
@@ -277,7 +288,9 @@ mod tests {
         bad.crate_graph.rule.push(bad.crate_graph.rule[0].clone());
         assert!(bad.validate_configuration(&members).is_err());
         let mut bad = policy();
-        bad.crate_graph.rule[0].allowed = Some(vec!["unknown".into()]);
+        bad.crate_graph.rule[0].allowed = Some(crate::checks::policy::Allowed::Crates(vec![
+            "unknown".into(),
+        ]));
         assert!(bad.validate_configuration(&members).is_err());
         bad.crate_graph.vendored.push("unknown".into());
         assert!(bad.validate_configuration(&members).is_ok());

@@ -6,6 +6,14 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Crate graph: an allowed package the rule's package does not depend on is
+ refused (UNUSED ALLOWANCE), and so is a vendored package that depends on a
+ workspace member (VENDORED EDGE). `cargo atlas policy` now judges the
+ graph as `delta` does, from Cargo's declared dependencies. **Breaking:** a
+ crate rule without `allowed` is refused (it allowed any dependency); write
+ `allowed = []` for none, or `allowed = "any"` to keep the old meaning.
+ **Library:** `CrateRule::allowed` is `Option<Allowed>` (`Allowed::Any`,
+ `Allowed::Crates`).
 - Policy owners and citations. A concentration `entry` or `file` row may
  name an `owner`; an owned row must equal its measure (a stale owned row
  refuses with the lower value or the deletion it owes), while a row without

@@ -1,9 +1,13 @@
-//! Native workspace classification, allowed-edge and cycle laws.
-use super::super::policy::CrateGraphPolicy;
+//! Native workspace classification, allowed-edge, unused-allowance,
+//! vendored-edge and cycle laws, judged by `policy` and `delta` alike.
+use super::super::policy::{Allowed, CrateGraphPolicy};
 use std::collections::{BTreeMap, BTreeSet};
 const POLICY_PATH: &str = "authored architecture policy";
 impl CrateGraphPolicy {
-    pub(super) fn violations(
+    /// The graph's violations over `members` and their normal dependencies
+    /// on members (`dag`). The rules are checked for shape first
+    /// (`validate_configuration`): every rule writes `allowed`.
+    pub(in crate::checks) fn violations(
         &self,
         members: &BTreeSet<String>,
         dag: &BTreeMap<String, BTreeSet<String>>,
@@ -46,16 +50,15 @@ impl CrateGraphPolicy {
                 ));
             }
         }
+        let none = BTreeSet::new();
         for (source, rule) in &rules {
-            let Some(targets) = dag.get(*source) else {
-                continue;
-            };
+            let targets = dag.get(*source).unwrap_or(&none);
             for target in targets {
                 if terminal.contains(target.as_str()) {
                     violations.push(format!(
                         "TERMINAL LEAK: `{source}` depends on terminal `{target}`"
                     ));
-                } else if let Some(allowed) = &rule.allowed
+                } else if let Some(Allowed::Crates(allowed)) = &rule.allowed
                     && !allowed.contains(target)
                     && !transparent.contains(target.as_str())
                 {
@@ -64,6 +67,25 @@ impl CrateGraphPolicy {
                         rule.law
                             .as_ref()
                             .map_or_else(String::new, |law| format!(" [{law}]"))
+                    ));
+                }
+            }
+            // An allowance the crate does not use is slack a later edge
+            // would spend without anyone deciding it.
+            if let Some(Allowed::Crates(allowed)) = &rule.allowed {
+                for unused in allowed.iter().filter(|target| !targets.contains(*target)) {
+                    violations.push(format!(
+                        "UNUSED ALLOWANCE: `{source}` allows `{unused}` but does not depend on it; remove it from the allowed set"
+                    ));
+                }
+            }
+        }
+        // Code copied in from elsewhere was written against no member.
+        for source in &vendored {
+            for target in dag.get(*source).into_iter().flatten() {
+                if members.contains(target) {
+                    violations.push(format!(
+                        "VENDORED EDGE: vendored `{source}` depends on member `{target}`; code copied in from elsewhere depends on no member"
                     ));
                 }
             }

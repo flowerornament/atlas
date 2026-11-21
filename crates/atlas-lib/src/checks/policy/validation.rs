@@ -125,6 +125,13 @@ pub fn validate(
         report.violations.push(error.to_string());
         return Ok(report);
     }
+    // The crate graph is Cargo's declared dependencies: judged here, so
+    // `policy` reports what `delta` would.
+    let owned: BTreeSet<String> = members.iter().map(|name| (*name).to_owned()).collect();
+    report.violations.extend(policy.crate_graph.violations(
+        &owned,
+        &crate::checks::delta::measure::member_dependencies(snapshot.metadata()),
+    ));
     for field in policy.unjudged() {
         report.missing(
             field,

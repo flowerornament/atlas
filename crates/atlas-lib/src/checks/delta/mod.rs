@@ -159,7 +159,12 @@ pub fn check(
             out.coupling_violations = policy
                 .crate_graph
                 .violations(&members, &measured.after.dependencies);
-            out.violations.extend(out.coupling_violations.clone());
+            // `policy` judged the same graph; each row is reported once.
+            for row in &out.coupling_violations {
+                if !out.violations.contains(row) {
+                    out.violations.push(row.clone());
+                }
+            }
             out.measurements = Some(measured);
         }
         Err(error) => out.unavailable.push(MissingInput {

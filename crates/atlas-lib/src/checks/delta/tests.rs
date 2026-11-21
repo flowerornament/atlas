@@ -23,7 +23,7 @@ fn fixture_policy() -> Policy {
                 forbidden_members: vec![],
                 rule: vec![CrateRule {
                     name: "core".into(),
-                    allowed: Some(vec![]),
+                    allowed: Some(Allowed::Crates(vec![])),
                     law: Some("core is a leaf".into()),
                 }],
             },
@@ -195,6 +195,86 @@ fn illegal_edge_refuses() {
     let dag = BTreeMap::from([("core".into(), BTreeSet::from(["other".into()]))]);
     let violations = policy.crate_graph.violations(&members, &dag);
     assert!(violations.iter().any(|row| row.starts_with("ILLEGAL EDGE")));
+}
+
+fn names(members: &[&str]) -> BTreeSet<String> {
+    members.iter().map(|name| (*name).to_owned()).collect()
+}
+fn rule(text: &str) -> CrateRule {
+    toml::from_str(text).expect("fixture crate rule")
+}
+
+/// An allowed crate the rule's crate does not depend on is unused slack:
+/// a later edge would spend it without anyone deciding to.
+#[test]
+fn an_unused_allowance_refuses() {
+    let mut policy = fixture_policy();
+    policy
+        .crate_graph
+        .rule
+        .push(rule("name = 'other'\nallowed = ['core']"));
+    let violations = policy
+        .crate_graph
+        .violations(&names(&["core", "other"]), &BTreeMap::new());
+    assert!(
+        violations
+            .iter()
+            .any(|row| row.starts_with("UNUSED ALLOWANCE: `other` allows `core`")),
+        "{violations:?}"
+    );
+    // Used, it is no violation; "any" lists nothing to leave unused.
+    let used = BTreeMap::from([("other".into(), BTreeSet::from(["core".into()]))]);
+    assert!(
+        policy
+            .crate_graph
+            .violations(&names(&["core", "other"]), &used)
+            .is_empty()
+    );
+    policy.crate_graph.rule[1] = rule("name = 'other'\nallowed = 'any'");
+    assert!(
+        policy
+            .crate_graph
+            .violations(&names(&["core", "other"]), &BTreeMap::new())
+            .is_empty()
+    );
+}
+
+/// Code copied into the workspace from elsewhere was written against no
+/// member of it.
+#[test]
+fn a_vendored_crate_with_a_member_edge_refuses() {
+    let mut policy = fixture_policy();
+    policy.crate_graph.vendored = vec!["upstream".into()];
+    let dag = BTreeMap::from([("upstream".into(), BTreeSet::from(["core".into()]))]);
+    let violations = policy
+        .crate_graph
+        .violations(&names(&["core", "upstream"]), &dag);
+    assert!(
+        violations
+            .iter()
+            .any(|row| row
+                .starts_with("VENDORED EDGE: vendored `upstream` depends on member `core`")),
+        "{violations:?}"
+    );
+}
+
+/// A rule must say what it allows: absent is refused with both spellings.
+#[test]
+fn an_absent_allowed_set_is_refused_with_its_two_spellings() {
+    let mut policy = fixture_policy();
+    policy.crate_graph.rule[0] = rule("name = 'core'");
+    let error = policy
+        .validate_configuration(&BTreeSet::from(["core"]))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("crate rule `core` has no `allowed`"),
+        "{error}"
+    );
+    assert!(
+        error.contains("`allowed = []`") && error.contains(r#"`allowed = "any"`"#),
+        "{error}"
+    );
 }
 
 #[test]

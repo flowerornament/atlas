@@ -565,8 +565,11 @@ fn every_extension_field_parses_and_is_unavailable_until_judged() {
                 .collect::<Vec<_>>()
         );
     }
-    // `allowed = "any"` is today's meaning of an absent `allowed`: judged.
-    assert!(policy.crate_graph.rule[0].allowed.is_none());
+    // `allowed = "any"` is judged: it allows every dependency.
+    assert_eq!(
+        policy.crate_graph.rule[0].allowed,
+        Some(policy::Allowed::Any)
+    );
     assert!(!fields.iter().any(|f| f.starts_with("crate_graph")));
 }
 
@@ -589,4 +592,40 @@ fn approve_growth_stores_no_ceilings_and_allowed_names_crates_or_any() {
     let word = EXTENDED.replace(r#"allowed = "any""#, r#"allowed = "every""#);
     let error = Policy::parse(&word).unwrap_err().to_string();
     assert!(error.contains(r#"a list of crates or "any""#), "{error}");
+}
+
+/// `policy` judges the crate graph as `delta` does: an allowance the crate
+/// does not use refuses without any change to compare.
+#[test]
+fn policy_judges_the_crate_graph() {
+    let root = Fixture::new(&[
+        (
+            "Cargo.toml",
+            "[workspace]\nmembers = ['core', 'app']\nresolver = '3'\n",
+        ),
+        (
+            "core/Cargo.toml",
+            "[package]\nname = 'core'\nversion = '0.0.0'\nedition = '2024'\n",
+        ),
+        ("core/src/lib.rs", "pub struct Home;\n"),
+        (
+            "app/Cargo.toml",
+            "[package]\nname = 'app'\nversion = '0.0.0'\nedition = '2024'\n",
+        ),
+        ("app/src/lib.rs", "pub fn run() {}\n"),
+    ]);
+    let text = "schema=1\nprovenance='authored'\nsurface={core=10}\nauthority=[{fact='one home',home='core/src/lib.rs::Home'}]\n[population]\ncore=['core']\n[size]\ncore_token_lines=100\ncrate={core=100}\n[crate_graph]\nrule=[{name='core',allowed=[]},{name='app',allowed=['core']}]\n[concentration]\npopulation=['core']\nentry_lines=300\nfile_lines=2000\nconventional_names=[]\n";
+    let snapshot = snapshot_workspace(root.path()).unwrap();
+    let analysis = Analysis::new(&snapshot).unwrap();
+    let policy = Policy::parse(text).unwrap();
+    let report = policy::validate(&analysis, &policy, &Inputs::new(&snapshot)).unwrap();
+    assert_eq!(report.status(), Status::Refuse, "{:?}", report.violations);
+    assert!(
+        report
+            .violations
+            .iter()
+            .any(|row| row.starts_with("UNUSED ALLOWANCE: `app` allows `core`")),
+        "{:?}",
+        report.violations
+    );
 }
