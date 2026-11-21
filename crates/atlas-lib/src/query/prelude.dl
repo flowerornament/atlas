@@ -57,6 +57,17 @@ reaches{from: F, to: H} :-
     reaches{from: F, to: G},
     calls_function{from: G, to: H}.
 
+% --- semantic calls (query --scip FILE or --semantic) -------------------------
+
+% A call from F to G by either reading, with which one said so: `qualified`
+% (Atlas followed use statements and modules) or `semantic` (the SCIP index
+% names G). A pair both readings name is two rows, never merged; the
+% relations above stay qualified-only.
+any_call{from: F, to: G, reading: "qualified"} :-
+    call{from: F, to: G}.
+any_call{from: F, to: G, reading: "semantic"} :-
+    semantic_call{from: F, to: G}.
+
 % --- name NAME --relations ----------------------------------------------------
 
 % The production declarations `name` matches by their written name.

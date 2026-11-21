@@ -12,8 +12,11 @@
 //!   captured source text instead; a mismatch reads as not indexed.
 //! - An index naming no standard-library symbol is unavailable as a whole: an
 //!   indexer that could not load the sysroot writes one that looks complete.
-//! - Calls Atlas does not record (inside closures and macro payloads) are not
-//!   read.
+//! - Calls Atlas does not record (inside macro payloads) are not read; a
+//!   closure's or `async` block's calls are its enclosing function's.
+//! - A stale index is caught per call, not trusted: the index's symbol must
+//!   name what Atlas found written at the site, and a document whose text the
+//!   index carries must be the captured text.
 //!
 //! This module reads the bytes it is given and does no I/O.
 mod locate;
@@ -100,6 +103,9 @@ pub enum Semantic {
     Local,
     /// The index does not identify one definition.
     Ambiguous { reason: String },
+    /// The index names a symbol whose name is not the one written here: the
+    /// index was made from other source. Never read as an edge.
+    Mismatch { symbol: String },
     /// The index says nothing usable at this site.
     NotIndexed { reason: String },
 }
@@ -146,6 +152,10 @@ pub struct CallReading {
     pub semantic: Semantic,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agreement: Option<Agreement>,
+    /// The calling function's file and line, where the reading was joined
+    /// with a qualified index: how relations name the caller.
+    #[serde(skip)]
+    pub caller_site: Option<(String, usize)>,
 }
 
 /// A semantic reading of a population of calls.
@@ -188,6 +198,8 @@ struct Tables {
     /// `manager package version` of every package the index defines items of.
     packages: BTreeSet<String>,
     documents: BTreeSet<String>,
+    /// The text of each document the index carries it for.
+    texts: HashMap<String, String>,
     coverage: Coverage,
 }
 
@@ -254,7 +266,9 @@ impl SemanticIndex {
         text: &dyn Fn(&str) -> Option<&'a str>,
     ) -> Reading {
         self.reading(
-            calls.into_iter().map(|(caller, call)| (caller, call, None)),
+            calls
+                .into_iter()
+                .map(|(caller, call)| (caller, call, None, None)),
             text,
         )
     }
@@ -290,7 +304,7 @@ impl SemanticIndex {
                     ),
                     Target::InvalidFunction(t) => (outside(t), None),
                 };
-                (f.id.as_str(), call, Some((qualified, target)))
+                (f.id.as_str(), call, Some((qualified, target)), Some(f))
             })
         });
         self.reading(calls, text)
@@ -303,6 +317,7 @@ impl SemanticIndex {
                 &'a str,
                 &'a Call,
                 Option<(Qualified, Option<&'a crate::analysis::index::Function>)>,
+                Option<&'a crate::analysis::index::Function>,
             ),
         >,
         text: &dyn Fn(&str) -> Option<&'a str>,
@@ -329,8 +344,37 @@ impl SemanticIndex {
         let mut coverage = tables.coverage.clone();
         let mut missing = BTreeSet::new();
         let mut lines = HashMap::new();
-        for (caller, call, qualified) in calls {
-            let semantic = tables.call(call, text, &mut missing, &mut lines);
+        for (caller, call, qualified, function) in calls {
+            // Whether `written` may stand for a symbol named `named`: an
+            // import of that name in scope brings it in (`use crate::base as
+            // label`), or a body-local `use` or item rebinds the name here.
+            let renames = |written: &str, named: &str| {
+                function.is_some_and(|function| {
+                    function
+                        .flow
+                        .local_names
+                        .iter()
+                        .any(|local| local == written)
+                        || function.flow.imports.get(written).is_some_and(|paths| {
+                            paths
+                                .iter()
+                                .any(|path| path.last().is_some_and(|last| last == named))
+                        })
+                })
+            };
+            let mut semantic = tables.call(call, text, &renames, &mut missing, &mut lines);
+            // A name the qualified reading followed to the very definition
+            // the index names (through a re-export chain the name check
+            // cannot see, `crate::{synchronize_render}` for `synchronize`)
+            // is the same symbol, not a stale one.
+            if let Semantic::Mismatch { symbol } = &semantic
+                && let Some((_, Some(target))) = &qualified
+            {
+                let classified = tables.classify(symbol);
+                if compare(Some(target), &classified) == Agreement::Agrees {
+                    semantic = classified;
+                }
+            }
             *reading
                 .readings
                 .entry(kind(&semantic).to_owned())
@@ -351,6 +395,8 @@ impl SemanticIndex {
                 qualified,
                 semantic,
                 agreement,
+                caller_site: function
+                    .map(|function| (function.flow.site.path.clone(), function.flow.site.line)),
             });
         }
         coverage.files_not_indexed = missing.into_iter().collect();
@@ -367,6 +413,7 @@ fn kind(semantic: &Semantic) -> &'static str {
         Semantic::External { .. } => "external",
         Semantic::Local => "local",
         Semantic::Ambiguous { .. } => "ambiguous",
+        Semantic::Mismatch { .. } => "mismatch",
         Semantic::NotIndexed { .. } => "not_indexed",
     }
 }
@@ -376,7 +423,9 @@ fn kind(semantic: &Semantic) -> &'static str {
 fn compare(target: Option<&crate::analysis::index::Function>, semantic: &Semantic) -> Agreement {
     match semantic {
         Semantic::Ambiguous { .. } => return Agreement::Ambiguous,
-        Semantic::NotIndexed { .. } | Semantic::NoDefinition { .. } => return Agreement::Silent,
+        Semantic::NotIndexed { .. } | Semantic::NoDefinition { .. } | Semantic::Mismatch { .. } => {
+            return Agreement::Silent;
+        }
         _ => {}
     }
     let Some(target) = target else {
@@ -407,6 +456,7 @@ impl Tables {
             kinds: HashMap::new(),
             packages: BTreeSet::new(),
             documents: BTreeSet::new(),
+            texts: HashMap::new(),
             coverage: Coverage {
                 documents: index.documents.len(),
                 ..Coverage::default()
@@ -424,6 +474,11 @@ impl Tables {
             }
             for symbol in &document.symbols {
                 tables.kinds.insert(symbol.symbol.clone(), symbol.kind);
+            }
+            if let Some(text) = &document.text {
+                tables
+                    .texts
+                    .insert(document.relative_path.clone(), text.clone());
             }
         }
         let mut sysroot = false;
@@ -470,6 +525,7 @@ impl Tables {
         &self,
         call: &Call,
         text: &dyn Fn(&str) -> Option<&'a str>,
+        renames: &dyn Fn(&str, &str) -> bool,
         missing: &mut BTreeSet<String>,
         lines: &mut HashMap<String, locate::Lines>,
     ) -> Semantic {
@@ -483,6 +539,13 @@ impl Tables {
         let Some(source) = text(&call.site.path) else {
             return not_indexed("no captured source for the file");
         };
+        if self
+            .texts
+            .get(&call.site.path)
+            .is_some_and(|indexed| indexed != source)
+        {
+            return not_indexed("index is for other source");
+        }
         let lines = lines
             .entry(call.site.path.clone())
             .or_insert_with(|| locate::Lines::of(source));
@@ -511,6 +574,19 @@ impl Tables {
                 };
             }
         };
+        // An occurrence at the right place can still be another name, when
+        // the index was made from other source: never read it as an edge.
+        let named = descriptor_name(symbol);
+        // `Self` stands for the impl's type, whose symbol names the type.
+        if !symbol.starts_with("local ")
+            && callee.name != "Self"
+            && named != Some(callee.name.as_str())
+            && !named.is_some_and(|named| renames(&callee.name, named))
+        {
+            return Semantic::Mismatch {
+                symbol: symbol.to_owned(),
+            };
+        }
         self.classify(symbol)
     }
 
@@ -555,6 +631,23 @@ impl Tables {
 }
 
 const TRAIT_METHOD: u64 = 70;
+
+/// The name a global symbol's last descriptor gives: `graph` for
+/// `.../Snapshot#graph().`, `Snapshot` for `.../Snapshot#`, without a
+/// disambiguator such as `(+1)` or backtick escapes.
+fn descriptor_name(symbol: &str) -> Option<&str> {
+    let (_, _, _, descriptors) = package(symbol)?;
+    let trimmed = descriptors.trim_end_matches(['.', '#', '/', ':', '!']);
+    let trimmed = trimmed
+        .strip_suffix(')')
+        .and_then(|rest| rest.rfind('(').map(|open| &rest[..open]))
+        .unwrap_or(trimmed);
+    let last = trimmed
+        .rsplit(['/', '#', '.', '[', ']'])
+        .next()
+        .unwrap_or(trimmed);
+    Some(last.trim_matches('`'))
+}
 
 fn kind_name(kind: u64) -> String {
     match kind {

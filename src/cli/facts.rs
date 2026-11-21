@@ -22,6 +22,8 @@ enum Format {
 enum FamilyArg {
     Lexical,
     Qualified,
+    /// Needs --scip FILE or --semantic.
+    Semantic,
 }
 #[derive(Args)]
 pub(crate) struct Options {
@@ -47,6 +49,12 @@ pub(crate) struct Options {
     /// Superseded by --as, with the same values.
     #[arg(long, value_enum)]
     format: Option<Format>,
+    /// The SCIP index the semantic family is read from (with --families
+    /// ...,semantic). A relative path is resolved against the workspace root.
+    #[arg(long, value_name = "FILE")]
+    scip: Option<PathBuf>,
+    #[command(flatten)]
+    indexer: super::semantic::IndexerArgs,
     /// Write to this file instead of standard output.
     #[arg(long)]
     out: Option<PathBuf>,
@@ -120,7 +128,7 @@ pub(crate) fn schema() -> Result<String> {
     #[derive(serde::Serialize)]
     struct Document {
         schema: u32,
-        families: [Family; 2],
+        families: [Family; 3],
         relations: &'static [schema::Relation],
     }
     super::json(&Document {
@@ -130,7 +138,11 @@ pub(crate) fn schema() -> Result<String> {
     })
 }
 
-pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Result<()> {
+pub(crate) fn run(
+    metadata: &cargo_metadata::Metadata,
+    options: &Options,
+    cache: &super::semantic::IndexCache,
+) -> Result<()> {
     if options.schema {
         // Text unless the schema is asked for as data.
         let data = matches!(options.form, Some(As::Json | As::Jsonl)) || options.format.is_some();
@@ -144,17 +156,42 @@ pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Res
                 .into(),
         );
     }
+    let semantic = options.families.contains(&FamilyArg::Semantic);
+    if semantic && options.scip.is_none() && !options.indexer.semantic {
+        return Err("--families semantic needs an index: give --scip FILE, or --semantic, which runs rust-analyzer and with it the project's build scripts".into());
+    }
+    if !semantic && (options.scip.is_some() || options.indexer.semantic) {
+        return Err("--scip and --semantic read the semantic family: add it to --families".into());
+    }
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let graph = snapshot.graph();
-    let facts = if options.families.contains(&FamilyArg::Qualified) {
-        Some(Analysis::new(&snapshot)?.representations()?)
-    } else {
-        None
-    };
+    let analysis = (options.families.contains(&FamilyArg::Qualified) || semantic)
+        .then(|| Analysis::new(&snapshot))
+        .transpose()?;
+    let facts = analysis
+        .as_ref()
+        .map(Analysis::representations)
+        .transpose()?;
     let relations = match (options.families.contains(&FamilyArg::Lexical), &facts) {
         (true, facts) => Relations::capture(graph, facts.as_ref()),
         (false, Some(facts)) => Relations::capture_qualified(graph, facts),
         (false, None) => return Err("--families names no family".into()),
+    };
+    let relations = match (&analysis, &facts, semantic) {
+        (Some(analysis), Some(facts), true) => {
+            let root = metadata.workspace_root.as_std_path();
+            let (index, _) = super::semantic::obtain(
+                root,
+                metadata,
+                options.scip.as_deref(),
+                &options.indexer,
+                cache,
+                || super::output::graph_sources(metadata, graph).collect(),
+            )?
+            .ok_or("no semantic index was asked for")?;
+            relations.with_semantic(&analysis.semantic(&index)?, facts)?
+        }
+        _ => relations,
     };
     let write = |out: &mut dyn Write| -> Result<()> {
         match options.format() {

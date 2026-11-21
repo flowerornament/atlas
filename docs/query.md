@@ -93,6 +93,7 @@ commands, each kept equal to its command by a test:
 | `calls_function` | `from`, `to` | `callers` and `callees`: one step, a function with at least one resolved call to another |
 | `possible_call` | `to`, `call` | `callers`' "possibly": an unresolved call whose last written segment is the function's name |
 | `reaches` | `from`, `to` | `callers --depth` and `callees --depth`: the functions reached through resolved calls at any depth |
+| `any_call` | `from`, `to`, `reading` | a call by either reading: `qualified` (`call`) or `semantic` (`semantic_call`, with `--scip FILE` or `--semantic`); a pair both name is two rows |
 | `name_card` | `name`, `declaration`, `relation`, `mention` | `name NAME --relations`: `outgoing`, `incoming` and `possible` mentions |
 | `production_path` | `path` | a path some package reads outside a test build |
 | `census` | `metric`, `key`, `n` | `census`, as one row per metric (`key` is the kind or package for `kinds` and `crates`); a metric with nothing to count has no row |
@@ -139,6 +140,23 @@ them, whether or not it reads them well.
 The answer's notes name each stored relation the program read without its
 unknowns relation, and the qualified family's limitations when it read
 qualified facts.
+
+## Semantic facts
+
+`--scip FILE` reads the semantic family (`semantic_call`, `semantic_unknown`,
+and the prelude's `any_call`) from a SCIP index you made, for example with
+`rust-analyzer scip .`; `--semantic` makes one by running rust-analyzer,
+which runs the project's build scripts and proc macros (only on code you
+would build; it can take minutes, and the index is cached). A program that
+reads the family without either is refused. Its rows are one build
+configuration's reading, kept apart from `call`: `calls_function`,
+`reaches` and `possible_call` stay qualified. Join the readings on a call's
+site and spelling:
+
+```text
+?- unknown_call{kind: K, spelling: W, path: P, line: L, column: C},
+   semantic_call{to: G, spelling: W, path: P, line: L, column: C}.
+```
 
 ## Saved facts
 

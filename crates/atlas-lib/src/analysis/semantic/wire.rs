@@ -18,6 +18,8 @@ pub(super) struct Index {
 pub(super) struct Document {
     pub(super) relative_path: String,
     pub(super) position_encoding: u64,
+    /// The document's text, when the indexer wrote it (`Document.text`).
+    pub(super) text: Option<String>,
     pub(super) occurrences: Vec<Occurrence>,
     pub(super) symbols: Vec<Symbol>,
 }
@@ -177,6 +179,10 @@ fn document(bytes: &[u8]) -> Read<Document> {
             }
             (3, 2) => {
                 d.symbols.push(symbol(r.slice()?)?);
+                true
+            }
+            (5, 2) => {
+                d.text = Some(r.string()?);
                 true
             }
             (6, 0) => {

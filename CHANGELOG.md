@@ -6,6 +6,28 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Semantic facts: `query` and `facts` read a SCIP index (`--scip FILE`, or
+ `--semantic` to run rust-analyzer) into a third family, `semantic`.
+ `semantic_call{from, to, spelling, path, line, column, agreement}` holds
+ each recorded call the index names a captured workspace function for;
+ `semantic_unknown` holds every other reading (external, trait method open,
+ local value, no definition, ambiguous, not indexed, mismatch) as its
+ unknowns companion. The prelude's `any_call{from, to, reading}` unions
+ `call` and `semantic_call` and says which reading named the pair;
+ `calls_function`, `reaches` and `possible_call` stay qualified. A program
+ reading the family without an index is refused; an unusable index is
+ refused with its reason. A stale index is caught per call: the index's
+ symbol must name what is written there (an import alias or a re-export the
+ qualified reading followed counts), and a document whose text the index
+ carries must be the tree's, or the call reads `mismatch` / not indexed.
+ Share of today's unresolved calls the index names a workspace function
+ for: Atlas 735 of 13,689 (5%); a large private workspace 9,766 of 89,851
+ (11%); a mid-size one 2,789 of 19,418 (14%). Methods on receivers Atlas
+ cannot type are the largest part (Atlas 406 of 8,001; the others 4,881 of
+ 42,544 and 1,448 of 9,341, with receiver-initializer-unknown 25% and 30%).
+ No qualified call disagrees with the index on any of the three.
+ **Library:** `Relations::with_semantic`, `relations::schema::Family::Semantic`,
+ `Semantic::Mismatch`.
 - `callers` and `callees` index the calls once per question instead of
  scanning every call for each matching function and depth level: `callers
  new --depth 4` on a large workspace takes half the time. Output is

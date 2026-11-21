@@ -2,7 +2,8 @@
   "schema": 1,
   "families": [
     "lexical",
-    "qualified"
+    "qualified",
+    "semantic"
   ],
   "relations": [
     {
@@ -479,7 +480,7 @@
       "unknowns": "unknown_call",
       "notes": [
         "Only unique resolutions: an ambiguous or unresolved call is an `unknown_call` row, never a `call` row.",
-        "Calls inside closures and macro arguments are not observed."
+        "Calls inside macro arguments are not observed; a closure's or `async` block's calls are its enclosing function's."
       ]
     },
     {
@@ -750,6 +751,112 @@
       "basis": null,
       "unknowns": null,
       "notes": []
+    },
+    {
+      "name": "semantic_call",
+      "family": "semantic",
+      "description": "A recorded call that the SCIP index (a compiler front end's reading) names a workspace function for.",
+      "columns": [
+        {
+          "name": "id",
+          "kind": "text",
+          "description": "Witness id, unique within this relation in one export; not stable between exports."
+        },
+        {
+          "name": "from",
+          "kind": "text",
+          "description": "The calling function (`function.id`), or empty when no captured function is at the caller's site."
+        },
+        {
+          "name": "to",
+          "kind": "text",
+          "description": "The function the index defines the callee at (`function.id`): the captured function whose file and line are the definition's."
+        },
+        {
+          "name": "spelling",
+          "kind": "text",
+          "description": "The callee as written, as in `unknown_call`."
+        },
+        {
+          "name": "path",
+          "kind": "text",
+          "description": "File of the call site, as in `call` and `unknown_call`, so the readings join on site and spelling (chained calls share a site)."
+        },
+        {
+          "name": "line",
+          "kind": "integer",
+          "description": "Line of the call site."
+        },
+        {
+          "name": "column",
+          "kind": "integer",
+          "description": "Column of the call site."
+        },
+        {
+          "name": "agreement",
+          "kind": "text",
+          "description": "How the qualified reading compares: `agrees` (the same function), `extends` (qualified named no workspace function), `disagrees` (they differ: a finding, reported, never resolved)."
+        }
+      ],
+      "basis": null,
+      "unknowns": "semantic_unknown",
+      "notes": [
+        "One build configuration: the indexer's host target and default features; code inactive there has no reading.",
+        "Read only from an index the command is given (--scip FILE) or makes (--semantic); a semantic row is not a `call` row and is never merged into one.",
+        "A row requires the index's symbol to name what is written at the site; a stale index reads as `mismatch` in `semantic_unknown`."
+      ]
+    },
+    {
+      "name": "semantic_unknown",
+      "family": "semantic",
+      "description": "A recorded call the SCIP index names no captured workspace function for.",
+      "columns": [
+        {
+          "name": "id",
+          "kind": "text",
+          "description": "Witness id, unique within this relation in one export; not stable between exports."
+        },
+        {
+          "name": "from",
+          "kind": "text",
+          "description": "The calling function (`function.id`), or empty."
+        },
+        {
+          "name": "spelling",
+          "kind": "text",
+          "description": "The callee as written."
+        },
+        {
+          "name": "path",
+          "kind": "text",
+          "description": "File of the call site."
+        },
+        {
+          "name": "line",
+          "kind": "integer",
+          "description": "Line of the call site."
+        },
+        {
+          "name": "column",
+          "kind": "integer",
+          "description": "Column of the call site."
+        },
+        {
+          "name": "reading",
+          "kind": "text",
+          "description": "What the index says: `trait-method` (dispatch open), `external` (another package), `no-definition` (a workspace symbol defined nowhere: macro- or derive-generated, or inactive), `local` (a closure or function value), `ambiguous`, `mismatch` (the index names another symbol: made from other source), `not-indexed`, or `definition` (a definition with no captured function at its site)."
+        },
+        {
+          "name": "detail",
+          "kind": "text",
+          "description": "The trait declaration's site, the external package and item, the symbol, or the reason."
+        }
+      ],
+      "basis": null,
+      "unknowns": null,
+      "notes": [
+        "A semantic unknown is not a missing call; the qualified `call` and `unknown_call` rows at the same site still stand."
+      ]
     }
   ]
 }

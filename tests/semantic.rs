@@ -121,3 +121,136 @@ fn flow_writes_semantic_evidence_beside_its_workflow_evidence() {
         "the index is an input and stays unchanged"
     );
 }
+
+/// The rows of a query's first table, run with `extra` flags.
+fn rows(f: &Fixture, program: &str, extra: &[&str]) -> Vec<Vec<Value>> {
+    let answer = atlas(f, &[&["query", "--json", program][..], extra].concat());
+    answer["tables"][0]["rows"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .map(|row| row.as_array().expect("row").clone())
+        .collect()
+}
+fn site(row: &[Value], at: usize) -> (String, u64, u64) {
+    (
+        row[at].as_str().expect("path").to_owned(),
+        row[at + 1].as_u64().expect("line"),
+        row[at + 2].as_u64().expect("column"),
+    )
+}
+
+/// The semantic family is the reading `dump --scip` gives, one row per
+/// recorded call: `semantic_call` when the index names a captured function,
+/// `semantic_unknown` otherwise.
+#[test]
+fn the_semantic_family_flattens_the_reading_one_row_per_call() {
+    let f = fixture();
+    let scip = ["--scip", "index.scip"];
+    let dump = atlas(&f, &["dump", "--json", "--scip", "index.scip"]);
+    let read: std::collections::BTreeSet<(String, u64, u64)> = dump["semantic"]["calls"]
+        .as_array()
+        .expect("calls")
+        .iter()
+        .map(|call| {
+            let site = &call["site"];
+            (
+                site["path"].as_str().expect("path").to_owned(),
+                site["line"].as_u64().expect("line"),
+                site["column"].as_u64().expect("column"),
+            )
+        })
+        .collect();
+    let called = rows(
+        &f,
+        "?- semantic_call{from: F, to: G, path: P, line: L, column: C, agreement: A}.",
+        &scip,
+    );
+    let unknown = rows(
+        &f,
+        "?- semantic_unknown{path: P, line: L, column: C, reading: R}.",
+        &scip,
+    );
+    let sites: std::collections::BTreeSet<_> = called
+        .iter()
+        .map(|row| site(row, 2))
+        .chain(unknown.iter().map(|row| site(row, 0)))
+        .collect();
+    assert_eq!(sites, read);
+    assert_eq!(called.len() + unknown.len(), read.len());
+    // `direct` and `run` call `base`, both readings agreeing.
+    let agrees = called.iter().filter(|row| row[5] == "agrees").count();
+    assert_eq!(agrees, 2, "{called:?}");
+    // any_call unions the readings and names which one said so.
+    let any = rows(&f, "?- any_call{from: F, to: G, reading: R}.", &scip);
+    assert!(any.iter().any(|row| row[2] == "semantic"));
+    assert!(any.iter().any(|row| row[2] == "qualified"));
+    let qualified = rows(&f, "?- call{from: F, to: G}.", &[]);
+    assert_eq!(
+        any.iter().filter(|row| row[2] == "qualified").count(),
+        qualified.len()
+    );
+}
+
+#[test]
+fn the_semantic_family_needs_an_index() {
+    let f = fixture();
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir("/")
+        .args([
+            "query",
+            "?- any_call{from: F, to: G, reading: R}.",
+            "--root",
+        ])
+        .arg(f.path())
+        .output()
+        .expect("run Atlas");
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("needs an index: give --scip FILE, or --semantic"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// A stale index: the source was edited after indexing so that a call now
+/// names another function at the same place and with the same length. The
+/// index's symbol no longer names what is written, so it is a mismatch, not
+/// an edge.
+#[test]
+fn a_stale_index_reads_as_mismatch_not_as_an_edge() {
+    let f = fixture();
+    let source = std::fs::read_to_string(f.path().join("src/lib.rs")).expect("source");
+    let edited = source.replace(
+        "pub fn direct() -> u8 {\n    base()\n}",
+        "pub fn direct() -> u8 {\n    bass()\n}",
+    );
+    assert_ne!(edited, source);
+    std::fs::write(f.path().join("src/lib.rs"), edited).expect("edit after indexing");
+    let scip = ["--scip", "index.scip"];
+    let at_28 = |row: &Vec<Value>, at: usize| row[at] == "src/lib.rs" && row[at + 1] == 28;
+    let called = rows(
+        &f,
+        "?- semantic_call{from: F, to: G, path: P, line: L}.",
+        &scip,
+    );
+    assert!(!called.iter().any(|row| at_28(row, 2)), "{called:?}");
+    let unknown = rows(
+        &f,
+        "?- semantic_unknown{path: P, line: L, spelling: S, reading: R, detail: D}.",
+        &scip,
+    );
+    let row = unknown
+        .iter()
+        .find(|row| at_28(row, 0))
+        .expect("the edited call");
+    assert_eq!(row[2], "bass");
+    assert_eq!(row[3], "mismatch");
+    assert!(
+        row[4]
+            .as_str()
+            .is_some_and(|detail| detail.starts_with("index names ") && detail.contains("base()")),
+        "{row:?}"
+    );
+}

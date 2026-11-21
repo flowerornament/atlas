@@ -125,6 +125,8 @@ mod scip {
         pub occurrences: Vec<(u32, u32, u32, String, u64)>,
         /// (symbol, kind)
         pub symbols: Vec<(String, u64)>,
+        /// `Document.text`, when the indexer writes it.
+        pub text: Option<&'static str>,
     }
     pub fn index(documents: &[Document]) -> Vec<u8> {
         let mut out = Vec::new();
@@ -153,6 +155,9 @@ mod scip {
                 field(1, symbol.as_bytes(), &mut information);
                 number(5, *kind, &mut information);
                 field(3, &information, &mut document);
+            }
+            if let Some(text) = d.text {
+                field(5, text.as_bytes(), &mut document);
             }
             number(6, d.encoding, &mut document);
             field(2, &document, &mut out);
@@ -190,6 +195,7 @@ fn faithful() -> scip::Document {
             (8, 18, 21, LEN.into(), 0),
         ],
         symbols: vec![(BASE.into(), 17), (OTHER.into(), 17)],
+        text: None,
     }
 }
 fn base_call(reading: &Reading) -> (String, String) {
@@ -247,6 +253,7 @@ fn document_order_does_not_change_the_reading() {
         encoding: 1,
         occurrences: vec![(0, 0, 3, NEW.into(), 0)],
         symbols: vec![],
+        text: None,
     };
     let fixture = source_fixture(SOURCE);
     let forward = read(&fixture, &scip::index(&[faithful(), other()]));
@@ -322,4 +329,40 @@ fn unusable_indexes_name_their_reason() {
     let json = serde_json::to_value(&reading).expect("serialize");
     assert_eq!(json["coverage"]["files_not_indexed"][0], "src/lib.rs");
     assert_eq!(base_call(&reading), ("not_indexed".into(), "silent".into()));
+}
+
+/// A same-length name written where the index has another: position and
+/// length match, so only the symbol's name tells the index is stale. It is
+/// never read as an edge.
+#[test]
+fn a_symbol_that_names_another_function_is_a_mismatch_never_an_edge() {
+    let edited = SOURCE.replace("    base();", "    bass();");
+    let reading = read(&source_fixture(&edited), &scip::index(&[faithful()]));
+    let call = reading
+        .calls
+        .iter()
+        .find(|c| c.spelling == "bass")
+        .expect("edited call");
+    let json = serde_json::to_value(&call.semantic).expect("serialize");
+    assert_eq!(json["reading"], "mismatch");
+    assert_eq!(json["symbol"], BASE);
+    assert_eq!(agreement(call.agreement), "silent");
+}
+
+/// An index that carries a document's text, for text the tree no longer has,
+/// reads every call there as not indexed.
+#[test]
+fn a_document_whose_indexed_text_differs_is_not_indexed() {
+    let mut document = faithful();
+    document.text = Some(SOURCE);
+    let edited = SOURCE.replace("    1\n", "    2\n");
+    let reading = read(&source_fixture(&edited), &scip::index(&[document]));
+    let json = serde_json::to_value(&reading.calls[0].semantic).expect("serialize");
+    assert_eq!(json["reading"], "not_indexed");
+    assert_eq!(json["reason"], "index is for other source");
+    // The same text reads as before.
+    let mut document = faithful();
+    document.text = Some(SOURCE);
+    let reading = read(&source_fixture(SOURCE), &scip::index(&[document]));
+    assert_eq!(base_call(&reading), ("definition".into(), "agrees".into()));
 }

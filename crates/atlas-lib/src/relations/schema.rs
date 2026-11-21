@@ -19,16 +19,20 @@ pub enum Family {
     /// Names followed through `use` statements and modules (the analysis
     /// behind `dependencies` and `types`).
     Qualified,
+    /// A compiler front end's reading, from a SCIP index (rust-analyzer's):
+    /// present only when a command is given one.
+    Semantic,
 }
 impl Family {
     /// Every family, in export order.
-    pub const ALL: [Self; 2] = [Self::Lexical, Self::Qualified];
+    pub const ALL: [Self; 3] = [Self::Lexical, Self::Qualified, Self::Semantic];
     /// The name used on the command line and in exports.
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
             Self::Lexical => "lexical",
             Self::Qualified => "qualified",
+            Self::Semantic => "semantic",
         }
     }
 }
@@ -390,7 +394,7 @@ pub const RELATIONS: &[Relation] = &[
         unknowns: Some("unknown_call"),
         notes: &[
             "Only unique resolutions: an ambiguous or unresolved call is an `unknown_call` row, never a `call` row.",
-            "Calls inside closures and macro arguments are not observed.",
+            "Calls inside macro arguments are not observed; a closure's or `async` block's calls are its enclosing function's.",
         ],
     },
     Relation {
@@ -521,6 +525,66 @@ pub const RELATIONS: &[Relation] = &[
         basis: None,
         unknowns: None,
         notes: &[],
+    },
+    Relation {
+        name: "semantic_call",
+        family: Family::Semantic,
+        description: "A recorded call that the SCIP index (a compiler front end's reading) names a workspace function for.",
+        columns: &[
+            text("id", ID_IN_EXPORT),
+            text(
+                "from",
+                "The calling function (`function.id`), or empty when no captured function is at the caller's site.",
+            ),
+            text(
+                "to",
+                "The function the index defines the callee at (`function.id`): the captured function whose file and line are the definition's.",
+            ),
+            text("spelling", "The callee as written, as in `unknown_call`."),
+            text(
+                "path",
+                "File of the call site, as in `call` and `unknown_call`, so the readings join on site and spelling (chained calls share a site).",
+            ),
+            integer("line", "Line of the call site."),
+            integer("column", "Column of the call site."),
+            text(
+                "agreement",
+                "How the qualified reading compares: `agrees` (the same function), `extends` (qualified named no workspace function), `disagrees` (they differ: a finding, reported, never resolved).",
+            ),
+        ],
+        basis: None,
+        unknowns: Some("semantic_unknown"),
+        notes: &[
+            "One build configuration: the indexer's host target and default features; code inactive there has no reading.",
+            "Read only from an index the command is given (--scip FILE) or makes (--semantic); a semantic row is not a `call` row and is never merged into one.",
+            "A row requires the index's symbol to name what is written at the site; a stale index reads as `mismatch` in `semantic_unknown`.",
+        ],
+    },
+    Relation {
+        name: "semantic_unknown",
+        family: Family::Semantic,
+        description: "A recorded call the SCIP index names no captured workspace function for.",
+        columns: &[
+            text("id", ID_IN_EXPORT),
+            text("from", "The calling function (`function.id`), or empty."),
+            text("spelling", "The callee as written."),
+            text("path", "File of the call site."),
+            integer("line", "Line of the call site."),
+            integer("column", "Column of the call site."),
+            text(
+                "reading",
+                "What the index says: `trait-method` (dispatch open), `external` (another package), `no-definition` (a workspace symbol defined nowhere: macro- or derive-generated, or inactive), `local` (a closure or function value), `ambiguous`, `mismatch` (the index names another symbol: made from other source), `not-indexed`, or `definition` (a definition with no captured function at its site).",
+            ),
+            text(
+                "detail",
+                "The trait declaration's site, the external package and item, the symbol, or the reason.",
+            ),
+        ],
+        basis: None,
+        unknowns: None,
+        notes: &[
+            "A semantic unknown is not a missing call; the qualified `call` and `unknown_call` rows at the same site still stand.",
+        ],
     },
 ];
 

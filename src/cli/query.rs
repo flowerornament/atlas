@@ -42,6 +42,13 @@ pub(crate) struct Options {
     /// Query a saved `cargo atlas facts` export instead of capturing now.
     #[arg(long, value_name = "FILE")]
     facts: Option<PathBuf>,
+    /// Read the semantic family (`semantic_call`, `semantic_unknown`) from
+    /// this SCIP index, for example from `rust-analyzer scip`. A relative
+    /// path is resolved against the workspace root. Atlas runs no indexer.
+    #[arg(long, value_name = "FILE", conflicts_with = "facts")]
+    scip: Option<PathBuf>,
+    #[command(flatten)]
+    indexer: super::semantic::IndexerArgs,
     /// Report findings of this honesty check with the answer instead of
     /// refusing the program.
     #[arg(long, value_enum, value_delimiter = ',')]
@@ -155,18 +162,46 @@ fn changed_since(root: &Path, relations: &Relations) -> (usize, Vec<String>) {
     (seen.len(), changed)
 }
 
-fn capture(metadata: &cargo_metadata::Metadata, families: &[Family]) -> Result<Relations> {
+/// Capture the families a program reads. The semantic family needs an index
+/// (`--scip FILE`, or `--semantic` to make one) and the qualified facts its
+/// rows name functions by.
+fn capture(
+    metadata: &cargo_metadata::Metadata,
+    families: &[Family],
+    options: &Options,
+    cache: &super::semantic::IndexCache,
+) -> Result<Relations> {
+    let semantic = families.contains(&Family::Semantic);
+    if semantic && options.scip.is_none() && !options.indexer.semantic {
+        return Err("the program reads the semantic family (semantic_call, semantic_unknown, any_call), which needs an index: give --scip FILE, or --semantic, which runs rust-analyzer and with it the project's build scripts".into());
+    }
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let graph = snapshot.graph();
-    let facts = if families.contains(&Family::Qualified) {
-        Some(Analysis::new(&snapshot)?.representations()?)
-    } else {
-        None
-    };
-    Ok(match (families.contains(&Family::Lexical), &facts) {
+    let analysis = (families.contains(&Family::Qualified) || semantic)
+        .then(|| Analysis::new(&snapshot))
+        .transpose()?;
+    let facts = analysis
+        .as_ref()
+        .map(Analysis::representations)
+        .transpose()?;
+    let relations = match (families.contains(&Family::Lexical), &facts) {
         (false, Some(facts)) => Relations::capture_qualified(graph, facts),
         (_, facts) => Relations::capture(graph, facts.as_ref()),
-    })
+    };
+    let (Some(analysis), Some(facts), true) = (&analysis, &facts, semantic) else {
+        return Ok(relations);
+    };
+    let root = metadata.workspace_root.as_std_path();
+    let (index, _) = super::semantic::obtain(
+        root,
+        metadata,
+        options.scip.as_deref(),
+        &options.indexer,
+        cache,
+        || super::output::graph_sources(metadata, graph).collect(),
+    )?
+    .ok_or("no semantic index was asked for")?;
+    relations.with_semantic(&analysis.semantic(&index)?, facts)
 }
 
 fn render(cell: &Cell) -> String {
@@ -268,7 +303,11 @@ fn text(answer: &query::Answer, source: &str, show: usize, standing: &[String]) 
     out
 }
 
-pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Result<()> {
+pub(crate) fn run(
+    metadata: &cargo_metadata::Metadata,
+    options: &Options,
+    cache: &super::semantic::IndexCache,
+) -> Result<()> {
     if options.in_path.is_some()
         || options.package.is_some()
         || options.vs.is_some()
@@ -315,7 +354,7 @@ pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Res
         (relations, checked, format!("{}", path.display()), notes)
     } else {
         let checked = query::check(&program, &Family::ALL, &check_options)?;
-        let relations = capture(metadata, checked.families())?;
+        let relations = capture(metadata, checked.families(), options, cache)?;
         let families: Vec<&str> = checked.families().iter().map(|f| f.name()).collect();
         let source = if families.is_empty() {
             "none read".to_owned()

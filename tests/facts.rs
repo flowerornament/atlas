@@ -110,8 +110,13 @@ fn every_row_has_its_schema_columns_and_kinds() {
     let facts = json(&fixture, &["facts"]);
     let schema = json(&fixture, &["facts", "--schema", "--as", "json"]);
     assert_eq!(facts["schema"], schema["schema"]);
+    let captured = facts["families"].as_array().expect("families");
     for relation in schema["relations"].as_array().expect("relations") {
         let name = relation["name"].as_str().expect("name");
+        // The semantic family needs an index: the default export has none.
+        if !captured.contains(&relation["family"]) {
+            continue;
+        }
         let table = &facts["relations"][name];
         let columns = relation["columns"].as_array().expect("columns");
         let names: Vec<_> = columns.iter().map(|c| c["name"].clone()).collect();

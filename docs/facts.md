@@ -35,7 +35,7 @@ cargo atlas facts --families lexical                # skip the slower qualified 
 There are no nulls. A column that can be empty says which value means
 "none": an empty string, or 0 for a line.
 
-## Two families, kept apart
+## Three families, kept apart
 
 - **Lexical** relations hold names as written, matched by spelling: files,
   their module paths, declarations, `use` statements, type mentions and
@@ -45,6 +45,16 @@ There are no nulls. A column that can be empty says which value means
   constructions and constants, and everything it could not resolve.
   Identity is `path:line:column`. This family covers production source only;
   `limitations` in the export says what else it leaves out.
+
+- **Semantic** relations hold what a compiler front end's SCIP index
+  (rust-analyzer's) says each recorded call names: `semantic_call` when it is
+  a captured workspace function, `semantic_unknown` for every other reading.
+  The family is present only when the export or query is given an index
+  (`--scip FILE`) or makes one (`--semantic`, which runs rust-analyzer and
+  with it the project's build scripts). One build configuration, the
+  indexer's host target; `limitations` names the index and its coverage. A
+  stale index is caught per call: the index's symbol must name what is
+  written at the site, or the row is `mismatch`.
 
 Rows of different families are different evidence: a lexical mention of
 `Token` is not a qualified reference to it. To join them, use the
@@ -350,7 +360,7 @@ Qualified. A call whose target Atlas resolved to exactly one workspace function.
 Unknowns: [`unknown_call`](#unknown_call) holds what this relation could not resolve.
 
 - Only unique resolutions: an ambiguous or unresolved call is an `unknown_call` row, never a `call` row.
-- Calls inside closures and macro arguments are not observed.
+- Calls inside macro arguments are not observed; a closure's or `async` block's calls are its enclosing function's.
 
 ### `unknown_call`
 
@@ -445,3 +455,40 @@ Qualified. A written `const` item and its value as syntax; nothing is evaluated.
 | `inline_modules` | text | Enclosing inline `mod` blocks, joined with `::`; empty at file level. |
 | `value` | text | The value as JSON: `{"kind": ..., "value": ...}` with kind string, array, tuple, path, call or opaque. |
 
+### `semantic_call`
+
+Semantic. A recorded call that the SCIP index (a compiler front end's reading) names a workspace function for.
+
+| column | kind | meaning |
+|---|---|---|
+| `id` | text | Witness id, unique within this relation in one export; not stable between exports. |
+| `from` | text | The calling function (`function.id`), or empty when no captured function is at the caller's site. |
+| `to` | text | The function the index defines the callee at (`function.id`): the captured function whose file and line are the definition's. |
+| `spelling` | text | The callee as written, as in `unknown_call`. |
+| `path` | text | File of the call site, as in `call` and `unknown_call`, so the readings join on site and spelling (chained calls share a site). |
+| `line` | integer | Line of the call site. |
+| `column` | integer | Column of the call site. |
+| `agreement` | text | How the qualified reading compares: `agrees` (the same function), `extends` (qualified named no workspace function), `disagrees` (they differ: a finding, reported, never resolved). |
+
+Unknowns: [`semantic_unknown`](#semantic_unknown) holds what this relation could not resolve.
+
+- One build configuration: the indexer's host target and default features; code inactive there has no reading.
+- Read only from an index the command is given (--scip FILE) or makes (--semantic); a semantic row is not a `call` row and is never merged into one.
+- A row requires the index's symbol to name what is written at the site; a stale index reads as `mismatch` in `semantic_unknown`.
+
+### `semantic_unknown`
+
+Semantic. A recorded call the SCIP index names no captured workspace function for.
+
+| column | kind | meaning |
+|---|---|---|
+| `id` | text | Witness id, unique within this relation in one export; not stable between exports. |
+| `from` | text | The calling function (`function.id`), or empty. |
+| `spelling` | text | The callee as written. |
+| `path` | text | File of the call site. |
+| `line` | integer | Line of the call site. |
+| `column` | integer | Column of the call site. |
+| `reading` | text | What the index says: `trait-method` (dispatch open), `external` (another package), `no-definition` (a workspace symbol defined nowhere: macro- or derive-generated, or inactive), `local` (a closure or function value), `ambiguous`, `mismatch` (the index names another symbol: made from other source), `not-indexed`, or `definition` (a definition with no captured function at its site). |
+| `detail` | text | The trait declaration's site, the external package and item, the symbol, or the reason. |
+
+- A semantic unknown is not a missing call; the qualified `call` and `unknown_call` rows at the same site still stand.
