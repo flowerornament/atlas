@@ -141,7 +141,7 @@ fn a_stage_interface_row_the_orders_cannot_read_is_refused() {
     let orders = vec![StageOrder {
         crate_name: "demo-fix".to_owned(),
         stages: order(),
-        pipeline: None,
+        pipeline: Vec::new(),
     }];
     let good = BTreeMap::from([(
         "demo-fix".to_owned(),
@@ -181,7 +181,7 @@ fn a_seamed_row_reads_only_the_floor_whole_and_names_its_debt_in_rows() {
     let orders = vec![StageOrder {
         crate_name: "demo-fix".to_owned(),
         stages: order(),
-        pipeline: None,
+        pipeline: Vec::new(),
     }];
     let seams: BTreeMap<String, policy::StageSeams> = BTreeMap::from([(
         "demo-fix".to_owned(),

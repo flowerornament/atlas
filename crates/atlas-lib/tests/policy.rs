@@ -485,7 +485,7 @@ authority = [
     allowed_in = [{ file = "src/lib.rs", item = "Home", counts = { "" = { narrow-cast = 1 } }, owner = "ticket-2", reason = "the one conversion" }] },
 ]
 stage_order = [{ crate = "fixture", stages = ["parse", "check"],
-                 pipeline = { file = "src/lib.rs", function = "run", calls = ["parse::parse", "check::check"], loops = false } }]
+                 pipeline = [{ file = "src/lib.rs", function = "run", calls = ["parse::parse", "check::check"], loops = false }] }]
 
 [population]
 core = ["fixture"]
@@ -540,7 +540,7 @@ fn every_extension_field_parses_and_is_unavailable_until_judged() {
         "authority.0.forbid_new_pattern",
         "authority.0.forbid_new_observed",
         "authority.0.allowed_in",
-        "stage_order.fixture.pipeline",
+        "stage_order.fixture.pipeline.0",
         "stage_seams.fixture.final_stages",
     ] {
         assert!(fields.contains(&field), "{field} missing from {fields:?}");
@@ -626,5 +626,25 @@ fn policy_judges_the_crate_graph() {
             .any(|row| row.starts_with("UNUSED ALLOWANCE: `app` allows `core`")),
         "{:?}",
         report.violations
+    );
+}
+
+/// One stage_order per crate, as `stages` already requires: `policy`
+/// refuses a second.
+#[test]
+fn a_duplicate_stage_order_is_refused() {
+    let twice = EXTENDED.replace(
+        "stage_order = [{ crate = \"fixture\"",
+        "stage_order = [{ crate = \"fixture\", stages = [\"parse\"] }, { crate = \"fixture\"",
+    );
+    assert_ne!(twice, EXTENDED);
+    let policy = Policy::parse(&twice).expect("parses");
+    let error = policy
+        .validate_configuration(&std::collections::BTreeSet::from(["fixture"]))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("duplicate stage_order for fixture"),
+        "{error}"
     );
 }

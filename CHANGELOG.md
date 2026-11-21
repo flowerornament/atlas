@@ -6,6 +6,8 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `cargo atlas policy` refuses a second `stage_order` for one package, as
+ `stages` already did.
 - `[size] approve_growth = true` is judged: no stored ceilings; `delta`
  reports every core crate's token lines before and after
  (`Report::size_changes`), and each crate that grew as a `Raise` from its
@@ -33,7 +35,8 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  `population.amended_by`, concentration `function_lines`,
  `function_nesting`, `generated`, `function` rows and row `owner`,
  authority `allowed_readers`, `forbid_new_pattern`, `forbid_new_observed`
- and `allowed_in`, `stage_order` `pipeline`, `stage_seams` `final_stages`
+ and `allowed_in`, `stage_order` `pipeline` (a list: a package may have
+ several functions that run its stages), `stage_seams` `final_stages`
  and writers' `test_sites`/`production_sites`, and `allowed = "any"` in a
  crate rule). Their rules are not judged yet: a policy that writes one is
  `UNAVAILABLE` naming each field (`Policy::unjudged`), never a complete

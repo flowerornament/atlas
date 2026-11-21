@@ -274,7 +274,8 @@ emit = { input = ["check"] }
 ```
 
 `stage_order` lists one package's top-level modules in the order data flows
-through them, earliest first. A stage may never use a later stage.
+through them, earliest first, once per package. A stage may never use a
+later stage.
 
 `stage_reads` says which earlier stages each stage may use, and how:
 
@@ -354,9 +355,10 @@ skipped a rule you wrote.
   - `allowed_in = [{ file, item, counts, owner, reason }]`: items that may
     hold a `forbid_new` spelling, up to `counts` (by path inside the item,
     `""` for the item itself, then by spelling name).
-- `pipeline = { file, function, calls, loops }` in a `stage_order` entry:
-  the function that runs the stages makes exactly `calls`, in a straight
-  line; `loops = true` allows one `for` around them.
+- `pipeline = [{ file, function, calls, loops }]` in a `stage_order`
+  entry: each function that runs the stages (a package may have several)
+  makes exactly `calls`, in a straight line; `loops = true` allows one
+  `for` around them.
 - In `stage_seams`: `final_stages`, stages no other stage uses except the
   one that runs them all; and per writer, `test_sites` and
   `production_sites`, writer calls outside the producing stage counted

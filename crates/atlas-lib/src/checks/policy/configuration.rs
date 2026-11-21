@@ -14,6 +14,16 @@ impl Policy {
         for name in &self.population.core {
             require_member(members, "core population", name)?;
         }
+        let mut ordered = BTreeSet::new();
+        for order in &self.stage_order {
+            if !ordered.insert(order.crate_name.as_str()) {
+                return Err(format!(
+                    "policy: duplicate stage_order for {}; write one stage_order per crate",
+                    order.crate_name
+                )
+                .into());
+            }
+        }
         let core: BTreeSet<_> = self.population.core.iter().collect();
         let ceilings: BTreeSet<_> = self.size.crates.keys().collect();
         if self.size.approve_growth {

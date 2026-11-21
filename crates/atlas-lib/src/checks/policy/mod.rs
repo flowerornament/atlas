@@ -49,12 +49,13 @@ pub struct StageOrder {
     #[serde(rename = "crate")]
     pub crate_name: String,
     pub stages: Vec<String>,
-    /// The function that runs the stages, and the calls it must make.
+    /// The functions that run the stages, each with the calls it must make
+    /// (a crate may have several).
     #[serde(default)]
-    pub pipeline: Option<Pipeline>,
+    pub pipeline: Vec<Pipeline>,
 }
 
-/// The function that runs a crate's stages: straight-line, making exactly
+/// A function that runs a crate's stages: straight-line, making exactly
 /// `calls` as written; `loops` allows one `for` around them.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -691,8 +692,8 @@ impl Policy {
             }
         }
         for order in &self.stage_order {
-            if order.pipeline.is_some() {
-                out.push(format!("stage_order.{}.pipeline", order.crate_name));
+            for index in 0..order.pipeline.len() {
+                out.push(format!("stage_order.{}.pipeline.{index}", order.crate_name));
             }
         }
         for (package, seams) in &self.stage_seams {
