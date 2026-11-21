@@ -66,9 +66,7 @@ pub mod revision;
 
 /// The library guide: snapshots, qualified analysis, navigation, relations,
 /// queries, comparing versions and architecture checks, with examples.
-pub mod guide {
-    #![doc = include_str!("guide.md")]
-}
+pub mod guide;
 
 /// Errors from source, revision and analysis boundaries.
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
