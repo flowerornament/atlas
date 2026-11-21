@@ -81,7 +81,7 @@ pub(super) fn outside_mounts(
             continue;
         };
         for declaration in source.file_module_declarations() {
-            if declaration.path.is_none() {
+            if declaration.path.is_none() && declaration.alternatives.is_empty() {
                 continue;
             }
             let name = declaration.qualified_name();

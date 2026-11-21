@@ -6,6 +6,13 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Fixed: `#[cfg_attr(PREDICATE, path = "...")] mod m;` was mounted from
+ the default file only, so a call into `m` could resolve to the file a
+ configuration does not read (a wrong edge). Each conditional path is now
+ a candidate beside the unconditional one, inside or outside `src`, and
+ every candidate file is mounted as `m`; a name more than one defines is
+ ambiguous. No call, mount or diagnostic changes on this repository or
+ two private workspaces (none uses one).
 - Fixed: a path starting with a workspace crate's name was read as that
  crate even where the caller's module declares a module or type of that
  name, which Rust reads first (a wrong edge). A relative path now names

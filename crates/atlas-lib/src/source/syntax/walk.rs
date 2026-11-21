@@ -390,6 +390,7 @@ impl<'ast> Visit<'ast> for Walk<'_> {
                     self.modules.push(super::ModuleDeclaration {
                         name: n.ident.to_string(),
                         path: path_attribute(&n.attrs),
+                        alternatives: conditional_paths(&n.attrs),
                         test_gated: self
                             .gated_bytes
                             .iter()
@@ -573,6 +574,30 @@ fn type_head(ty: &syn::Type) -> Option<String> {
     }
 }
 
+/// The `path = "..."` values inside `#[cfg_attr(PREDICATE, ...)]`.
+fn conditional_paths(attrs: &[syn::Attribute]) -> Vec<String> {
+    use syn::{Meta, Token, punctuated::Punctuated};
+    attrs
+        .iter()
+        .filter(|attribute| attribute.path().is_ident("cfg_attr"))
+        .filter_map(|attribute| {
+            attribute
+                .parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
+                .ok()
+        })
+        .flat_map(|metas| metas.into_iter().skip(1))
+        .filter_map(|meta| match meta {
+            Meta::NameValue(meta) if meta.path.is_ident("path") => match meta.value {
+                syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(value),
+                    ..
+                }) => Some(value.value()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
 /// The value of a `#[path = "..."]` attribute, when it is a string literal.
 fn path_attribute(attrs: &[syn::Attribute]) -> Option<String> {
     attrs.iter().find_map(|attribute| match &attribute.meta {

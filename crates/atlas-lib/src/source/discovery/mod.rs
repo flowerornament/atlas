@@ -620,8 +620,28 @@ fn module_files(
     beside_file: bool,
     module: &crate::source::syntax::ModuleDeclaration,
 ) -> Vec<String> {
+    let mut files =
+        written_module_files(declaring_file, beside_file, module, module.path.as_deref());
+    // A `cfg_attr` path is a file under some configuration: one more
+    // candidate, never a replacement for the unconditional one.
+    for alternative in &module.alternatives {
+        for file in written_module_files(declaring_file, beside_file, module, Some(alternative)) {
+            if !files.contains(&file) {
+                files.push(file);
+            }
+        }
+    }
+    files
+}
+/// [`module_files`] for one `path` value (none: the default file names).
+fn written_module_files(
+    declaring_file: &str,
+    beside_file: bool,
+    module: &crate::source::syntax::ModuleDeclaration,
+    path: Option<&str>,
+) -> Vec<String> {
     if module.inline.is_empty()
-        && let Some(path) = &module.path
+        && let Some(path) = path
     {
         return vec![resolve_module_path(declaring_file, path)];
     }
@@ -641,7 +661,7 @@ fn module_files(
                 .unwrap_or_else(|| unraw(&inline.name)),
         );
     }
-    match &module.path {
+    match path {
         Some(path) => vec![
             normalize_path(&directory.join(path))
                 .to_string_lossy()

@@ -25,6 +25,11 @@ pub(crate) struct ModuleDeclaration {
     pub name: String,
     /// A `#[path]` attribute's value.
     pub path: Option<String>,
+    /// The `path` values of `#[cfg_attr(PREDICATE, path = "...")]`: files
+    /// the module is read from under some configuration. Atlas evaluates no
+    /// cfg, so each is a candidate beside the unconditional one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<String>,
     /// Under a test-only gate, on the declaration or an enclosing module.
     pub test_gated: bool,
     /// The enclosing inline `mod` blocks, outermost first.
