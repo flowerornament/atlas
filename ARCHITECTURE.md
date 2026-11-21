@@ -344,7 +344,19 @@ so an exception that stops applying is noticed.
   `cargo clippy -- -D warnings` in `just check` (`allow_attributes_without_reason`
   refuses a missing reason); `#[expect]` over `#[allow]`: review.
 
-**28. Each module's `//!` header states its responsibility and the important
+**28. A function body fits on a screen: at most 70 lines of code.**
+A split names the decision each part makes, as in [Working
+principles](#working-principles); 70 is where Clippy stops a body, not a
+target to split to.
+- *Broken by:* a function body over 70 lines without an `#[expect]`; an
+  `#[expect]` left on a function that now fits.
+- *Checked by:* `clippy::too_many_lines`, denied in `Cargo.toml` at
+  `too-many-lines-threshold = 70` (`clippy.toml`), in `just check`. Functions
+  in `checks/` and `analysis/` still over it each carry
+  `#[expect(clippy::too_many_lines, reason = "longer than 70 lines; to be split
+  along its decisions")]`.
+
+**29. Each module's `//!` header states its responsibility and the important
 limits of its result.**
 - *Broken by:* a module with no header, or one that no longer says what the
   module does.

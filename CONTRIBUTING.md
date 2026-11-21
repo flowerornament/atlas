@@ -77,6 +77,9 @@ surface counts are a snapshot of when they were last measured, so read those
 two lines as a report. When your change lowers a file's row, lower it in the
 policy in the same commit.
 
+Code-level rules, such as the 70-line limit on a function body, are Clippy
+lints: see the lint table in `Cargo.toml` and `clippy.toml`.
+
 ## Conventions
 
 - **Evidence stays honest.** Keep ambiguity and unresolved names; never pick an

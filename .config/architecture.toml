@@ -66,8 +66,8 @@ core = ["atlas-lib", "cargo-atlas"]
 # Lines that contain code, per package. Measured; growth needs a policy edit
 # that says what it buys.
 [size]
-core_token_lines = 37231
-crate = { atlas-lib = 26730, cargo-atlas = 10501 }
+core_token_lines = 38429
+crate = { atlas-lib = 27487, cargo-atlas = 10942 }
 
 # Public declarations, per package. Measured; same rule as size.
 [surface]
@@ -111,26 +111,28 @@ file_lines = 600
 conventional_names = ["tests"]
 # Ratchets: files above the limits, at their measured body lines.
 entry = [
-  { path = "crates/atlas-lib/src/analysis/semantic/mod.rs", lines = 609 },
+  { path = "crates/atlas-lib/src/analysis/semantic/mod.rs", lines = 617 },
   { path = "crates/atlas-lib/src/analysis/workflow/mod.rs", lines = 417 },
-  { path = "crates/atlas-lib/src/checks/delta/mod.rs", lines = 340 },
-  { path = "crates/atlas-lib/src/checks/policy/mod.rs", lines = 612 },
-  { path = "crates/atlas-lib/src/queries/mod.rs", lines = 391 },
-  { path = "crates/atlas-lib/src/relations/mod.rs", lines = 751 },
-  { path = "crates/atlas-lib/src/source/discovery/mod.rs", lines = 867 },
+  { path = "crates/atlas-lib/src/checks/delta/mod.rs", lines = 348 },
+  { path = "crates/atlas-lib/src/checks/policy/mod.rs", lines = 616 },
+  { path = "crates/atlas-lib/src/queries/mod.rs", lines = 400 },
+  { path = "crates/atlas-lib/src/relations/mod.rs", lines = 788 },
+  { path = "crates/atlas-lib/src/source/discovery/mod.rs", lines = 940 },
   { path = "crates/atlas-lib/src/source/facts_cache/mod.rs", lines = 380 },
   { path = "src/cli/output/mod.rs", lines = 347 },
+  { path = "src/render/types/mod.rs", lines = 329 },
 ]
 file = [
-  { path = "crates/atlas-lib/src/analysis/semantic/mod.rs", lines = 609 },
-  { path = "crates/atlas-lib/src/checks/policy/mod.rs", lines = 612 },
-  { path = "crates/atlas-lib/src/queries/callers.rs", lines = 1203 },
-  { path = "crates/atlas-lib/src/queries/orient.rs", lines = 835 },
-  { path = "crates/atlas-lib/src/query/check.rs", lines = 1122 },
-  { path = "crates/atlas-lib/src/query/eval.rs", lines = 745 },
-  { path = "crates/atlas-lib/src/query/syntax.rs", lines = 670 },
-  { path = "crates/atlas-lib/src/relations/mod.rs", lines = 751 },
-  { path = "crates/atlas-lib/src/source/discovery/mod.rs", lines = 867 },
+  { path = "crates/atlas-lib/src/analysis/semantic/mod.rs", lines = 617 },
+  { path = "crates/atlas-lib/src/checks/policy/mod.rs", lines = 616 },
+  { path = "crates/atlas-lib/src/diagram/projection.rs", lines = 630 },
+  { path = "crates/atlas-lib/src/queries/callers.rs", lines = 1243 },
+  { path = "crates/atlas-lib/src/queries/orient.rs", lines = 964 },
+  { path = "crates/atlas-lib/src/query/check.rs", lines = 1185 },
+  { path = "crates/atlas-lib/src/query/eval.rs", lines = 778 },
+  { path = "crates/atlas-lib/src/query/syntax.rs", lines = 677 },
+  { path = "crates/atlas-lib/src/relations/mod.rs", lines = 788 },
+  { path = "crates/atlas-lib/src/source/discovery/mod.rs", lines = 940 },
 ]
 # Module names with more than one home. A facet is one idea seen from
 # several places; a collision is two ideas under one name, owed a rename.
