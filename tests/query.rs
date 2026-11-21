@@ -291,13 +291,17 @@ fn the_prelude_restates_its_commands_on_a_fixture() {
 #[test]
 fn the_prelude_restates_its_commands_on_this_workspace() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    census_agrees(root);
-    file_calls_agree(root, None);
-    file_calls_agree(root, Some("src"));
-    file_calls_agree(root, Some("crates/atlas-lib/src/query"));
-    name_cards_agree(root, "Relation");
-    name_cards_agree(root, "Snapshot");
-    calls_agree(root, "Snapshot::graph");
+    // Each check runs its own Atlas processes over the whole workspace and
+    // shares nothing with the others, so they run at once.
+    std::thread::scope(|scope| {
+        scope.spawn(|| census_agrees(root));
+        scope.spawn(|| file_calls_agree(root, None));
+        scope.spawn(|| file_calls_agree(root, Some("src")));
+        scope.spawn(|| file_calls_agree(root, Some("crates/atlas-lib/src/query")));
+        scope.spawn(|| name_cards_agree(root, "Relation"));
+        scope.spawn(|| name_cards_agree(root, "Snapshot"));
+        scope.spawn(|| calls_agree(root, "Snapshot::graph"));
+    });
 }
 
 #[test]
