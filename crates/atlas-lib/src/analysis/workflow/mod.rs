@@ -433,6 +433,35 @@ fn write_steps(out: &mut String, steps: &[Step], depth: usize) {
     }
 }
 
+/// One selected function body, as written.
+pub(crate) struct Selected<'a> {
+    /// Where its name is written.
+    pub(crate) site: Site,
+    pub(crate) block: &'a syn::Block,
+}
+/// The production function `selector` names in a captured file (flow's
+/// selector: a name, qualified name or `<Type as Trait>::method`), never a
+/// `#[cfg(test)]` one; none or several is flow's error, with every
+/// candidate.
+pub(crate) fn body<'a>(
+    source: &crate::source::Source,
+    path: &str,
+    ast: &'a syn::File,
+    selector: &str,
+) -> Result<Selected<'a>> {
+    let reader = parse::Reader {
+        source: source.text(),
+        path,
+        selection: crate::population::SyntaxSelection::Selected {
+            source,
+            tests: crate::population::TestSelection::Production,
+        },
+    };
+    let mut functions = Vec::new();
+    functions::collect(&ast.items, &[], &reader, &mut functions);
+    reader.selected(&functions, selector)
+}
+
 /// Shared AST input for queries needing both function bodies and type structure.
 pub(crate) fn read_ast(
     source: &crate::source::Source,

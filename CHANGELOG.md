@@ -6,6 +6,17 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `stage_order.pipeline` is judged by `policy::validate` (so `cargo atlas policy` and
+ `delta`): each function, chosen with `flow`'s selector among production
+ functions, makes exactly its `calls` as written (paths, `.method`,
+ `macro!`; nested calls and macro arguments count, `?` belongs to its
+ call, one `Ok(..)` around the final expression is free), in straight-line
+ code; `loops = true` allows `for` loops, any number, each body judged
+ alike. Branches, other loops, early exits, closures and `async` blocks,
+ `&`/`|` merges, struct update, `?` on a value, turbofish and unreadable
+ macros or callees, and `cfg`-gated statements refuse. A line-number
+ selector, a duplicate call or a call not spelled as a path, `.method` or
+ `macro!` is a configuration error.
 - `authority.forbid_new_pattern`, `forbid_new_observed` and `allowed_in`
  are judged by `delta`: held spelling debt outside a home, counted per
  (file, owning item, spelling) on the base (under the published policy)

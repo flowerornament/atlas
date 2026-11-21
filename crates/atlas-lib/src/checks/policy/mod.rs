@@ -61,7 +61,9 @@ pub struct StageOrder {
 }
 
 /// A function that runs a crate's stages: straight-line, making exactly
-/// `calls` as written; `loops` allows one `for` around them.
+/// `calls` as written (`path`, `.method`, `macro!`); `loops` allows `for`
+/// loops, each body held to the same rule. `function` is flow's selector,
+/// never a line.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
@@ -718,11 +720,6 @@ impl Policy {
     /// unavailable, never a complete PASS.
     pub fn unjudged(&self) -> Vec<String> {
         let mut out = Vec::new();
-        for order in &self.stage_order {
-            for index in 0..order.pipeline.len() {
-                out.push(format!("stage_order.{}.pipeline.{index}", order.crate_name));
-            }
-        }
         for (package, seams) in &self.stage_seams {
             if seams.final_stages.is_some() {
                 out.push(format!("stage_seams.{package}.final_stages"));

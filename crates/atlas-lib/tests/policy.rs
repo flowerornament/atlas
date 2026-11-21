@@ -542,8 +542,19 @@ fn every_extension_field_parses_and_is_unavailable_until_judged() {
         .iter()
         .map(|m| m.field.as_str())
         .collect();
+    assert!(
+        !fields.contains(&"stage_order.fixture.pipeline.0"),
+        "pipeline is judged: {fields:?}"
+    );
+    // `run` does not exist in the fixture: the judged rule says so.
+    assert!(
+        report.violations.iter().any(|v| v
+            .starts_with("stage_order.fixture.pipeline.0 (src/lib.rs::run): ")
+            && v.contains("expected one function, found 0")),
+        "{:?}",
+        report.violations
+    );
     for field in [
-        "stage_order.fixture.pipeline.0",
         "stage_seams.fixture.final_stages",
         "stage_seams.fixture.writers.Model.production_sites",
     ] {

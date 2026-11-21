@@ -347,6 +347,29 @@ emit = { input = ["check"] }
 through them, earliest first, once per package. A stage may never use a
 later stage.
 
+`pipeline = [{ file, function, calls, loops }]` in a `stage_order` entry
+names each function that runs the stages (a package may have several). The
+body must make exactly `calls`, in straight-line code. `function` uses the
+same selector as `flow` (a name, `Type::method`, an inline module's
+`module::f` within the file, or `<Type as Trait>::method`), never a line
+number and never a `#[cfg(test)]` function; one that names none or several
+refuses, listing the candidates. A call is listed as written, never
+resolved: a path (`parse::parse`, `Some`), `.method` for a method call, or
+`macro!`. Every call counts wherever it appears, including in arguments,
+receivers and `for` heads. A `?` on a call belongs to it, and one `Ok(..)`
+around the body's final expression is not a call (what it wraps is). A
+macro's tokens are read as expressions, so the calls in its arguments
+count, but its expansion is not seen: listing a macro trusts it as a step.
+A macro whose tokens are not expressions refuses. `loops = true` allows
+`for` loops, each body judged by these same rules. Anything else refuses:
+`if`, `match` and `let ... else`; `while` and `loop`; `return`, `break` and
+`continue`; closures and `async` blocks; `&`, `&&`, `|`, `||` (and `&=`,
+`|=`, or-patterns); struct update `..base`; `?` on a value; a turbofish,
+`<T as Tr>::f(..)` or a callee that is not a path; a `#[cfg]` statement;
+and labelled blocks, `try` and `const` blocks. References (`&x`), ranges,
+arithmetic, comparisons, `as`, `.await`, assignments and literals are
+allowed. Items written inside the body are declarations and are not read.
+
 `stage_reads` says which earlier stages each stage may use, and how:
 
 - `reads`: stages it may use freely.
@@ -434,10 +457,6 @@ skipped a rule you wrote. A field written empty, such as `final_stages = []` or
 `production_sites = {}`, is a claim ("none") and counts as written; only a
 field left out claims nothing.
 
-- `pipeline = [{ file, function, calls, loops }]` in a `stage_order`
-  entry: each function that runs the stages (a package may have several)
-  makes exactly `calls`, in a straight line; `loops = true` allows one
-  `for` around them.
 - In `stage_seams`: `final_stages`, stages no other stage uses except the
   one that runs them all; and per writer, `test_sites` and
   `production_sites`, writer calls outside the producing stage counted

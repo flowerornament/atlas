@@ -3,6 +3,8 @@
 //! reports retain unjudged evidence rather than asserting a complete policy PASS.
 mod interfaces;
 mod paths;
+mod pipeline;
+pub(in crate::checks) use pipeline::{judge as judge_pipelines, validate as validate_pipelines};
 mod roots;
 pub mod seams;
 #[cfg(test)]

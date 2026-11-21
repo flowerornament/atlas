@@ -194,6 +194,9 @@ pub fn validate(
             report.unavailable.push(MissingInput {field:format!("typed_errors.{name}"),reason:"required type syntax or source population unavailable; see typed_errors reading".into()});
         }
     }
+    let pipelines = crate::checks::stages::judge_pipelines(analysis, &policy.stage_order);
+    report.violations.extend(pipelines.violations);
+    report.unavailable.extend(pipelines.unavailable);
     let resolved = read_authorities(snapshot, policy, inputs, &mut report)?;
     super::readers::judge(analysis, &policy.authority, &resolved, &mut report)?;
     resolve_references(policy, inputs, &mut report);

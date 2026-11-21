@@ -23,6 +23,7 @@ impl Policy {
                 )
                 .into());
             }
+            crate::checks::stages::validate_pipelines(order)?;
         }
         let core: BTreeSet<_> = self.population.core.iter().collect();
         let ceilings: BTreeSet<_> = self.size.crates.keys().collect();

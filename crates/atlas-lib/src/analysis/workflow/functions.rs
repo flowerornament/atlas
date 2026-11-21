@@ -135,6 +135,15 @@ impl Reader<'_> {
     /// Select by name, qualified name, `<Type as Trait>::method`, or the
     /// `LINE` / `LINE:COLUMN` where the function's name is written.
     pub(super) fn select(&self, functions: &[Function<'_>], selector: &str) -> Result<Workflow> {
+        Ok(self.build(self.find(functions, selector)?))
+    }
+    /// The one function `selector` names, or every candidate with the
+    /// selector that picks it.
+    pub(super) fn find<'f, 'a>(
+        &self,
+        functions: &'f [Function<'a>],
+        selector: &str,
+    ) -> Result<&'f Function<'a>> {
         let site = |f: &Function<'_>| self.site(f.signature.ident.span());
         let found: Vec<_> = functions
             .iter()
@@ -185,7 +194,20 @@ impl Reader<'_> {
             }
             return Err(message.into());
         };
-        Ok(self.build(function))
+        Ok(function)
+    }
+    /// The selected function's body as written, for a check that reads it
+    /// itself.
+    pub(super) fn selected<'a>(
+        &self,
+        functions: &[Function<'a>],
+        selector: &str,
+    ) -> Result<super::Selected<'a>> {
+        let function = self.find(functions, selector)?;
+        Ok(super::Selected {
+            site: self.site(function.signature.ident.span()),
+            block: function.body,
+        })
     }
     pub(super) fn build(&self, function: &Function<'_>) -> Workflow {
         let (calls, bindings, local_names, declarations) =
