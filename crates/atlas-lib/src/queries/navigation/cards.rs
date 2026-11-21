@@ -160,6 +160,10 @@ impl Navigation<'_> {
     /// Sort every outside-test declaration the selector admits into the card's
     /// groups: visible matches, hidden ones (counted only), impls, and
     /// re-exports, which a path selector names by their own module path.
+    #[expect(
+        clippy::excessive_nesting,
+        reason = "nested deeper than 6 blocks; to be flattened along its decisions"
+    )]
     fn declarations(&self, selector: &Selector<'_>) -> Declarations<'_> {
         let mut found = Declarations::default();
         for package in &self.workspace.crates {

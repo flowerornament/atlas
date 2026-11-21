@@ -56,6 +56,10 @@ impl Boundary {
     clippy::too_many_lines,
     reason = "longer than 70 lines; to be split along its decisions"
 )]
+#[expect(
+    clippy::excessive_nesting,
+    reason = "nested deeper than 6 blocks; to be flattened along its decisions"
+)]
 pub(super) fn boundaries(
     crate_map: &CrateMap,
     stages: &[String],

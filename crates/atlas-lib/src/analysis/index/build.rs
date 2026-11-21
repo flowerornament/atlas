@@ -94,6 +94,10 @@ impl Index {
             }
         }
     }
+    #[expect(
+        clippy::excessive_nesting,
+        reason = "nested deeper than 6 blocks; to be flattened along its decisions"
+    )]
     pub(super) fn bind_method_owners(&mut self) -> Result<()> {
         // Resolve an impl owner imported from another physical file only once.
         for (i, f) in self.functions.iter().enumerate() {

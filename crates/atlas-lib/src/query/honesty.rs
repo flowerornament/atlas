@@ -52,6 +52,10 @@ struct Lineage {
     ancestry: BTreeSet<RelId>,
 }
 
+#[expect(
+    clippy::excessive_nesting,
+    reason = "nested deeper than 6 blocks; to be flattened along its decisions"
+)]
 fn lineage(rels: &[RelInfo], rules: &[CRule]) -> Vec<Lineage> {
     let by_name = |name: &str| rels.iter().position(|r| r.name == name);
     let mut lineage: Vec<Lineage> = rels

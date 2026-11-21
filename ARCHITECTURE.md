@@ -356,7 +356,18 @@ target to split to.
   `#[expect(clippy::too_many_lines, reason = "longer than 70 lines; to be split
   along its decisions")]`.
 
-**29. Each module's `//!` header states its responsibility and the important
+**29. No block nests more than six deep.**
+A deeper block usually holds a decision that deserves its own name: an early
+return, a helper, or an iterator step.
+- *Broken by:* a block nested seven or more deep without an `#[expect]`; an
+  `#[expect]` left on a function that no longer nests that deep.
+- *Checked by:* `clippy::excessive_nesting`, denied in `Cargo.toml` at
+  `excessive-nesting-threshold = 6` (`clippy.toml`), in `just check`. A
+  function still over it carries
+  `#[expect(clippy::excessive_nesting, reason = "nested deeper than 6 blocks;
+  to be flattened along its decisions")]`.
+
+**30. Each module's `//!` header states its responsibility and the important
 limits of its result.**
 - *Broken by:* a module with no header, or one that no longer says what the
   module does.

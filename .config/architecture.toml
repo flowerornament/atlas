@@ -66,8 +66,8 @@ core = ["atlas-lib", "cargo-atlas"]
 # Lines that contain code, per package. Measured; growth needs a policy edit
 # that says what it buys.
 [size]
-core_token_lines = 38429
-crate = { atlas-lib = 27487, cargo-atlas = 10942 }
+core_token_lines = 38461
+crate = { atlas-lib = 27519, cargo-atlas = 10942 }
 
 # Public declarations, per package. Measured; same rule as size.
 [surface]
@@ -128,7 +128,7 @@ file = [
   { path = "crates/atlas-lib/src/diagram/projection.rs", lines = 630 },
   { path = "crates/atlas-lib/src/queries/callers.rs", lines = 1243 },
   { path = "crates/atlas-lib/src/queries/orient.rs", lines = 964 },
-  { path = "crates/atlas-lib/src/query/check.rs", lines = 1185 },
+  { path = "crates/atlas-lib/src/query/check.rs", lines = 1189 },
   { path = "crates/atlas-lib/src/query/eval.rs", lines = 778 },
   { path = "crates/atlas-lib/src/query/syntax.rs", lines = 677 },
   { path = "crates/atlas-lib/src/relations/mod.rs", lines = 788 },

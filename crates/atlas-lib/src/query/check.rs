@@ -1232,6 +1232,10 @@ fn demanded(rels: &[RelInfo], rules: &[CRule], queries: &[CQuery]) -> BTreeSet<u
 /// Strata: a relation sits above every relation it negates or counts over,
 /// and no lower than those it reads. A cycle through negation or `count`
 /// has no single answer and is refused.
+#[expect(
+    clippy::excessive_nesting,
+    reason = "nested deeper than 6 blocks; to be flattened along its decisions"
+)]
 fn stratify(
     rels: &[RelInfo],
     user: &Program,

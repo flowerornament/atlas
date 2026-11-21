@@ -214,6 +214,10 @@ impl<'a> BodyReport<'a> {
     /// before rerooted ones; returns the new sites left unpaired. Same-file
     /// pairs cancel before cross-file ones, so identical sources never
     /// relocate; old sites keep source order.
+    #[expect(
+        clippy::excessive_nesting,
+        reason = "nested deeper than 6 blocks; to be flattened along its decisions"
+    )]
     fn cancel_equal(
         &mut self,
         key: &'a Key,

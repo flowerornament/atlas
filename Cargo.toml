@@ -88,6 +88,10 @@ use_self = "warn"
 # code lines, set in clippy.toml (ARCHITECTURE.md rule 28). A function still
 # over it carries an #[expect] until it is split.
 too_many_lines = "deny"
+# A block nests at most excessive-nesting-threshold (6) deep, set in
+# clippy.toml (ARCHITECTURE.md rule 29). A function still deeper carries an
+# #[expect] until it is flattened.
+excessive_nesting = "deny"
 
 # Pedantic allows — noisy or inapplicable
 module_name_repetitions = "allow"
