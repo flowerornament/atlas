@@ -166,6 +166,22 @@ impl<'a> Walk<'a> {
     /// above attach; a blank line attaches only once an attribute or `///`
     /// has, and past one only `///` attaches. Leading blank lines are
     /// dropped again.
+    /// The one-based lines `bytes` wholly occupies: nothing but whitespace
+    /// before it on its first line, and nothing but whitespace or a comment
+    /// after it on its last; `None` when it shares a line with other code.
+    fn whole_lines(&self, bytes: &std::ops::Range<usize>) -> Option<RangeInclusive<usize>> {
+        let text = self.projection.text();
+        let line_of = |offset: usize| self.line_offsets.partition_point(|start| *start <= offset);
+        let (first, last) = (line_of(bytes.start), line_of(bytes.end.saturating_sub(1)));
+        let before = text.get(self.line_offsets[first - 1]..bytes.start)?;
+        let line_end = self
+            .line_offsets
+            .get(last)
+            .map_or(text.len(), |next| next - 1);
+        let after = text.get(bytes.end..line_end.max(bytes.end))?.trim();
+        (before.trim().is_empty() && (after.is_empty() || after.starts_with("//")))
+            .then_some(first..=last)
+    }
     fn first_attached_line(
         &self,
         attr_line: usize,
@@ -384,7 +400,9 @@ impl<'a> Walk<'a> {
 impl<'ast> Visit<'ast> for Walk<'_> {
     /// A statement under a test-only gate (`#[cfg(test)] { ... }`, a gated
     /// `let`) is test code by its bytes, so a site in it is selected with
-    /// the tests. Its lines are left to line accounting, which reads items.
+    /// the tests; the lines it wholly occupies are test lines too, so line
+    /// accounting agrees with the sites on them. A line it shares with
+    /// production code stays mixed.
     fn visit_stmt(&mut self, stmt: &'ast syn::Stmt) {
         let attrs: &[syn::Attribute] = match stmt {
             syn::Stmt::Local(local) => &local.attrs,
@@ -393,7 +411,11 @@ impl<'ast> Visit<'ast> for Walk<'_> {
             syn::Stmt::Item(_) => &[],
         };
         if attributes::requires(attrs, &[]) {
-            self.gated_bytes.push(stmt.span().byte_range());
+            let bytes = stmt.span().byte_range();
+            if let Some(lines) = self.whole_lines(&bytes) {
+                self.gated.extend(lines);
+            }
+            self.gated_bytes.push(bytes);
         }
         visit::visit_stmt(self, stmt);
     }

@@ -159,3 +159,34 @@ pub(crate) fn native_limitation(source: &Source) -> Option<(usize, &'static str)
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn limitation(text: &str) -> Option<(usize, &'static str)> {
+        let captured =
+            crate::source::capture(std::path::Path::new("."), "src/lib.rs", text.to_owned());
+        native_limitation(captured.facts().expect("parses"))
+    }
+
+    /// A gated block in a production function owns its lines: the `use` in
+    /// it is test code by line and by site alike.
+    #[test]
+    fn a_test_gated_block_in_a_production_function_is_not_mixed() {
+        let shaped = "static SEALS: std::sync::OnceLock<u8> = std::sync::OnceLock::new();\npub fn seal() {\n    #[cfg(test)]\n    {\n        use std::fmt::Write as _;\n        let _ = SEALS.set(1);\n    }\n    let _ = 1;\n}\n";
+        assert_eq!(limitation(shaped), None);
+        let gated_let =
+            "pub fn f() {\n    #[cfg(test)]\n    let _a = { use std::fmt::Write as _; 1 };\n}\n";
+        assert_eq!(limitation(gated_let), None);
+    }
+
+    /// A gated statement that shares a line with production code leaves that
+    /// line mixed.
+    #[test]
+    fn a_gated_statement_sharing_a_line_with_production_code_is_mixed() {
+        let shared =
+            "pub fn f() {\n    let _p = 1; #[cfg(test)] { use std::fmt::Write as _; }\n}\n";
+        assert_eq!(limitation(shared).map(|(line, _)| line), Some(2));
+    }
+}

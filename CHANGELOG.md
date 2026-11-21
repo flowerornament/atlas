@@ -25,7 +25,9 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  production reading (`callers`, `facts`, `query` by default) no longer
  records it, and with `--with-tests` its `call` or `unknown_call` row is
  `test_only`. Test-gated statements are recorded as test bytes in the
- syntax facts; line accounting is unchanged.
+ syntax facts, and the lines they wholly occupy as test lines, so native
+ line accounting agrees with the sites on them; a gated statement sharing
+ a line with production code leaves that line mixed.
 - The query absence check requires every unknowns relation a negated
  relation inherits: a rule negating a relation derived from `any_call` that
  reads `unknown_call` (through `possible_call`) but not `semantic_unknown`
