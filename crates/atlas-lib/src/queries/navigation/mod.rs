@@ -24,7 +24,7 @@ pub struct Navigation<'a> {
     snapshot: &'a Snapshot,
     workspace: Workspace,
     visibility: VisibilitySelection,
-    relations: std::cell::OnceCell<std::result::Result<relations::Relations, String>>,
+    relations: std::cell::OnceCell<std::result::Result<relations::Relations, relations::Unread>>,
 }
 impl<'a> Navigation<'a> {
     pub fn new(snapshot: &'a Snapshot, visibility: VisibilitySelection) -> Result<Self> {

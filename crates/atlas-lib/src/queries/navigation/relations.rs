@@ -1,7 +1,12 @@
 //! Native subject selection over the existing lexical relationship derivation.
 use super::{Basis, Navigation, Site};
 use crate::{Result, model::SourceGraph, population::TestSelection};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    error::Error,
+    fmt,
+    sync::Arc,
+};
 
 pub(super) struct Relations {
     pub relationships: Vec<crate::model::Relationship>,
@@ -9,10 +14,27 @@ pub(super) struct Relations {
     pub mentioned: BTreeSet<String>,
     pub sites: BTreeMap<String, Site>,
 }
+/// Why the relations could not be read, kept once and returned to every
+/// question that asks for them: the original error, shared.
+#[derive(Clone, Debug)]
+pub(super) struct Unread(Arc<dyn Error + Send + Sync>);
+impl fmt::Display for Unread {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl Error for Unread {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.0.source()
+    }
+}
 impl Navigation<'_> {
     pub(super) fn relations(&self) -> Result<&Relations> {
         self.relations
-            .get_or_init(|| self.read_relations().map_err(|error| error.to_string()))
+            .get_or_init(|| {
+                self.read_relations()
+                    .map_err(|error| Unread(Arc::from(error)))
+            })
             .as_ref()
             .map_err(|why| why.clone().into())
     }

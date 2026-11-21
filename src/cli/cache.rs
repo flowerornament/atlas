@@ -16,7 +16,40 @@ pub(super) struct Session {
     stats: bool,
     verify: bool,
     /// Where entries live, or why the run is uncached.
-    place: std::result::Result<PathBuf, String>,
+    place: std::result::Result<PathBuf, Uncached>,
+}
+
+/// Why a run keeps no cache. Each is printed as the reason, never a failure.
+#[derive(Clone, Debug)]
+pub(super) enum Uncached {
+    /// `ATLAS_CACHE=off` or `--no-cache`.
+    Off,
+    /// No `ATLAS_CACHE_DIR` and no user cache directory.
+    NoDirectory,
+    /// The directory is inside the inspected workspace.
+    InsideWorkspace(PathBuf),
+    /// Another cache was installed first in this process.
+    AlreadyInstalled,
+    /// The directory could not be opened.
+    Unavailable(PathBuf, String),
+}
+
+impl std::fmt::Display for Uncached {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Off => f.write_str("off"),
+            Self::NoDirectory => f.write_str("no user cache directory; set ATLAS_CACHE_DIR"),
+            Self::InsideWorkspace(dir) => write!(
+                f,
+                "not used: {} is inside the inspected workspace",
+                dir.display()
+            ),
+            Self::AlreadyInstalled => f.write_str("a cache was already installed"),
+            Self::Unavailable(dir, error) => {
+                write!(f, "unavailable at {}: {error}", dir.display())
+            }
+        }
+    }
 }
 
 /// Install the cache this run's settings ask for, for the workspace at the
@@ -39,21 +72,18 @@ pub(super) fn open(no_cache: bool, root: &Path) -> Result<Session> {
         .map(PathBuf::from)
         .or_else(FactsCache::user_dir);
     let place = match (mode, dir) {
-        (None, _) => Err("off".to_owned()),
-        (Some(_), None) => Err("no user cache directory; set ATLAS_CACHE_DIR".to_owned()),
+        (None, _) => Err(Uncached::Off),
+        (Some(_), None) => Err(Uncached::NoDirectory),
         (Some(mode), Some(dir)) => match FactsCache::open(&dir, mode) {
-            Ok(cache) if cache.is_inside(root) => Err(format!(
-                "not used: {} is inside the inspected workspace",
-                dir.display()
-            )),
+            Ok(cache) if cache.is_inside(root) => Err(Uncached::InsideWorkspace(dir)),
             Ok(cache) => {
                 let opened = cache.dir().to_owned();
                 cache
                     .install()
-                    .map_err(|_| "a cache was already installed".to_owned())
+                    .map_err(|_| Uncached::AlreadyInstalled)
                     .map(|()| opened)
             }
-            Err(error) => Err(format!("unavailable at {}: {error}", dir.display())),
+            Err(error) => Err(Uncached::Unavailable(dir, error.to_string())),
         },
     };
     Ok(Session {

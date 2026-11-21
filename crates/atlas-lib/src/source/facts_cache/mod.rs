@@ -57,7 +57,17 @@ pub struct FactsCache {
     mode: FactsCacheMode,
     /// Whether the directories exist, created and pruned on first use by a
     /// workspace this cache may serve; the error otherwise.
-    prepared: OnceLock<Result<(), String>>,
+    prepared: OnceLock<Result<(), Unprepared>>,
+}
+
+/// The entries directory could not be created: where, and the I/O error.
+#[derive(Clone, Debug)]
+struct Unprepared(Arc<(PathBuf, io::Error)>);
+impl std::fmt::Display for Unprepared {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (dir, error) = &*self.0;
+        write!(f, "cannot create {}: {error}", dir.display())
+    }
 }
 
 /// What the installed cache did in this process so far.
@@ -117,9 +127,8 @@ impl FactsCache {
     pub(super) fn prepare(&self) -> bool {
         self.prepared
             .get_or_init(|| {
-                create_private_dir(&self.entries).map_err(|error| {
-                    format!("cannot create {}: {error}", self.entries.display())
-                })?;
+                create_private_dir(&self.entries)
+                    .map_err(|error| Unprepared(Arc::new((self.entries.clone(), error))))?;
                 self.mark_used_and_prune();
                 Ok(())
             })
@@ -176,7 +185,8 @@ impl FactsCache {
                 .unwrap_or_default(),
             unavailable: Self::installed()
                 .and_then(|cache| cache.prepared.get())
-                .and_then(|prepared| prepared.clone().err()),
+                .and_then(|prepared| prepared.as_ref().err())
+                .map(ToString::to_string),
         }
     }
 

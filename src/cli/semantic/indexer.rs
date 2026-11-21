@@ -63,7 +63,7 @@ pub(in crate::cli) struct IndexerArgs {
 
 /// Where produced indexes are kept, or why they are neither read nor kept.
 pub(in crate::cli) struct IndexCache {
-    pub(in crate::cli) dir: std::result::Result<PathBuf, String>,
+    pub(in crate::cli) dir: std::result::Result<PathBuf, crate::cli::cache::Uncached>,
     /// Whether a stored index may answer; verify mode only stores.
     pub(in crate::cli) reuse: bool,
 }

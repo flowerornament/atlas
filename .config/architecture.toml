@@ -60,14 +60,18 @@ authority = [
   { fact = "output collision policy", home = "src/cli/output/files.rs::preflight" },
 ]
 
+# Packages whose production code never uses String as an error type
+# (ARCHITECTURE.md rule 31). atlas-lib joins once its last sites are typed.
+typed_errors = ["cargo-atlas"]
+
 [population]
 core = ["atlas-lib", "cargo-atlas"]
 
 # Lines that contain code, per package. Measured; growth needs a policy edit
 # that says what it buys.
 [size]
-core_token_lines = 38737
-crate = { atlas-lib = 27794, cargo-atlas = 10943 }
+core_token_lines = 38787
+crate = { atlas-lib = 27822, cargo-atlas = 10965 }
 
 # Public declarations, per package. Measured; same rule as size.
 [surface]
@@ -118,7 +122,7 @@ entry = [
   { path = "crates/atlas-lib/src/queries/mod.rs", lines = 400 },
   { path = "crates/atlas-lib/src/relations/mod.rs", lines = 790 },
   { path = "crates/atlas-lib/src/source/discovery/mod.rs", lines = 940 },
-  { path = "crates/atlas-lib/src/source/facts_cache/mod.rs", lines = 380 },
+  { path = "crates/atlas-lib/src/source/facts_cache/mod.rs", lines = 388 },
   { path = "src/cli/output/mod.rs", lines = 347 },
   { path = "src/render/types/mod.rs", lines = 319 },
 ]
