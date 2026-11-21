@@ -281,7 +281,27 @@ impl<'ast> Visit<'ast> for Facts<'_, '_> {
             site: self.reader.site(call.span()),
         });
     }
-    fn visit_expr_closure(&mut self, _: &'ast syn::ExprClosure) {}
+    /// A closure's body is part of this function: its calls are this
+    /// function's calls. Its parameters bind names inside it: a typed one
+    /// with its type, an untyped one with none, so a method called on it
+    /// stays unresolved rather than guessed.
+    fn visit_expr_closure(&mut self, closure: &'ast syn::ExprClosure) {
+        for input in &closure.inputs {
+            if let Pat::Type(typed) = input
+                && let Some(name) = pattern(&typed.pat)
+            {
+                self.bindings.push(Binding {
+                    name,
+                    ty: Some(self.reader.text(typed.ty.span())),
+                    initializer: None,
+                    site: self.reader.site(input.span()),
+                });
+            } else {
+                self.visit_pat(input);
+            }
+        }
+        self.visit_expr(&closure.body);
+    }
     fn visit_expr_async(&mut self, _: &'ast syn::ExprAsync) {}
     fn visit_expr_macro(&mut self, _: &'ast syn::ExprMacro) {}
     fn visit_expr_const(&mut self, _: &'ast syn::ExprConst) {}

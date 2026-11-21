@@ -4,6 +4,24 @@ Atlas has two packages: `cargo-atlas` (the `cargo atlas` command and its
 library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 `atlas-core`. Versions below name the package they apply to.
 
+## Unreleased
+
+- **Fix:** calls inside a closure were recorded nowhere, neither resolved nor
+ unknown, so `callers` could report "no unresolved call is written as X" for
+ a function called only from closures. A closure's body is now part of the
+ function that writes it: its calls are that function's calls, resolved with
+ the function's bindings and the closure's typed parameters; a method called
+ on an untyped closure parameter is recorded unresolved, not guessed. `flow`
+ still draws a closure as one opaque step. Construction sites follow the
+ same rule: a struct literal and a `Type::default()` call inside a closure
+ are now construction rows of the enclosing function in `types` and the
+ `construction`/`default_call` facts. An `async` block's body is still left
+ out. Recorded calls (resolved / unknown), before
+ and after: Atlas 1,621 / 11,108 to 1,902 / 13,570; a large private
+ workspace 20,637 / 76,453 to 23,418 / 90,518; a mid-size one 1,722 / 4,455
+ to 1,948 / 5,085. The callers caveat now names what stays unrecorded: calls
+ in macros, and through a function passed elsewhere as a value.
+
 ## cargo-atlas 0.19.0 / atlas-lib 0.9.0
 
 0.19 gives every command one grammar. The bare argument is the command's

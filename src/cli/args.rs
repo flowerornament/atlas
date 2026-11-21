@@ -110,7 +110,7 @@ pub(super) enum Command {
     Module(navigation::ModuleArgs),
     /// List the functions that call a function, from resolved calls.
     #[command(
-        after_help = "Answers: which functions call this one?\nResolved: each call Atlas followed through use statements and modules, with its site. Possibly: calls Atlas could not resolve that are written with the same name, counted by why they stayed unresolved; they are never counted as callers.\nAccepts: FILE:LINE, a declaration id, Type::method, module::name or a name (each match is answered on its own). --in or -p keeps callers in part of the project.\nNo resolved caller is not proof that nothing calls it: calls inside macros, through function pointers or closures passed elsewhere are not recorded.\nExample: cargo atlas callers parse"
+        after_help = "Answers: which functions call this one?\nResolved: each call Atlas followed through use statements and modules, with its site. Possibly: calls Atlas could not resolve that are written with the same name, counted by why they stayed unresolved; they are never counted as callers.\nAccepts: FILE:LINE, a declaration id, Type::method, module::name or a name (each match is answered on its own). --in or -p keeps callers in part of the project.\nNo resolved caller is not proof that nothing calls it: calls inside macros, or through a function passed elsewhere as a value, are not recorded.\nExample: cargo atlas callers parse"
     )]
     Callers(callers::Options),
     /// List the functions a function calls, from resolved calls.

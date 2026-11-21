@@ -105,7 +105,7 @@ fn field_expressions_keep_containers_tuples_and_borrows_separate() {
     assert_eq!(nested.wrappers, ["tuple[1]", "Vec[0]"]);
 }
 #[test]
-fn initializer_without_selected_return_is_not_hidden_and_deferred_is_not_attributed() {
+fn initializer_without_selected_return_is_not_hidden_and_closure_literals_are_attributed() {
     let source = BASE.to_owned()
         + "\nfn hidden() -> usize { let _ = Graph { value: 1 }; 0 }\nfn deferred() { let _ = || Graph {value:2}; }";
     let (_f, _, v) = inspect(&source);
@@ -116,7 +116,13 @@ fn initializer_without_selected_return_is_not_hidden_and_deferred_is_not_attribu
         .unwrap();
     assert!(hidden.outputs.is_empty());
     assert_eq!(hidden.literals.len(), 1);
-    assert!(!v.contracts.iter().any(|c| c.function.name == "deferred"));
+    // A closure's literal is a construction site of the function writing it.
+    let deferred = v
+        .contracts
+        .iter()
+        .find(|c| c.function.name == "deferred")
+        .unwrap();
+    assert_eq!(deferred.literals.len(), 1);
 }
 #[test]
 #[expect(

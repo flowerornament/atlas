@@ -153,10 +153,12 @@ fn inferred()->Graph {Default::default()}
         preparation_functions: vec![],
     };
     let v = types::project(&facts, &query).unwrap();
+    // A closure's call is its enclosing function's call, so `deferred`'s
+    // counts; a generic or inferred `default()` names no type and does not.
     assert_eq!(
         facts.default_calls.len(),
-        1,
-        "no generic, inferred or deferred default call is attributed"
+        2,
+        "no generic or inferred default call is attributed"
     );
     let graph = v
         .producers

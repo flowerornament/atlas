@@ -91,8 +91,9 @@ followed to the function. A call it could not resolve, but that is written
 with the function's name, is listed apart as a *possible* caller, counted by
 why it stayed unresolved, and never counted as a caller. A function with
 neither is reported as having no resolved callers, never as unused: calls
-inside macros, or through function pointers and closures passed elsewhere,
-are not recorded. `--depth N` follows resolved calls up to N levels, and
+inside macros, or through a function passed elsewhere as a value, are not
+recorded. (A closure's own calls are recorded, as calls of the function that
+writes it.) `--depth N` follows resolved calls up to N levels, and
 counts the unresolved ones beyond the first level instead of listing them.
 
 ## Choosing what to read

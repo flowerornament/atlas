@@ -134,8 +134,10 @@ fn a_path_mount_establishes_names_but_a_disconnected_file_does_not() {
         .is_err()
     );
 }
+/// A closure's call is a call its enclosing function writes, so it connects;
+/// a call in macro input stays opaque and an untyped receiver unknown.
 #[test]
-fn macro_deferred_and_untyped_receiver_calls_stay_explicitly_unresolved() {
+fn closure_calls_connect_while_macro_and_untyped_receiver_calls_stay_unresolved() {
     let f = Fixture::new(&[
         ("src/lib.rs", "pub mod stage;\n"),
         ("src/stage.rs", "pub fn run(){}\n"),
@@ -152,8 +154,7 @@ fn macro_deferred_and_untyped_receiver_calls_stay_explicitly_unresolved() {
         ),
     )
     .unwrap();
-    assert!(!p.connections.iter().any(|e| e.to == "stage"));
-    assert!(p.nodes.iter().any(|n| n.id == "stage" && n.context));
+    assert!(p.connections.iter().any(|e| e.to == "stage"));
     assert!(p.observations.iter().any(|o| o.reason.contains("opaque")));
     assert!(
         p.observations

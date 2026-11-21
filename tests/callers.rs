@@ -76,7 +76,7 @@ fn callers_lists_resolved_calls_and_possible_ones_apart() {
     // R19: neither resolved nor possible callers is never "unused".
     let none = text(&f, &["callers", "none"]);
     assert!(
-        none.contains("  no resolved callers, and no unresolved call is written as \"none\"; calls Atlas does not record (inside macros, through function pointers or closures passed elsewhere) are not covered\n"),
+        none.contains("  no resolved callers, and no unresolved call is written as \"none\"; calls Atlas does not record (inside macros, or through a function passed elsewhere as a value) are not covered\n"),
         "{none}"
     );
     assert!(!none.contains("unused"));

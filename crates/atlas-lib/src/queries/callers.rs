@@ -9,9 +9,10 @@
 //! `calls_function` names: each function is listed at the first depth it is
 //! reached, and unresolved calls beyond depth 1 are counted, not listed.
 //!
-//! Limits: calls inside macro input, through function pointers or closures
-//! passed elsewhere, and trait dispatch Atlas cannot follow are not recorded,
-//! so an empty answer never means "unused".
+//! Limits: calls inside macro input, through a function passed elsewhere as a
+//! value, and trait dispatch Atlas cannot follow are not recorded, so an
+//! empty answer never means "unused". A closure's calls are recorded as
+//! calls of the function that writes it.
 use super::{More, selector::Selector};
 use crate::{
     Result,
@@ -457,7 +458,7 @@ impl Report<CallerAnswer> {
             if answer.resolved.is_empty() && answer.possibly.is_empty() {
                 let _ = writeln!(
                     out,
-                    "  no resolved callers, and no unresolved call is written as {wanted:?}; calls Atlas does not record (inside macros, through function pointers or closures passed elsewhere) are not covered"
+                    "  no resolved callers, and no unresolved call is written as {wanted:?}; calls Atlas does not record (inside macros, or through a function passed elsewhere as a value) are not covered"
                 );
                 continue;
             }

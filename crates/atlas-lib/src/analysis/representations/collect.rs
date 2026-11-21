@@ -230,8 +230,9 @@ impl<'ast> Visit<'ast> for Collector<'_> {
         }
         syn::visit::visit_expr_struct(self, s);
     }
-    // Deferred bodies have their own execution; do not attribute their construction to a call of this function.
-    fn visit_expr_closure(&mut self, _: &'ast syn::ExprClosure) {}
+    // A closure's body is part of the function that writes it, so its
+    // literals are that function's construction sites (the default visit
+    // walks it). An async block's body is still left out, as its calls are.
     fn visit_expr_async(&mut self, _: &'ast syn::ExprAsync) {}
 }
 
