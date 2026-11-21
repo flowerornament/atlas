@@ -2,9 +2,16 @@
 use crate::comparison::{Change, Comparison};
 use crate::{
     Result,
-    render::{Artifact, Document, pele, theme::Palette},
+    render::{Artifact, Document, Pele, pele, theme::Palette},
 };
 use std::fmt::Write;
+
+impl Comparison {
+    /// Aligned source-observation rows; no graph edges or behavioral summary invented.
+    pub fn pele(&self, options: &Pele) -> Result<Artifact> {
+        pele(self, options.theme.palette(), options.bare)
+    }
+}
 
 fn lines(value: &str) -> String {
     // Break at source-token separators, never in the middle of a filename or identifier.

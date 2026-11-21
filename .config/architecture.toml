@@ -66,13 +66,13 @@ core = ["atlas-lib", "cargo-atlas"]
 # Lines that contain code, per package. Measured; growth needs a policy edit
 # that says what it buys.
 [size]
-core_token_lines = 38473
-crate = { atlas-lib = 27531, cargo-atlas = 10942 }
+core_token_lines = 38737
+crate = { atlas-lib = 27794, cargo-atlas = 10943 }
 
 # Public declarations, per package. Measured; same rule as size.
 [surface]
-atlas-lib = 624
-cargo-atlas = 135
+atlas-lib = 627
+cargo-atlas = 134
 
 # The library depends on no workspace package; the command line depends on
 # the library only.
@@ -116,11 +116,11 @@ entry = [
   { path = "crates/atlas-lib/src/checks/delta/mod.rs", lines = 348 },
   { path = "crates/atlas-lib/src/checks/policy/mod.rs", lines = 616 },
   { path = "crates/atlas-lib/src/queries/mod.rs", lines = 400 },
-  { path = "crates/atlas-lib/src/relations/mod.rs", lines = 788 },
+  { path = "crates/atlas-lib/src/relations/mod.rs", lines = 790 },
   { path = "crates/atlas-lib/src/source/discovery/mod.rs", lines = 940 },
   { path = "crates/atlas-lib/src/source/facts_cache/mod.rs", lines = 380 },
   { path = "src/cli/output/mod.rs", lines = 347 },
-  { path = "src/render/types/mod.rs", lines = 329 },
+  { path = "src/render/types/mod.rs", lines = 319 },
 ]
 file = [
   { path = "crates/atlas-lib/src/analysis/semantic/mod.rs", lines = 617 },
@@ -131,7 +131,8 @@ file = [
   { path = "crates/atlas-lib/src/query/check.rs", lines = 1188 },
   { path = "crates/atlas-lib/src/query/eval.rs", lines = 778 },
   { path = "crates/atlas-lib/src/query/syntax.rs", lines = 677 },
-  { path = "crates/atlas-lib/src/relations/mod.rs", lines = 788 },
+  { path = "crates/atlas-lib/src/relations/mod.rs", lines = 790 },
+  { path = "crates/atlas-lib/src/relations/schema.rs", lines = 602 },
   { path = "crates/atlas-lib/src/source/discovery/mod.rs", lines = 940 },
 ]
 # Module names with more than one home. A facet is one idea seen from
@@ -144,7 +145,7 @@ name = [
   { name = "dependencies", ruling = "facet", why = "the dependencies command and its view", homes = ["cargo-atlas::cli::dependencies", "cargo-atlas::views::dependencies"] },
   { name = "documentation", ruling = "facet", why = "the documentation audit and its command", homes = ["atlas-lib::queries::documentation", "cargo-atlas::cli::documentation"] },
   { name = "facts", ruling = "collision", why = "a function body's calls and bindings, and the command that exports relation tables", homes = ["atlas-lib::analysis::workflow::facts", "cargo-atlas::cli::facts"] },
-  { name = "measure", ruling = "facet", why = "the measurement units of each check", homes = ["atlas-lib::checks::concentration::measure", "atlas-lib::checks::delta::measure"] },
+  { name = "measure", ruling = "facet", why = "measurement units: those of each check, and each function's lines and nesting read in the syntax pass", homes = ["atlas-lib::checks::concentration::measure", "atlas-lib::checks::delta::measure", "atlas-lib::source::syntax::measure"] },
   { name = "navigation", ruling = "facet", why = "the navigation queries and their command", homes = ["atlas-lib::queries::navigation", "cargo-atlas::cli::navigation"] },
   { name = "orient", ruling = "facet", why = "the orient report and its command", homes = ["atlas-lib::queries::orient", "cargo-atlas::cli::orient"] },
   { name = "overview", ruling = "facet", why = "the overview command, its view and its renderer", homes = ["cargo-atlas::cli::overview", "cargo-atlas::render::overview", "cargo-atlas::views::overview"] },

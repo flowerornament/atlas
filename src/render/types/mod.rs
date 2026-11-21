@@ -8,7 +8,7 @@ mod retention;
 pub fn ascii(v: &Views, panel: Panel) -> String {
     ascii::render(v, panel)
 }
-use crate::types::{Reference, Views};
+use crate::types::{Panel, Reference, Views};
 use crate::{
     Result,
     render::{
@@ -17,19 +17,7 @@ use crate::{
         theme::Palette,
     },
 };
-use clap::ValueEnum;
-use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt::Write};
-#[derive(Clone, Copy, Debug, Default, ValueEnum, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Panel {
-    #[default]
-    All,
-    Contracts,
-    Retention,
-    Preparation,
-    Producers,
-}
 fn name<'a>(v: &'a Views, id: &str) -> &'a str {
     v.types
         .iter()

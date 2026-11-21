@@ -379,8 +379,4 @@ impl Comparison {
         out.push('\n');
         out
     }
-    /// Aligned source-observation rows; no graph edges or behavioral summary invented.
-    pub fn pele(&self, options: &crate::render::Pele) -> crate::Result<crate::render::Artifact> {
-        crate::render::comparison::pele(self, options.theme.palette(), options.bare)
-    }
 }

@@ -3,14 +3,26 @@
 //! Extraction is independent of a saved question. These are written-source facts,
 //! not value identity, complete ownership, runtime order or a duplication verdict.
 mod project;
-pub use crate::render::types::{Panel, ascii, pele};
+pub use crate::render::types::{ascii, pele};
 pub use atlas_lib::representations::{
     Constant, Constructor, Facts, Function, Literal, Reference, ResolvedCall, Role, Type,
     UnknownCall, UnknownType, extract,
 };
+use clap::ValueEnum;
 pub(crate) use project::select;
 pub use project::{Contract, MAX_ROWS, MAX_TYPES, Preparation, Producers, Views, project};
 use serde::{Deserialize, Serialize};
+/// Which part of the representation view to present: every panel, or one.
+#[derive(Clone, Copy, Debug, Default, ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Panel {
+    #[default]
+    All,
+    Contracts,
+    Retention,
+    Preparation,
+    Producers,
+}
 
 /// One symbol selector. A name must resolve uniquely; qualify with its physical file.
 #[derive(Clone, Debug, Serialize, Deserialize)]
