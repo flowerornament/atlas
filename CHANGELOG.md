@@ -6,6 +6,12 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- A helper program (the renderer, an adapter or an indexer) that stops
+ reading its request no longer holds Atlas past its time limit: a failed
+ request write used to end the deadline and then wait, unbounded, for a
+ process the program started to release its output. Atlas now stops the
+ program, gives its output a short grace and refuses if it is still held.
+
 - Two call and path readings Rust resolves differently now follow Rust: a
  name a glob import brings in shadows a workspace crate of that name
  (`use crate::adapters::*; json::parse()` calls `adapters::json`), and a

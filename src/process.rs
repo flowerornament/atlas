@@ -105,6 +105,43 @@ fn stopped_at_deadline(
     )
 }
 
+/// Wait until every worker has reported, so none is joined while it still
+/// reads. The first failure stops the child, keeping an exit already
+/// observed, and gives its pipes a grace to close within the deadline, so
+/// an early refusal on stderr is still read; a pipe still held then is
+/// refused, never waited for.
+fn reported(
+    running: &mut Running,
+    receiver: &mpsc::Receiver<Completion>,
+    mut deadline: Instant,
+    limits: Limits,
+) -> Result<()> {
+    let mut failed = false;
+    let mut done = 0;
+    while done < 3 {
+        match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(completion) => {
+                done += 1;
+                if completion == Completion::Failed && !failed {
+                    failed = true;
+                    if running.0.try_wait()?.is_none() {
+                        let _ = running.0.kill();
+                    }
+                    deadline = deadline.min(Instant::now() + GRACE);
+                }
+            }
+            Err(RecvTimeoutError::Disconnected) => break,
+            Err(RecvTimeoutError::Timeout) if failed => {
+                return Err("the exchange failed, and a process the program started still holds its output, and is not waited for".into());
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                return Err(stopped_at_deadline(running, receiver, done, limits).into());
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn exchange(mut command: Command, request: &[u8], limits: Limits) -> Result<Exchange> {
     let mut running = Running(
         command
@@ -126,26 +163,7 @@ pub(crate) fn exchange(mut command: Command, request: &[u8], limits: Limits) -> 
     })?;
     let out = worker(sender.clone(), move || bounded(stdout, limits.stdout))?;
     let err = worker(sender, move || bounded(stderr, limits.stderr))?;
-    // On the first failure, stop the child before joining its pipes; past
-    // the deadline, stop it and give its pipes a grace to close.
-    let mut done = 0;
-    while done < 3 {
-        match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-            Ok(Completion::Done) => done += 1,
-            Ok(Completion::Failed) => {
-                // Retain any already-observed exit; otherwise stop the child.
-                // Still collect bounded stderr so an early refusal is not lost.
-                if running.0.try_wait()?.is_none() {
-                    let _ = running.0.kill();
-                }
-                break;
-            }
-            Err(RecvTimeoutError::Disconnected) => break,
-            Err(RecvTimeoutError::Timeout) => {
-                return Err(stopped_at_deadline(&mut running, &receiver, done, limits).into());
-            }
-        }
-    }
+    reported(&mut running, &receiver, deadline, limits)?;
     let input_error = writer
         .join()
         .map_err(|_| "child input writer failed")?
@@ -212,9 +230,11 @@ mod tests {
 
     #[test]
     fn a_process_holding_the_pipe_does_not_hold_the_exchange() {
+        // The holder outlives the bound by far, so a loaded host's slowness
+        // cannot pass for having waited for it.
         let started = Instant::now();
         let error = exchange(
-            shell("sleep 6 & cat >/dev/null; exec sleep 30"),
+            shell("sleep 30 & cat >/dev/null; exec sleep 30"),
             b"request",
             limits(1),
         )
@@ -226,7 +246,31 @@ mod tests {
             "{error}"
         );
         assert!(
-            started.elapsed() < Duration::from_secs(5),
+            started.elapsed() < Duration::from_secs(10),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_failed_request_write_keeps_the_deadline() {
+        // The child starts a process holding its output, then closes its
+        // input unread, so a request larger than a pipe buffer fails to write.
+        let started = Instant::now();
+        let error = exchange(
+            shell("sleep 30 & exec 0<&-; exit 0"),
+            &vec![b'x'; 1 << 20],
+            limits(30),
+        )
+        .err()
+        .expect("an exchange whose output is held is refused")
+        .to_string();
+        assert!(
+            error.contains("still holds its output, and is not waited for"),
+            "{error}"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
             "{:?}",
             started.elapsed()
         );
