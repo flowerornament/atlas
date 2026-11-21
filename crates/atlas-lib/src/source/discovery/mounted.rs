@@ -159,7 +159,7 @@ pub(super) fn module_candidates(directory: &str, name: &str) -> [String; 2] {
         root.join(format!("{name}.rs")),
         root.join(name).join("mod.rs"),
     ]
-    .map(|path| path.to_string_lossy().replace('\\', "/"))
+    .map(|path| super::path_key(&path))
 }
 
 fn capture_optional(

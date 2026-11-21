@@ -65,10 +65,9 @@ pub fn read(
             .parent()
             .ok_or("manifest lacks parent")?
             .join("src");
-        let src_rel = src
-            .strip_prefix(metadata.workspace_root.as_std_path())?
-            .to_string_lossy()
-            .replace('\\', "/");
+        let src_rel = crate::source::discovery::path_key(
+            src.strip_prefix(metadata.workspace_root.as_std_path())?,
+        );
         let mut report = Reading::default();
         for file in observations.get(name.as_str()).into_iter().flatten() {
             report

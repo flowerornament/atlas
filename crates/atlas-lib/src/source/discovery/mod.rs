@@ -549,6 +549,18 @@ fn collect_rs_files(
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("rs"))
         {
+            // A name that is not UTF-8 has no exact graph key: a lossy one
+            // would name another path, so it is not read.
+            if path.to_str().is_none() {
+                diagnostics.push(Diagnostic {
+                    code: crate::model::DiagnosticCode::SourceExcluded,
+                    package: None,
+                    file: rel_display(root, &path),
+                    line: None,
+                    message: "file name is not valid UTF-8; not read".into(),
+                });
+                continue;
+            }
             paths.insert(path);
         }
     }
@@ -591,20 +603,27 @@ fn normalize_path(path: &Path) -> PathBuf {
 }
 
 fn rel_display(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
+    path_key(path.strip_prefix(root).unwrap_or(path))
+}
+/// A path as the source graph keys it: `/`-separated. Only on Windows is a
+/// backslash a separator; on Unix it is part of a file name and is kept, so
+/// the key names the very file that was read (output protection rejoins the
+/// key to the root). Discovery never reads a source file whose name is not
+/// valid UTF-8, so for such a name the lossy form only labels diagnostics.
+pub fn path_key(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    if std::path::MAIN_SEPARATOR == '\\' {
+        text.replace('\\', "/")
+    } else {
+        text.into_owned()
+    }
 }
 
 pub(crate) fn child_directory(rel: &str) -> String {
     let (directory, file) = rel.rsplit_once('/').unwrap_or(("", rel));
     match file {
         "lib.rs" | "main.rs" | "mod.rs" => directory.to_owned(),
-        _ => Path::new(directory)
-            .join(file.trim_end_matches(".rs"))
-            .to_string_lossy()
-            .replace('\\', "/"),
+        _ => path_key(&Path::new(directory).join(file.trim_end_matches(".rs"))),
     }
 }
 
@@ -662,16 +681,8 @@ fn written_module_files(
         );
     }
     match path {
-        Some(path) => vec![
-            normalize_path(&directory.join(path))
-                .to_string_lossy()
-                .replace('\\', "/"),
-        ],
-        None => mounted::module_candidates(
-            &directory.to_string_lossy().replace('\\', "/"),
-            unraw(&module.name),
-        )
-        .to_vec(),
+        Some(path) => vec![path_key(&normalize_path(&directory.join(path)))],
+        None => mounted::module_candidates(&path_key(&directory), unraw(&module.name)).to_vec(),
     }
 }
 
@@ -684,9 +695,7 @@ fn resolve_module_path(declaring_file: &str, explicit_path: &str) -> String {
     let directory = Path::new(declaring_file)
         .parent()
         .unwrap_or_else(|| Path::new(""));
-    normalize_path(&directory.join(explicit_path))
-        .to_string_lossy()
-        .replace('\\', "/")
+    path_key(&normalize_path(&directory.join(explicit_path)))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -921,7 +930,7 @@ pub fn resolve_scope(graph: &SourceGraph, scope: Option<&str>) -> Result<String>
         let mut current = path.parent();
         while let Some(parent) = current {
             if parent.file_name().is_some_and(|s| s == scope) {
-                candidates.insert(parent.to_string_lossy().replace('\\', "/"));
+                candidates.insert(path_key(parent));
             }
             current = parent.parent();
         }

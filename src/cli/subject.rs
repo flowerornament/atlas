@@ -516,7 +516,7 @@ fn package_dir(metadata: &cargo_metadata::Metadata, package: &cargo_metadata::Pa
         .manifest_path
         .parent()
         .and_then(|dir| dir.strip_prefix(&metadata.workspace_root).ok())
-        .map(|dir| dir.as_str().replace('\\', "/"))
+        .map(|dir| cargo_atlas::discovery::path_key(dir.as_std_path()))
         .unwrap_or_default()
 }
 fn package_named(metadata: &cargo_metadata::Metadata, name: &str) -> Result<Chosen> {
@@ -551,7 +551,7 @@ fn path_or_basename(
         .and_then(|path| {
             path.strip_prefix(metadata.workspace_root.as_std_path())
                 .ok()
-                .map(|path| path.to_string_lossy().replace('\\', "/"))
+                .map(cargo_atlas::discovery::path_key)
         });
     let word = relative.as_deref().unwrap_or(word);
     match cargo_atlas::discovery::resolve_scope(graph, Some(word)) {

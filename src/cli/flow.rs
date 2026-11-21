@@ -284,7 +284,7 @@ fn entry_function(metadata: &cargo_metadata::Metadata) -> Option<(String, String
             .as_std_path()
             .strip_prefix(root)
             .ok()
-            .map(|path| path.to_string_lossy().replace('\\', "/"))
+            .map(cargo_atlas::discovery::path_key)
     };
     let targets: Vec<_> = metadata
         .workspace_packages()

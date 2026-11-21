@@ -43,10 +43,7 @@ impl Workspace {
                 .parent()
                 .ok_or("manifest lacks parent")?
                 .join("src");
-            let src_rel = directory
-                .strip_prefix(root)?
-                .to_string_lossy()
-                .replace('\\', "/");
+            let src_rel = crate::source::discovery::path_key(directory.strip_prefix(root)?);
             let mut captured = Vec::new();
             for file in files.get(package.name.as_str()).into_iter().flatten() {
                 let Some(source) = snapshot.retain_source(&file.path) else {

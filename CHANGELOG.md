@@ -6,6 +6,14 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Fixed: on Unix a source file whose name holds a backslash
+ (`src/odd\name.rs`) was keyed as `src/odd/name.rs`, so output protection
+ guarded a path that does not exist and `--out 'src/odd\name.rs'` could
+ overwrite the file Atlas read. Paths are converted to `/` only on Windows,
+ where a backslash is a separator (`discovery::path_key`, used by
+ discovery, the checks and the command line alike), and a `.rs` file whose
+ name is not valid UTF-8 is excluded with a diagnostic rather than read
+ under a lossy name.
 - Fixed: `callers`/`callees` with an index added the index's target as a
  second call wherever it disagreed with the qualified reading (a stale
  index after an import retarget, say), so one site counted twice and a

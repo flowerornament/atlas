@@ -195,7 +195,7 @@ fn query_pattern(
         {
             return Err("syntax-helper path escaped its input".into());
         }
-        let file = relative.to_string_lossy().replace('\\', "/");
+        let file = crate::source::discovery::path_key(relative);
         let line = hit
             .range
             .start

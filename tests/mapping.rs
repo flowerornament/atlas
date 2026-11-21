@@ -435,3 +435,44 @@ fn cli_retains_evidence_when_external_render_fails_and_refuses_collisions() {
     assert!(!collision.exists());
     assert!(String::from_utf8_lossy(&result.stderr).contains("collides"));
 }
+
+/// On Unix a backslash is part of a file name. A source file named
+/// `odd\name.rs` is keyed by that name, not as `odd/name.rs`, so `--out`
+/// naming it is refused as a collision and its bytes stay as read (the
+/// 2026-11-21 review's fixture).
+#[cfg(unix)]
+#[test]
+fn a_backslash_in_a_source_name_is_kept_and_protected() {
+    let original = "pub fn odd() {}\n";
+    let f = Fixture::new(&[
+        ("src/lib.rs", "pub fn root() {}\n"),
+        ("src/odd\\name.rs", original),
+    ]);
+    let source = f.path().join("src/odd\\name.rs");
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
+        .env("ATLAS_CACHE", "off")
+        .env("ATLAS_NOTICES", "off")
+        .args(["map", "--as", "text", "--out", "src/odd\\name.rs"])
+        .output()
+        .expect("run Atlas");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    assert!(stderr.contains("refusing output collision"), "{stderr}");
+    assert_eq!(std::fs::read_to_string(&source).expect("source"), original);
+    let snapshot = cargo_atlas::discovery::snapshot_workspace(f.path()).expect("snapshot");
+    assert!(
+        snapshot
+            .graph()
+            .files
+            .iter()
+            .any(|file| file.path == "src/odd\\name.rs"),
+        "{:?}",
+        snapshot
+            .graph()
+            .files
+            .iter()
+            .map(|f| &f.path)
+            .collect::<Vec<_>>()
+    );
+}
