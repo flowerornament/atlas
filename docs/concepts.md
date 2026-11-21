@@ -64,7 +64,8 @@ rust-analyzer builds and runs its build scripts and procedural macros, so use
 it only on code you would build. On a large workspace of 26 crates it took one
 to four minutes and over 6 GB of memory; a small crate takes seconds. Atlas builds under `<target>/atlas/semantic`, never in your normal
 build directories, and stops the indexer (and everything it started) after
-`--semantic-timeout` seconds (default 1800). It digests your manifests,
+`--semantic-timeout` seconds (default 1800); where it cannot confirm those
+processes stopped (a host that hides the process list), it says so. It digests your manifests,
 configuration, build scripts and sources before and after the run and
 refuses an index made while any of them changed, and it refuses one (made or
 cached) whenever a source differs from the bytes the command read, since the

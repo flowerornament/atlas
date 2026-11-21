@@ -6,6 +6,10 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- A `--semantic` run past its deadline claims that the processes the
+ indexer started were stopped only when Atlas confirmed it: it now checks
+ each one is gone after the kill, and where the process list cannot be read
+ (a restricted host), or one survives, it says the cleanup is unconfirmed.
 - `--semantic` holds the index to the source the command read: a captured
  file whose bytes differ, before indexing (a cached index included) or
  after, refuses. A change between the capture and the indexer's first

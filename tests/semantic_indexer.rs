@@ -82,6 +82,26 @@ impl Setup {
             .output()
             .expect("run cargo-atlas")
     }
+    /// As `run`, with `PATH` set to `path` alone.
+    fn run_with_path(&self, mode: &str, args: &[&str], path: &Path) -> Output {
+        let tools = self.tools.path();
+        Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .current_dir("/")
+            .args(args)
+            .arg("--root")
+            .arg(self.project.path())
+            .env("PATH", path)
+            .env("ATLAS_RUST_ANALYZER", tools.join("rust-analyzer"))
+            .env("RUST_SRC_PATH", tools.join("library"))
+            .env("ATLAS_CACHE", "off")
+            .env("FAKE_MODE", mode)
+            .env("FAKE_ROOT", self.project.path())
+            .env("FAKE_LOG", tools.join("log"))
+            .env("FAKE_PID", tools.join("pid"))
+            .env("FAKE_INDEX", format!("{FIXTURE}/index.scip"))
+            .output()
+            .expect("run cargo-atlas")
+    }
     fn runs(&self) -> Vec<String> {
         fs::read_to_string(self.tools.path().join("log"))
             .unwrap_or_default()
@@ -190,15 +210,68 @@ fn a_run_past_its_deadline_is_stopped_with_everything_it_started() {
         &["dump", "--json", "--semantic", "--semantic-timeout", "1"],
     );
     refused(&out, "did not finish within 1 s");
+    let stderr = String::from_utf8_lossy(&out.stderr);
     let pid = fs::read_to_string(s.tools.path().join("pid")).expect("the fake's child pid");
     let alive = Command::new("kill")
         .args(["-0", pid.trim()])
         .output()
         .expect("check the child");
-    assert!(
-        !alive.status.success(),
-        "the indexer's child {pid} survived"
+    if stderr.contains("could not confirm") {
+        // A host that hides the process list: the claim is qualified.
+        let _ = Command::new("kill").args(["-KILL", pid.trim()]).output();
+    } else {
+        assert!(
+            stderr.contains("it and the processes it started were stopped"),
+            "{stderr}"
+        );
+        assert!(
+            !alive.status.success(),
+            "the indexer's child {pid} survived although Atlas said it stopped"
+        );
+    }
+}
+
+/// Without a process list Atlas cannot find the processes the indexer
+/// started, so it says the cleanup is unconfirmed instead of claiming it
+/// (codex finding 13).
+#[test]
+fn a_timeout_without_a_process_list_says_cleanup_is_unconfirmed() {
+    let s = setup();
+    let bin = s.tools.path().join("bin");
+    fs::create_dir_all(&bin).expect("bin");
+    // Everything the run needs except `ps`: the toolchain probe's rustc
+    // and cargo, the fake's sleep and cp, and kill.
+    for tool in ["sleep", "cp", "rustc", "cargo", "kill"] {
+        let found = Command::new("/bin/sh")
+            .args(["-c", &format!("command -v {tool}")])
+            .output()
+            .expect("locate tool");
+        let path = String::from_utf8_lossy(&found.stdout)
+            .lines()
+            .map(str::trim)
+            .find(|line| line.starts_with('/'))
+            .map(str::to_owned)
+            .or_else(|| {
+                ["/bin", "/usr/bin"]
+                    .iter()
+                    .map(|dir| format!("{dir}/{tool}"))
+                    .find(|path| Path::new(path).exists())
+            })
+            .unwrap_or_else(|| panic!("{tool} is not installed"));
+        std::os::unix::fs::symlink(&path, bin.join(tool)).expect("link tool");
+    }
+    let out = s.run_with_path(
+        "sleep",
+        &["dump", "--json", "--semantic", "--semantic-timeout", "1"],
+        &bin,
     );
+    refused(&out, "did not finish within 1 s");
+    refused(
+        &out,
+        "could not confirm that the processes it started stopped (the process list could not be read",
+    );
+    let pid = fs::read_to_string(s.tools.path().join("pid")).expect("the fake's child pid");
+    let _ = Command::new("kill").args(["-KILL", pid.trim()]).output();
 }
 
 #[test]

@@ -221,9 +221,15 @@ fn run_indexer(
     })?;
     let seconds = started.elapsed().as_secs_f64();
     match run {
-        Run::TimedOut => {
+        Run::TimedOut(cleanup) => {
+            let stopped = match cleanup {
+                Cleanup::Confirmed => "it and the processes it started were stopped".to_owned(),
+                Cleanup::Unconfirmed(why) => format!(
+                    "it was stopped, but Atlas could not confirm that the processes it started stopped ({why}); check for a leftover rust-analyzer or cargo"
+                ),
+            };
             return Err(format!(
-                "semantic evidence unavailable: rust-analyzer did not finish within {timeout} s; it and the processes it started were stopped. Raise --semantic-timeout, or supply an index with --scip"
+                "semantic evidence unavailable: rust-analyzer did not finish within {timeout} s; {stopped}. Raise --semantic-timeout, or supply an index with --scip"
             )
             .into());
         }
@@ -251,7 +257,7 @@ fn version(program: &Path) -> Result<String> {
     };
     match run(command, Duration::from_secs(60)) {
         Err(error) => Err(unavailable(format!("could not start: {error}")).into()),
-        Ok(Run::TimedOut) => Err(unavailable("did not answer within 60 s".to_owned()).into()),
+        Ok(Run::TimedOut(_)) => Err(unavailable("did not answer within 60 s".to_owned()).into()),
         Ok(Run::Exited { status, stderr, .. }) if !status.success() => {
             Err(unavailable(format!("failed ({status}): {}", last_lines(&stderr, 3))).into())
         }
@@ -462,17 +468,35 @@ enum Run {
         stdout: Vec<u8>,
         stderr: Vec<u8>,
     },
-    TimedOut,
+    /// The child was stopped at the deadline, with what became of the
+    /// processes it started.
+    TimedOut(Cleanup),
+}
+
+/// Whether the processes a stopped child started are known to be gone.
+enum Cleanup {
+    Confirmed,
+    /// Why Atlas cannot say they are.
+    Unconfirmed(String),
 }
 
 /// Stops the child, and on Unix every process it started, if the run ends
 /// any other way than its own exit.
 struct Owned(Child);
+impl Owned {
+    /// Stop the child and every process it started, and say whether they
+    /// are known to be gone.
+    fn stop(&mut self) -> Cleanup {
+        let cleanup = stop_descendants(self.0.id());
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+        cleanup
+    }
+}
 impl Drop for Owned {
     fn drop(&mut self) {
         if matches!(self.0.try_wait(), Ok(None)) {
-            stop_descendants(self.0.id());
-            let _ = self.0.kill();
+            self.stop();
         }
         let _ = self.0.wait();
     }
@@ -518,7 +542,7 @@ fn run(mut command: Command, limit: Duration) -> io::Result<Run> {
             break status;
         }
         if Instant::now() >= deadline {
-            return Ok(Run::TimedOut);
+            return Ok(Run::TimedOut(child.stop()));
         }
         thread::sleep(Duration::from_millis(50));
     };
@@ -578,18 +602,79 @@ fn last_lines(bytes: &[u8], count: usize) -> String {
     }
 }
 
-/// Stop every live descendant of `pid` by exact process id, read from `ps`.
+/// Stop every live descendant of `pid` by exact process id, read from `ps`,
+/// and confirm each is gone. A process list that cannot be read, or a
+/// descendant still alive a moment after the kill, leaves it unconfirmed.
 #[cfg(unix)]
-fn stop_descendants(pid: u32) {
-    let Ok(output) = Command::new("ps")
+fn stop_descendants(pid: u32) -> Cleanup {
+    let output = match Command::new("ps")
         .args(["-A", "-o", "pid=", "-o", "ppid="])
         .stdin(Stdio::null())
         .output()
-    else {
-        return;
+    {
+        Ok(output) if output.status.success() => output,
+        Ok(output) => {
+            return Cleanup::Unconfirmed(format!(
+                "the process list could not be read: ps {}",
+                output.status
+            ));
+        }
+        Err(error) => {
+            return Cleanup::Unconfirmed(format!("the process list could not be read: {error}"));
+        }
     };
+    let found = descendants(pid, &String::from_utf8_lossy(&output.stdout));
+    if found.is_empty() {
+        return Cleanup::Confirmed;
+    }
+    let signal = |args: &[&str]| {
+        Command::new("kill")
+            .args(args)
+            .args(&found)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+    };
+    let _ = signal(&["-KILL"]);
+    // A killed process may linger until it is reaped; give it a moment.
+    for _ in 0..20 {
+        let alive: Vec<&String> = found.iter().filter(|pid| signal_one(pid)).collect();
+        if alive.is_empty() {
+            return Cleanup::Confirmed;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    let alive: Vec<&str> = found
+        .iter()
+        .filter(|pid| signal_one(pid))
+        .map(String::as_str)
+        .collect();
+    if alive.is_empty() {
+        Cleanup::Confirmed
+    } else {
+        Cleanup::Unconfirmed(format!(
+            "process {} still ran after it was killed",
+            alive.join(", ")
+        ))
+    }
+}
+/// Whether process `pid` still exists (`kill -0`).
+#[cfg(unix)]
+fn signal_one(pid: &str) -> bool {
+    Command::new("kill")
+        .args(["-0", pid])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+/// Every descendant of `pid` in a `ps -o pid= -o ppid=` listing.
+#[cfg(unix)]
+fn descendants(pid: u32, listing: &str) -> Vec<String> {
     let mut children: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
+    for line in listing.lines() {
         let mut fields = line.split_whitespace().map(str::parse::<u32>);
         if let (Some(Ok(child)), Some(Ok(parent))) = (fields.next(), fields.next()) {
             children.entry(parent).or_default().push(child);
@@ -603,15 +688,9 @@ fn stop_descendants(pid: u32) {
             pending.push(child);
         }
     }
-    if !found.is_empty() {
-        let _ = Command::new("kill")
-            .arg("-KILL")
-            .args(&found)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
+    found
 }
 #[cfg(not(unix))]
-fn stop_descendants(_pid: u32) {}
+fn stop_descendants(_pid: u32) -> Cleanup {
+    Cleanup::Unconfirmed("the processes a child starts are not tracked on this platform".into())
+}
