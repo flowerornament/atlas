@@ -22,11 +22,14 @@ built from real names.
   not recorded.
 - Unknown is not absent. An empty list is an observation, not a proof.
 - Ambiguity is never resolved by a guess: several matches are each shown.
-- **Semantic** readings come from rust-analyzer (SCIP). `dump` and `flow`
-  add one beside the qualified reading, as separate evidence: `--scip FILE`
-  reads an index you made; `--semantic` runs rust-analyzer, which runs the
-  project's build scripts and proc macros (use it only on code you would
-  build) and can take minutes. Other commands get it in 0.20.
+- **Semantic** readings come from rust-analyzer (SCIP), as separate
+  evidence: `--scip FILE` reads an index you made; `--semantic` runs
+  rust-analyzer, which runs the project's build scripts and proc macros (use
+  it only on code you would build) and can take minutes, then is cached.
+  `callers X --semantic` adds the calls the index names
+  X for (marked `[semantic]`) and lists as possibly only what neither
+  reading pins: most "possibly" rows are ruled out. `query` and `facts`
+  read it as the `semantic` family; `dump` and `flow` add it beside theirs.
 
 ## Which command
 

@@ -234,7 +234,7 @@ fn evidence_is_reserved_and_names_what_to_run() {
         ),
         (
             &["callees", "two", "--evidence", "semantic"],
-            "atlas: semantic readings in callees arrive in 0.20; dump --json and flow accept --scip FILE\n",
+            "atlas: callees --evidence semantic needs an index: give --scip FILE, or --semantic, which runs rust-analyzer and with it the project's build scripts\n",
         ),
         (
             &["dependencies", "--evidence", "lexical"],
@@ -250,7 +250,7 @@ fn evidence_is_reserved_and_names_what_to_run() {
                 "--evidence",
                 "semantic",
             ],
-            "atlas: semantic readings in flow arrive in 0.20; flow --scip FILE writes one beside the drawing as separate evidence\n",
+            "atlas: flow does not answer from the semantic reading; flow --scip FILE writes one beside the drawing as separate evidence\n",
         ),
     ] {
         let (ok, stdout, stderr) = atlas(&f, args);

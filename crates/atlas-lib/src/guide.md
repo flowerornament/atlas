@@ -60,7 +60,7 @@ new changes.
 | Ask qualified questions | `analysis::Analysis::new(&snapshot)` |
 | Look up names and modules | `queries::navigation::Navigation` |
 | Get a one-page arrival report | `queries::orient::orient(&snapshot, scope, rows)` |
-| Ask who calls a function, or what it calls | `queries::callers::{callers, callees}(graph, &facts, selector, file, depth, within)` |
+| Ask who calls a function, or what it calls | `queries::callers::{callers, callees}(graph, &facts, selector, file, depth, within)`; with a semantic reading, `semantic_callers` and `semantic_callees`, which take it last |
 | Measure files | `review::outline` |
 | Compare two versions | `review::diff`, `review::moves::moved`, `review::moves::visibility` |
 | Read an earlier commit | `revision::Revision::read` |

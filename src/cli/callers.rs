@@ -1,6 +1,8 @@
 //! Who calls a function and what it calls, to `--depth` levels, from the qualified
-//! calls `queries::callers` reads. Unresolved calls are reported as possible
-//! callers or as calls out Atlas could not follow, never dropped.
+//! calls `queries::callers` reads, and with `--evidence semantic` also from a
+//! SCIP index's reading. Unresolved calls are reported as possible callers or
+//! as calls out Atlas could not follow, never dropped; the semantic reading
+//! settles some, and says how.
 use super::{
     json,
     output::rows::{Rows, rerun_all},
@@ -21,6 +23,12 @@ pub(crate) struct Options {
     depth: u32,
     #[command(flatten)]
     evidence: super::evidence::Evidence,
+    /// Answer from this SCIP index's reading beside the qualified one
+    /// (Atlas runs no indexer); --semantic makes one instead.
+    #[arg(long, value_name = "FILE")]
+    scip: Option<std::path::PathBuf>,
+    #[command(flatten)]
+    indexer: super::semantic::IndexerArgs,
     #[command(flatten)]
     rows: Rows,
     #[command(flatten)]
@@ -35,26 +43,48 @@ pub(crate) fn run(
     metadata: &cargo_metadata::Metadata,
     options: &Options,
     direction: Direction,
+    cache: &super::semantic::IndexCache,
 ) -> Result<()> {
     let (selector, file) = options.function.selector();
     let command = match direction {
         Direction::Callers => "callers",
         Direction::Callees => "callees",
     };
-    options.evidence.check(
+    let semantic = options.evidence.semantic(
         command,
         "resolved calls",
         &format!("for lexical co-mentions use cargo atlas name {selector} --relations"),
-        "dump --json and flow accept --scip FILE",
+        options.scip.is_some() || options.indexer.semantic,
     )?;
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let graph = snapshot.graph();
-    let facts = atlas_lib::analysis::Analysis::new(&snapshot)?.representations()?;
+    let analysis = atlas_lib::analysis::Analysis::new(&snapshot)?;
+    let facts = analysis.representations()?;
+    let reading = if semantic {
+        let (index, _) = super::semantic::obtain(
+            metadata.workspace_root.as_std_path(),
+            metadata,
+            options.scip.as_deref(),
+            &options.indexer,
+            cache,
+            || super::output::graph_sources(metadata, graph).collect(),
+        )?
+        .ok_or("no semantic index was asked for")?;
+        Some(analysis.semantic(&index)?)
+    } else {
+        None
+    };
     let within = options.within.filter(graph, metadata)?;
     let more = |_: Option<&str>| rerun_all();
+    let depth = options.depth;
     match direction {
         Direction::Callers => {
-            let report = callers::callers(graph, &facts, selector, file, options.depth, &within)?;
+            let report = match &reading {
+                Some(reading) => callers::semantic_callers(
+                    graph, &facts, selector, file, depth, &within, reading,
+                )?,
+                None => callers::callers(graph, &facts, selector, file, depth, &within)?,
+            };
             if options.output.json() {
                 print!("{}", json(&report)?);
             } else {
@@ -64,7 +94,12 @@ pub(crate) fn run(
             }
         }
         Direction::Callees => {
-            let report = callers::callees(graph, &facts, selector, file, options.depth, &within)?;
+            let report = match &reading {
+                Some(reading) => callers::semantic_callees(
+                    graph, &facts, selector, file, depth, &within, reading,
+                )?,
+                None => callers::callees(graph, &facts, selector, file, depth, &within)?,
+            };
             if options.output.json() {
                 print!("{}", json(&report)?);
             } else {

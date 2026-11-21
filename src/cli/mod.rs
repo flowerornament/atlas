@@ -104,8 +104,18 @@ pub(crate) fn run() -> Result<()> {
         Command::Census(args) => navigation::run_census(&metadata, &args),
         Command::Name(args) => navigation::run_name(&metadata, &args),
         Command::Module(args) => navigation::run_module(&metadata, &args),
-        Command::Callers(options) => callers::run(&metadata, &options, callers::Direction::Callers),
-        Command::Callees(options) => callers::run(&metadata, &options, callers::Direction::Callees),
+        Command::Callers(options) => callers::run(
+            &metadata,
+            &options,
+            callers::Direction::Callers,
+            &cache.semantic(),
+        ),
+        Command::Callees(options) => callers::run(
+            &metadata,
+            &options,
+            callers::Direction::Callees,
+            &cache.semantic(),
+        ),
         Command::Related(args) => navigation::run_related(&metadata, &args),
     };
     cache.finish(result.map_err(with_scope_hint))

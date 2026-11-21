@@ -158,6 +158,78 @@ pub struct CallReading {
     pub caller_site: Option<(String, usize)>,
 }
 
+/// One recorded call's semantic reading, with its caller and, when the index
+/// defines the callee at a captured function, its target, by `function.id`.
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub struct Named<'a> {
+    pub call: &'a CallReading,
+    pub from: Option<&'a str>,
+    pub to: Option<&'a str>,
+    /// The index defines the callee where several captured functions start
+    /// (a macro writing several on one line): `to` is none, and the call is
+    /// not ruled out for any of them.
+    pub shared: bool,
+}
+impl Reading {
+    /// Where the reading came from and what it covers, one sentence each:
+    /// the limits a report built on it states.
+    #[must_use]
+    pub fn describe(&self) -> Vec<String> {
+        let provenance = &self.provenance;
+        let mut lines = vec![format!(
+            "Semantic reading ({}): {} {}, index sha256 {}; {}; {}.",
+            provenance.origin,
+            provenance.producer,
+            provenance.producer_version,
+            provenance.index_digest,
+            provenance.configuration,
+            provenance.currency
+        )];
+        if let Some(coverage) = &self.coverage {
+            lines.push(format!(
+                "Semantic coverage: {} indexed documents; {} files with recorded calls not in the index; {} symbols defined at several sites.",
+                coverage.documents,
+                coverage.files_not_indexed.len(),
+                coverage.symbols_with_several_definitions
+            ));
+        }
+        lines
+    }
+    /// Each call named by `facts`'s function ids: a function is its file and
+    /// line, as the index and the facts both record it; a site several
+    /// captured functions share names none.
+    pub fn named<'a>(&'a self, facts: &'a crate::representations::Facts) -> Vec<Named<'a>> {
+        let mut at: BTreeMap<(&str, usize), Vec<&str>> = BTreeMap::new();
+        for function in &facts.functions {
+            at.entry((function.file.as_str(), function.line))
+                .or_default()
+                .push(function.id.as_str());
+        }
+        let function_at = |path: &str, line: usize| match at.get(&(path, line)).map(Vec::as_slice) {
+            Some([one]) => Some(*one),
+            _ => None,
+        };
+        let shared =
+            |path: &str, line: usize| at.get(&(path, line)).is_some_and(|ids| ids.len() > 1);
+        self.calls
+            .iter()
+            .map(|call| Named {
+                call,
+                from: call
+                    .caller_site
+                    .as_ref()
+                    .and_then(|(path, line)| function_at(path, *line)),
+                to: match &call.semantic {
+                    Semantic::Definition { site, .. } => function_at(&site.path, site.line),
+                    _ => None,
+                },
+                shared: matches!(&call.semantic, Semantic::Definition { site, .. } if shared(&site.path, site.line)),
+            })
+            .collect()
+    }
+}
+
 /// A semantic reading of a population of calls.
 #[derive(Debug, Clone, Serialize)]
 #[non_exhaustive]

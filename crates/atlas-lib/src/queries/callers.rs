@@ -1,5 +1,5 @@
 //! Who calls a function, and what it calls, from the qualified calls Atlas
-//! resolved, up to `depth` calls away. A resolved row is a call whose target is the
+//! resolved and, given one, a semantic reading's, up to `depth` calls away. A resolved row is a call whose target is the
 //! function. A call Atlas could not resolve is never counted as a caller:
 //! when it is written with the function's name it is a *possible* caller,
 //! counted by the reason it stayed unresolved. A selector that matches
@@ -9,6 +9,13 @@
 //! `calls_function` names: each function is listed at the first depth it is
 //! reached, and unresolved calls beyond depth 1 are counted, not listed.
 //!
+//! A semantic reading (one build configuration's) adds the calls it names a
+//! captured function for that the qualified reading lacks, as rows with
+//! reading `semantic`, and settles the unresolved calls: confirmed (now a
+//! row), ruled out (another function, an external item, a workspace item
+//! that is no captured function), or left open, which alone stay listed.
+//! It never removes a qualified row.
+//!
 //! Limits: calls inside macro input, through a function passed elsewhere as a
 //! value, and trait dispatch Atlas cannot follow are not recorded, so an
 //! empty answer never means "unused". A closure's calls are recorded as
@@ -16,8 +23,9 @@
 use super::{More, selector::Selector};
 use crate::{
     Result,
+    analysis::semantic::{Agreement, Named, Reading, Semantic},
     model::{Declaration, SourceGraph},
-    representations::{Facts, Function, ResolvedCall, UnknownCall},
+    representations::{Facts, Function, UnknownCall},
 };
 use serde::Serialize;
 use std::{
@@ -26,6 +34,7 @@ use std::{
 };
 
 const BASIS: &str = "Basis: qualified calls resolved through use statements and modules; possible callers are unresolved calls written with the same name.";
+const SEMANTIC_BASIS: &str = "Basis: qualified calls resolved through use statements and modules, and calls a SCIP index names a captured function for (reading semantic, one build configuration); possible callers are unresolved calls written with the same name that neither reading pins.";
 
 /// A source position: path, one-based line, zero-based column.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -84,9 +93,40 @@ pub struct Unresolved {
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subject: Option<String>,
+    /// With a semantic reading: what it says of this call, which pins no
+    /// function (`trait-method`, `local`, `no-definition`, `not-indexed`, ...).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantic: Option<&'static str>,
     /// How the call is written, for examples: `receiver.name()` or `path()`.
     #[serde(skip)]
     pub written: String,
+}
+/// What a semantic reading did with an answer's unresolved calls (at depth
+/// 1): each is confirmed, ruled out, or left open, and only the open ones
+/// stay listed.
+#[derive(Debug, Default, Serialize)]
+#[non_exhaustive]
+pub struct Settled {
+    /// Calls the index names a captured function for: listed as resolved,
+    /// reading `semantic`. For callers, only calls of this function.
+    pub confirmed: usize,
+    /// Callers only: calls written with the name that the index names
+    /// another captured function for.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub other_function: usize,
+    /// Calls the index names something other than a captured function for,
+    /// by reading: `external` (another package) or `definition` (a workspace
+    /// item that is no captured function, such as a variant constructor).
+    pub elsewhere: BTreeMap<&'static str, usize>,
+    /// Calls the index pins to nothing, by reading: still listed.
+    pub open: BTreeMap<&'static str, usize>,
+}
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if passes a reference"
+)]
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
@@ -102,6 +142,10 @@ pub struct CallerAnswer {
     pub possibly_beyond_depth_1: usize,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub possibly_by_depth: BTreeMap<u32, usize>,
+    /// With a semantic reading: how it settled the unresolved calls written
+    /// with the name; `possibly` holds only those it left open.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantic: Option<Settled>,
 }
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
@@ -117,6 +161,10 @@ pub struct CalleeAnswer {
     pub unresolved_beyond_depth_1: usize,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub unresolved_by_depth: BTreeMap<u32, usize>,
+    /// With a semantic reading: how it settled the calls inside the
+    /// function; `unresolved` holds only those it left open.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantic: Option<Settled>,
 }
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
@@ -127,6 +175,9 @@ pub struct Report<A> {
     pub depth: u32,
     pub answers: Vec<A>,
     pub basis: &'static str,
+    /// With a semantic reading: its provenance and coverage.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub semantic: Vec<String>,
 }
 
 /// The functions `selector` names, tried in order: a function or declaration
@@ -207,22 +258,80 @@ pub const MAX_DEPTH: u32 = 16;
 /// segment of their spelling and by the function they are in, each in facts
 /// order.
 struct Calls<'a> {
-    to: HashMap<&'a str, Vec<&'a ResolvedCall>>,
-    from: HashMap<&'a str, Vec<&'a ResolvedCall>>,
+    to: HashMap<&'a str, Vec<Edge<'a>>>,
+    from: HashMap<&'a str, Vec<Edge<'a>>>,
     written: HashMap<&'a str, Vec<&'a UnknownCall>>,
     inside: HashMap<&'a str, Vec<&'a UnknownCall>>,
+    /// With a semantic reading: what it says of each recorded call, by site
+    /// and spelling.
+    pins: HashMap<(&'a str, usize, usize, &'a str), Pin<'a>>,
+}
+/// One resolved call by one reading.
+#[derive(Clone, Copy)]
+struct Edge<'a> {
+    from: &'a str,
+    to: &'a str,
+    site: &'a crate::workflow::Site,
+    reading: &'static str,
+}
+/// What a semantic reading says of a call Atlas left unresolved.
+#[derive(Clone, Copy)]
+enum Pin<'a> {
+    /// A captured workspace function.
+    Function(&'a str),
+    /// A workspace item that is not a captured function (a struct or enum
+    /// variant constructor), or an item of another package.
+    Elsewhere(&'static str),
+    /// Nothing that rules a function out: open dispatch, a local value, a
+    /// generated or inactive symbol, or no usable index entry.
+    Open(&'static str),
 }
 impl<'a> Calls<'a> {
-    fn new(facts: &'a Facts) -> Self {
+    fn new(facts: &'a Facts, semantic: &[Named<'a>]) -> Self {
         let mut calls = Self {
             to: HashMap::new(),
             from: HashMap::new(),
             written: HashMap::new(),
             inside: HashMap::new(),
+            pins: HashMap::new(),
+        };
+        let mut add = |edge: Edge<'a>| {
+            calls.to.entry(edge.to).or_default().push(edge);
+            calls.from.entry(edge.from).or_default().push(edge);
         };
         for call in &facts.calls {
-            calls.to.entry(call.to.as_str()).or_default().push(call);
-            calls.from.entry(call.from.as_str()).or_default().push(call);
+            add(Edge {
+                from: &call.from,
+                to: &call.to,
+                site: &call.site,
+                reading: "qualified",
+            });
+        }
+        // The semantic edges the qualified reading lacks; an agreeing one is
+        // the same call, already an edge.
+        for named in semantic {
+            if let (Some(from), Some(to)) = (named.from, named.to)
+                && named.call.agreement != Some(Agreement::Agrees)
+            {
+                add(Edge {
+                    from,
+                    to,
+                    site: &named.call.site,
+                    reading: "semantic",
+                });
+            }
+        }
+        for named in semantic {
+            let site = &named.call.site;
+            calls.pins.insert(
+                (
+                    site.path.as_str(),
+                    site.line,
+                    site.column,
+                    named.call.spelling.as_str(),
+                ),
+                pin(named),
+            );
         }
         for unknown in &facts.unknown_calls {
             calls
@@ -247,24 +356,24 @@ impl<'a> Calls<'a> {
         start: &'a str,
         depth: u32,
         backward: bool,
-    ) -> Vec<(Vec<&'a ResolvedCall>, BTreeSet<&'a str>)> {
-        let (index, far): (_, fn(&'a ResolvedCall) -> &'a str) = if backward {
-            (&self.to, |call| call.from.as_str())
+    ) -> Vec<(Vec<Edge<'a>>, BTreeSet<&'a str>)> {
+        let (index, far): (_, fn(&Edge<'a>) -> &'a str) = if backward {
+            (&self.to, |edge| edge.from)
         } else {
-            (&self.from, |call| call.to.as_str())
+            (&self.from, |edge| edge.to)
         };
         let mut seen = BTreeSet::from([start]);
         let mut frontier = BTreeSet::from([start]);
         let mut out = Vec::new();
         for level in 1..=depth {
-            let calls: Vec<&ResolvedCall> = frontier
+            let calls: Vec<Edge<'a>> = frontier
                 .iter()
                 .flat_map(|near| index.get(near).into_iter().flatten().copied())
-                .filter(|call| level == 1 || !seen.contains(far(call)))
+                .filter(|edge| level == 1 || !seen.contains(far(edge)))
                 .collect();
             let reached: BTreeSet<&str> = calls
                 .iter()
-                .map(|call| far(call))
+                .map(far)
                 .filter(|id| !seen.contains(id))
                 .collect();
             seen.extend(&reached);
@@ -290,6 +399,78 @@ impl<'a> Calls<'a> {
     fn inside(&self, function: &str) -> &[&'a UnknownCall] {
         self.inside.get(function).map_or(&[], Vec::as_slice)
     }
+    /// What the semantic reading says of an unresolved call, if one was given.
+    fn pin(&self, unknown: &UnknownCall) -> Option<Pin<'a>> {
+        let site = &unknown.call.site;
+        self.pins
+            .get(&(
+                site.path.as_str(),
+                site.line,
+                site.column,
+                unknown.call.spelling.as_str(),
+            ))
+            .copied()
+    }
+}
+impl Calls<'_> {
+    /// Whether an unresolved call is still unresolved after the semantic
+    /// reading: it pins nothing, or there is no reading.
+    fn remains(&self, unknown: &UnknownCall) -> bool {
+        matches!(self.pin(unknown), None | Some(Pin::Open(_)))
+    }
+    /// Sort `unknowns` by what the semantic reading says of them: the ones
+    /// it leaves open, as rows, and how it settled the rest. `this` is the
+    /// function a callers question is about; a callees question passes none,
+    /// and every function the index names confirms. Without a reading every
+    /// call stays open and no summary is made.
+    fn settle<'u>(
+        &self,
+        unknowns: impl IntoIterator<Item = &'u UnknownCall>,
+        this: Option<&str>,
+        semantic: bool,
+    ) -> (Vec<Unresolved>, Option<Settled>) {
+        let mut settled = Settled::default();
+        let mut open = Vec::new();
+        for unknown in unknowns {
+            match self.pin(unknown) {
+                Some(Pin::Function(id)) if this.is_none_or(|this| this == id) => {
+                    settled.confirmed += 1;
+                }
+                Some(Pin::Function(_)) => settled.other_function += 1,
+                Some(Pin::Elsewhere(reading)) => {
+                    *settled.elsewhere.entry(reading).or_default() += 1;
+                }
+                pin => {
+                    let mut row = unresolved(unknown);
+                    if semantic {
+                        // A call the reading did not cover at all.
+                        let reading = match pin {
+                            Some(Pin::Open(reading)) => reading,
+                            _ => "unread",
+                        };
+                        row.semantic = Some(reading);
+                        *settled.open.entry(reading).or_default() += 1;
+                    }
+                    open.push(row);
+                }
+            }
+        }
+        (open, semantic.then_some(settled))
+    }
+}
+fn pin<'a>(named: &Named<'a>) -> Pin<'a> {
+    match (&named.call.semantic, named.to) {
+        (_, Some(function)) => Pin::Function(function),
+        (Semantic::Definition { .. }, None) if named.shared => Pin::Open("shared-site"),
+        (Semantic::Definition { .. }, None) => Pin::Elsewhere("definition"),
+        (Semantic::External { .. }, _) => Pin::Elsewhere("external"),
+        (Semantic::TraitMethod { .. }, _) => Pin::Open("trait-method"),
+        (Semantic::Local, _) => Pin::Open("local"),
+        (Semantic::NoDefinition { .. }, _) => Pin::Open("no-definition"),
+        (Semantic::Ambiguous { .. }, _) => Pin::Open("ambiguous"),
+        (Semantic::Mismatch { .. }, _) => Pin::Open("mismatch"),
+        (Semantic::NotIndexed { .. }, _) => Pin::Open("not-indexed"),
+    }
 }
 /// One resolved row of either direction: the function at the far end, the
 /// call's site, its depth, and beyond depth 1 the function one level nearer.
@@ -298,11 +479,12 @@ struct Row<'a> {
     site: Site,
     depth: u32,
     via: Option<&'a Function>,
+    reading: &'static str,
 }
 /// The rows of `levels` whose far end `within` keeps, sorted by depth and site.
 fn rows<'a>(
     names: &Names<'a>,
-    levels: &[(Vec<&'a ResolvedCall>, BTreeSet<&'a str>)],
+    levels: &[(Vec<Edge<'a>>, BTreeSet<&'a str>)],
     backward: bool,
     within: &dyn Fn(&str) -> bool,
 ) -> Vec<Row<'a>> {
@@ -310,11 +492,11 @@ fn rows<'a>(
     for (level, (calls, _)) in (1..).zip(levels) {
         for call in calls {
             let (near, far) = if backward {
-                (&call.to, &call.from)
+                (call.to, call.from)
             } else {
-                (&call.from, &call.to)
+                (call.from, call.to)
             };
-            let Some(far) = names.functions.get(far.as_str()).copied() else {
+            let Some(far) = names.functions.get(far).copied() else {
                 continue;
             };
             if !within(&far.file) {
@@ -322,11 +504,12 @@ fn rows<'a>(
             }
             rows.push(Row {
                 far,
-                site: site(&call.site),
+                site: site(call.site),
                 depth: level,
                 via: (level > 1)
-                    .then(|| names.functions.get(near.as_str()).copied())
+                    .then(|| names.functions.get(near).copied())
                     .flatten(),
+                reading: call.reading,
             });
         }
     }
@@ -344,9 +527,46 @@ pub fn callers(
     depth: u32,
     within: &dyn Fn(&str) -> bool,
 ) -> Result<Report<CallerAnswer>> {
+    callers_by(graph, facts, selector, file, depth, within, None)
+}
+/// As [`callers`], adding the calls `reading` names a captured function for
+/// (rows with reading `semantic`, where the qualified reading has none), and
+/// listing as possible only the calls neither reading pins. The caller
+/// passes the reading made over these `facts` (`Analysis::semantic`); one
+/// whose index is unavailable is refused with its reason.
+pub fn semantic_callers(
+    graph: &SourceGraph,
+    facts: &Facts,
+    selector: &str,
+    file: Option<&str>,
+    depth: u32,
+    within: &dyn Fn(&str) -> bool,
+    reading: &Reading,
+) -> Result<Report<CallerAnswer>> {
+    usable(reading)?;
+    callers_by(graph, facts, selector, file, depth, within, Some(reading))
+}
+fn usable(reading: &Reading) -> Result<()> {
+    match &reading.unavailable {
+        Some(reason) => Err(format!("the semantic index is unavailable: {reason}").into()),
+        None => Ok(()),
+    }
+}
+fn callers_by(
+    graph: &SourceGraph,
+    facts: &Facts,
+    selector: &str,
+    file: Option<&str>,
+    depth: u32,
+    within: &dyn Fn(&str) -> bool,
+    reading: Option<&Reading>,
+) -> Result<Report<CallerAnswer>> {
     let depth = checked_depth(depth)?;
     let names = Names::new(graph, facts);
-    let calls = Calls::new(facts);
+    let named = reading
+        .map(|reading| reading.named(facts))
+        .unwrap_or_default();
+    let calls = Calls::new(facts, &named);
     let kept = |unknown: &&UnknownCall| {
         names
             .functions
@@ -364,17 +584,19 @@ pub fn callers(
                     from_name: names.display(row.far),
                     site: row.site,
                     depth: row.depth,
-                    reading: "qualified",
+                    reading: row.reading,
                     via: row.via.map(|via| via.id.clone()),
                     via_name: row.via.map(|via| names.display(via)),
                 })
                 .collect();
-            let possibly: Vec<Unresolved> = calls
-                .written_as(&BTreeSet::from([last(&function.name)]))
-                .into_iter()
-                .filter(kept)
-                .map(unresolved)
-                .collect();
+            let (possibly, semantic) = calls.settle(
+                calls
+                    .written_as(&BTreeSet::from([last(&function.name)]))
+                    .into_iter()
+                    .filter(kept),
+                Some(&function.id),
+                reading.is_some(),
+            );
             // Beyond depth 1, the calls written as the name of a caller
             // one level nearer.
             let possibly_by_depth: BTreeMap<u32, usize> = (2..)
@@ -388,7 +610,12 @@ pub fn callers(
                         .collect();
                     (
                         level,
-                        calls.written_as(&wanted).into_iter().filter(kept).count(),
+                        calls
+                            .written_as(&wanted)
+                            .into_iter()
+                            .filter(kept)
+                            .filter(|unknown| calls.remains(unknown))
+                            .count(),
                     )
                 })
                 .filter(|(_, count)| *count > 0)
@@ -400,6 +627,7 @@ pub fn callers(
                 possibly,
                 possibly_beyond_depth_1: possibly_by_depth.values().sum(),
                 possibly_by_depth,
+                semantic,
             }
         })
         .collect();
@@ -409,7 +637,8 @@ pub fn callers(
         selector: selector.to_owned(),
         depth,
         answers,
-        basis: BASIS,
+        basis: basis(reading),
+        semantic: reading.map(Reading::describe).unwrap_or_default(),
     })
 }
 /// What the functions `selector` names call, up to `depth` calls away.
@@ -422,9 +651,38 @@ pub fn callees(
     depth: u32,
     within: &dyn Fn(&str) -> bool,
 ) -> Result<Report<CalleeAnswer>> {
+    callees_by(graph, facts, selector, file, depth, within, None)
+}
+/// As [`callees`], with `reading` as [`semantic_callers`] takes it: the
+/// calls it names a captured function for are resolved rows, and only the
+/// calls it pins to nothing stay listed as unresolved.
+pub fn semantic_callees(
+    graph: &SourceGraph,
+    facts: &Facts,
+    selector: &str,
+    file: Option<&str>,
+    depth: u32,
+    within: &dyn Fn(&str) -> bool,
+    reading: &Reading,
+) -> Result<Report<CalleeAnswer>> {
+    usable(reading)?;
+    callees_by(graph, facts, selector, file, depth, within, Some(reading))
+}
+fn callees_by(
+    graph: &SourceGraph,
+    facts: &Facts,
+    selector: &str,
+    file: Option<&str>,
+    depth: u32,
+    within: &dyn Fn(&str) -> bool,
+    reading: Option<&Reading>,
+) -> Result<Report<CalleeAnswer>> {
     let depth = checked_depth(depth)?;
     let names = Names::new(graph, facts);
-    let calls = Calls::new(facts);
+    let named = reading
+        .map(|reading| reading.named(facts))
+        .unwrap_or_default();
+    let calls = Calls::new(facts, &named);
     let answers = select(&names.declarations, facts, selector, file)?
         .into_iter()
         .map(|function| {
@@ -436,24 +694,28 @@ pub fn callees(
                     to_name: names.display(row.far),
                     site: row.site,
                     depth: row.depth,
-                    reading: "qualified",
+                    reading: row.reading,
                     via: row.via.map(|via| via.id.clone()),
                     via_name: row.via.map(|via| names.display(via)),
                 })
                 .collect();
-            let unresolved: Vec<Unresolved> = calls
-                .inside(&function.id)
-                .iter()
-                .copied()
-                .map(unresolved)
-                .collect();
+            let (unresolved, semantic) = calls.settle(
+                calls.inside(&function.id).iter().copied(),
+                None,
+                reading.is_some(),
+            );
             // Beyond depth 1, the calls inside the functions one level nearer
             // that Atlas could not follow.
             let unresolved_by_depth: BTreeMap<u32, usize> = (2..)
                 .zip(&levels)
                 .take_while(|(level, _)| *level <= depth)
                 .map(|(level, (_, reached))| {
-                    (level, reached.iter().map(|id| calls.inside(id).len()).sum())
+                    let open = reached
+                        .iter()
+                        .flat_map(|id| calls.inside(id))
+                        .filter(|unknown| calls.remains(unknown))
+                        .count();
+                    (level, open)
                 })
                 .filter(|(_, count)| *count > 0)
                 .collect();
@@ -464,6 +726,7 @@ pub fn callees(
                 unresolved,
                 unresolved_beyond_depth_1: unresolved_by_depth.values().sum(),
                 unresolved_by_depth,
+                semantic,
             }
         })
         .collect();
@@ -473,8 +736,16 @@ pub fn callees(
         selector: selector.to_owned(),
         depth,
         answers,
-        basis: BASIS,
+        basis: basis(reading),
+        semantic: reading.map(Reading::describe).unwrap_or_default(),
     })
+}
+fn basis(reading: Option<&Reading>) -> &'static str {
+    if reading.is_some() {
+        SEMANTIC_BASIS
+    } else {
+        BASIS
+    }
 }
 fn checked_depth(depth: u32) -> Result<u32> {
     if (1..=MAX_DEPTH).contains(&depth) {
@@ -512,18 +783,30 @@ impl Report<CallerAnswer> {
                 .len();
             let wanted = last(&function.name);
             if answer.resolved.is_empty() && answer.possibly.is_empty() {
+                let none = if answer.semantic.is_some() {
+                    format!(
+                        "no resolved callers by either reading, and no unresolved call written as {wanted:?} is left open"
+                    )
+                } else {
+                    format!("no resolved callers, and no unresolved call is written as {wanted:?}")
+                };
                 let _ = writeln!(
                     out,
-                    "  no resolved callers, and no unresolved call is written as {wanted:?}; calls Atlas does not record (inside macros, or through a function passed elsewhere as a value) are not covered"
+                    "  {none}; calls Atlas does not record (inside macros, or through a function passed elsewhere as a value) are not covered"
                 );
+                settled(&mut out, answer.semantic.as_ref());
                 continue;
             }
             let _ = writeln!(
                 out,
-                "  resolved: {calling} calling function{}, {} call site{}",
+                "  resolved: {calling} calling function{}, {} call site{}{}",
                 plural(calling),
                 answer.resolved.len(),
-                plural(answer.resolved.len())
+                plural(answer.resolved.len()),
+                by_reading(
+                    answer.semantic.as_ref(),
+                    answer.resolved.iter().map(|row| row.reading)
+                )
             );
             let width = answer
                 .resolved
@@ -540,21 +823,27 @@ impl Report<CallerAnswer> {
                 };
                 let _ = writeln!(
                     out,
-                    "      {}{at:width$}  {name}",
-                    level(self.depth, row.depth)
+                    "      {}{at:width$}  {name}{}",
+                    level(self.depth, row.depth),
+                    marker(row.reading)
                 );
             }
             tail(&mut out, "    ", answer.resolved.len(), rows, more);
             if !answer.possibly.is_empty() {
                 let _ = writeln!(
                     out,
-                    "  possibly: {} unresolved call{} {} written as {wanted:?}",
+                    "  possibly: {} unresolved call{} {} written as {wanted:?}{}",
                     answer.possibly.len(),
                     plural(answer.possibly.len()),
                     if answer.possibly.len() == 1 {
                         "is"
                     } else {
                         "are"
+                    },
+                    if answer.semantic.is_some() {
+                        " and pinned by neither reading"
+                    } else {
+                        ""
                     }
                 );
                 kinds(
@@ -565,6 +854,7 @@ impl Report<CallerAnswer> {
                     more,
                 );
             }
+            settled(&mut out, answer.semantic.as_ref());
             if answer.possibly_beyond_depth_1 > 0 {
                 let _ = writeln!(
                     out,
@@ -579,7 +869,7 @@ impl Report<CallerAnswer> {
             let _ = writeln!(out);
             tail(&mut out, "", self.answers.len(), answers, more);
         }
-        let _ = writeln!(out, "{}", self.basis);
+        footer(&mut out, self.basis, &self.semantic);
         out
     }
 }
@@ -609,10 +899,14 @@ impl Report<CalleeAnswer> {
                 .len();
             let _ = writeln!(
                 out,
-                "  resolved: {} call{} to {called} function{}",
+                "  resolved: {} call{} to {called} function{}{}",
                 answer.resolved.len(),
                 plural(answer.resolved.len()),
-                plural(called)
+                plural(called),
+                by_reading(
+                    answer.semantic.as_ref(),
+                    answer.resolved.iter().map(|row| row.reading)
+                )
             );
             let width = answer
                 .resolved
@@ -629,17 +923,23 @@ impl Report<CalleeAnswer> {
                 };
                 let _ = writeln!(
                     out,
-                    "      {}{at:width$}  {name}",
-                    level(self.depth, row.depth)
+                    "      {}{at:width$}  {name}{}",
+                    level(self.depth, row.depth),
+                    marker(row.reading)
                 );
             }
             tail(&mut out, "    ", answer.resolved.len(), rows, more);
             if !answer.unresolved.is_empty() {
+                let rest = if answer.semantic.is_some() {
+                    " that neither reading pins: unknown, not absent"
+                } else {
+                    "; the rest are external or unknown, not absent"
+                };
                 let _ = writeln!(
                     out,
-                    "  unresolved: {} call{}; the rest are external or unknown, not absent",
+                    "  unresolved: {} call{}{rest}",
                     answer.unresolved.len(),
-                    plural(answer.unresolved.len())
+                    plural(answer.unresolved.len()),
                 );
                 kinds(
                     &mut out,
@@ -649,6 +949,7 @@ impl Report<CalleeAnswer> {
                     more,
                 );
             }
+            settled(&mut out, answer.semantic.as_ref());
             if answer.unresolved_beyond_depth_1 > 0 {
                 let _ = writeln!(
                     out,
@@ -663,11 +964,84 @@ impl Report<CalleeAnswer> {
             let _ = writeln!(out);
             tail(&mut out, "", self.answers.len(), answers, more);
         }
-        let _ = writeln!(out, "{}", self.basis);
+        footer(&mut out, self.basis, &self.semantic);
         out
     }
 }
 
+/// ` (qualified 3, semantic only 1)` after a resolved count, with a reading.
+fn by_reading<'r>(settled: Option<&Settled>, readings: impl Iterator<Item = &'r str>) -> String {
+    if settled.is_none() {
+        return String::new();
+    }
+    let (mut qualified, mut semantic) = (0, 0);
+    for reading in readings {
+        if reading == "semantic" {
+            semantic += 1;
+        } else {
+            qualified += 1;
+        }
+    }
+    format!(" (qualified {qualified}, semantic only {semantic})")
+}
+/// A resolved row's mark when only the semantic reading names it.
+fn marker(reading: &str) -> &'static str {
+    if reading == "semantic" {
+        "  [semantic]"
+    } else {
+        ""
+    }
+}
+/// What the semantic reading settled, after an answer's unresolved list.
+fn settled(out: &mut String, settled: Option<&Settled>) {
+    let Some(settled) = settled else {
+        return;
+    };
+    let counts = |counts: &BTreeMap<&str, usize>| {
+        counts
+            .iter()
+            .map(|(reading, n)| format!("{reading} {n}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let mut parts = Vec::new();
+    if settled.confirmed > 0 {
+        parts.push(format!(
+            "confirmed {} (rows marked [semantic])",
+            settled.confirmed
+        ));
+    }
+    if settled.other_function > 0 {
+        parts.push(format!(
+            "names another function for {}",
+            settled.other_function
+        ));
+    }
+    let elsewhere: usize = settled.elsewhere.values().sum();
+    if elsewhere > 0 {
+        parts.push(format!(
+            "not a captured function {elsewhere} ({})",
+            counts(&settled.elsewhere)
+        ));
+    }
+    let open: usize = settled.open.values().sum();
+    if open > 0 {
+        parts.push(format!("left open {open} ({})", counts(&settled.open)));
+    }
+    if !parts.is_empty() {
+        let _ = writeln!(
+            out,
+            "  the index read the unresolved calls: {}",
+            parts.join("; ")
+        );
+    }
+}
+fn footer(out: &mut String, basis: &str, semantic: &[String]) {
+    let _ = writeln!(out, "{basis}");
+    for line in semantic {
+        let _ = writeln!(out, "{line}");
+    }
+}
 /// A row's depth column, shown only when the question went deeper than 1.
 fn level(asked: u32, depth: u32) -> String {
     if asked > 1 {
@@ -809,6 +1183,7 @@ fn unresolved(unknown: &crate::representations::UnknownCall) -> Unresolved {
             .reasons
             .iter()
             .find_map(|reason| reason.subject.clone()),
+        semantic: None,
         written: match &call.receiver {
             Some(receiver) => format!("{receiver}.{}()", call.spelling),
             None => format!("{}()", call.spelling),

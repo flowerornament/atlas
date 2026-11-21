@@ -6,6 +6,25 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `callers` and `callees` answer from the semantic reading with `--scip
+ FILE` or `--semantic` (which select `--evidence semantic`). The calls the
+ index names a captured function for that Atlas left unresolved are added as rows with reading `semantic` (marked
+ `[semantic]` in text); a qualified row is never removed. Each answer's
+ unresolved calls are settled: confirmed, ruled out (the index names
+ another function, an external item, or a workspace item that is no
+ captured function), or left open, and only the open ones stay listed as
+ possibly / unresolved, each with what the index read (`trait-method`,
+ `local`, `no-definition`, `not-indexed`, ...). JSON answers carry a
+ `semantic` summary and the report the index's provenance. Across this
+ repository and two larger private workspaces, the index rules out 90-96%
+ of possible-caller rows (mostly calls into other packages), confirms
+ 0.6-3.7%, and leaves 2.5-6.5% open. `--evidence semantic` without an
+ index, and `--evidence qualified` with one, are refused.
+ **Library:** `queries::callers::{semantic_callers, semantic_callees,
+ Settled}`, `Unresolved::semantic`, `Report::semantic`,
+ `analysis::semantic::{Reading::named, Reading::describe, Named}`.
+- Elsewhere `--evidence semantic` is refused as a reading the command does
+ not answer from (it no longer says "arrives in 0.20").
 - Semantic facts: `query` and `facts` read a SCIP index (`--scip FILE`, or
  `--semantic` to run rust-analyzer) into a third family, `semantic`.
  `semantic_call{from, to, spelling, path, line, column, agreement}` holds

@@ -254,3 +254,149 @@ fn a_stale_index_reads_as_mismatch_not_as_an_edge() {
         "{row:?}"
     );
 }
+
+fn answer(f: &Fixture, args: &[&str]) -> Value {
+    let report = atlas(f, args);
+    report["answers"][0].clone()
+}
+
+#[test]
+fn semantic_callers_add_rows_by_reading_and_list_only_open_possible_calls() {
+    let f = fixture();
+    let semantic = ["--json", "--scip", "index.scip"];
+    // Qualified: Parse::run has no resolved caller and two possible ones.
+    let qualified = answer(&f, &["callers", "Parse::run", "--json"]);
+    assert_eq!(qualified["resolved"].as_array().map(Vec::len), Some(0));
+    assert_eq!(qualified["possibly"].as_array().map(Vec::len), Some(2));
+    assert!(qualified.get("semantic").is_none());
+    // Semantic: the index names Parse::run at `parse.run()` (a semantic row)
+    // and leaves `stage.run()`, open trait dispatch, possible.
+    let report = atlas(&f, &[&["callers", "Parse::run"][..], &semantic].concat());
+    assert!(
+        report["semantic"][0]
+            .as_str()
+            .is_some_and(|line| line.starts_with("Semantic reading (supplied): "))
+    );
+    let answer = &report["answers"][0];
+    let resolved = answer["resolved"].as_array().expect("resolved");
+    assert_eq!(resolved.len(), 1, "{answer}");
+    assert_eq!(resolved[0]["reading"], "semantic");
+    assert_eq!(resolved[0]["site"]["line"], 32);
+    let possibly = answer["possibly"].as_array().expect("possibly");
+    assert_eq!(possibly.len(), 1, "{answer}");
+    assert_eq!(possibly[0]["site"]["line"], 35);
+    assert_eq!(possibly[0]["semantic"], "trait-method");
+    assert_eq!(answer["semantic"]["confirmed"], 1);
+    assert_eq!(answer["semantic"]["open"]["trait-method"], 1);
+    // A call written `label()` that the index names another function for
+    // is ruled out, never a possible caller of `label`.
+    let label = callers_of(&f, "label", &semantic);
+    assert_eq!(label["semantic"]["other_function"], 1, "{label}");
+    assert!(
+        label["possibly"]
+            .as_array()
+            .expect("possibly")
+            .iter()
+            .all(|row| row["site"]["line"] != 53)
+    );
+    // A qualified row stays qualified; an agreeing index adds no second row.
+    let base = callers_of(&f, "base", &semantic);
+    let readings: Vec<_> = base["resolved"]
+        .as_array()
+        .expect("resolved")
+        .iter()
+        .map(|row| (row["site"]["line"].clone(), row["reading"].clone()))
+        .collect();
+    assert_eq!(
+        readings,
+        [
+            (17.into(), "qualified".into()),
+            (28.into(), "qualified".into()),
+            (53.into(), "semantic".into())
+        ]
+    );
+}
+fn callers_of(f: &Fixture, selector: &str, semantic: &[&str]) -> Value {
+    answer(f, &[&["callers", selector][..], semantic].concat())
+}
+
+#[test]
+fn semantic_callees_resolve_what_the_index_names_and_count_the_rest() {
+    let f = fixture();
+    let semantic = ["--json", "--evidence", "semantic", "--scip", "index.scip"];
+    let answer = answer(
+        &f,
+        &[&["callees", "method_on_local"][..], &semantic].concat(),
+    );
+    assert_eq!(answer["resolved"][0]["to_name"], "Parse::run");
+    assert_eq!(answer["resolved"][0]["reading"], "semantic");
+    assert_eq!(answer["unresolved"].as_array().map(Vec::len), Some(0));
+    // A call to an item of another package leaves the list, counted.
+    let external = callees_of(&f, "external", &semantic);
+    assert!(
+        external["semantic"]["elsewhere"]["external"].as_u64() >= Some(1),
+        "{external}"
+    );
+    assert!(
+        external["unresolved"]
+            .as_array()
+            .expect("unresolved")
+            .iter()
+            .all(|row| row["semantic"] != "external")
+    );
+}
+fn callees_of(f: &Fixture, selector: &str, semantic: &[&str]) -> Value {
+    answer(f, &[&["callees", selector][..], semantic].concat())
+}
+
+#[test]
+fn an_index_selects_the_semantic_reading_and_the_evidence_needs_one() {
+    let f = fixture();
+    let run = |args: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .args(args)
+            .arg("--root")
+            .arg(f.path())
+            .output()
+            .expect("run cargo-atlas");
+        (
+            output.status.success(),
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        )
+    };
+    let (ok, stderr) = run(&["callers", "base", "--evidence", "semantic"]);
+    assert!(!ok);
+    assert!(
+        stderr.contains("needs an index: give --scip FILE, or --semantic"),
+        "{stderr}"
+    );
+    let (ok, stderr) = run(&[
+        "callees",
+        "base",
+        "--evidence",
+        "qualified",
+        "--scip",
+        "index.scip",
+    ]);
+    assert!(!ok);
+    assert!(
+        stderr.contains("--evidence qualified conflicts with --scip and --semantic"),
+        "{stderr}"
+    );
+    // The index alone selects the semantic reading.
+    let (ok, stderr) = run(&["callers", "base", "--scip", "index.scip"]);
+    assert!(ok, "{stderr}");
+    let (ok, stderr) = run(&[
+        "callers",
+        "base",
+        "--evidence",
+        "semantic",
+        "--scip",
+        "missing.scip",
+    ]);
+    assert!(!ok);
+    assert!(
+        stderr.contains("the semantic index is unavailable: cannot read"),
+        "{stderr}"
+    );
+}

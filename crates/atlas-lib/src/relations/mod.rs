@@ -178,24 +178,7 @@ impl Relations {
         }
         self.relations.extend(semantic(reading, facts));
         self.families.push(Family::Semantic);
-        let provenance = &reading.provenance;
-        self.limitations.push(format!(
-            "Semantic reading ({}): {} {}, index sha256 {}; {}; {}.",
-            provenance.origin,
-            provenance.producer,
-            provenance.producer_version,
-            provenance.index_digest,
-            provenance.configuration,
-            provenance.currency
-        ));
-        if let Some(coverage) = &reading.coverage {
-            self.limitations.push(format!(
-                "Semantic coverage: {} indexed documents; {} files with recorded calls not in the index; {} symbols defined at several sites.",
-                coverage.documents,
-                coverage.files_not_indexed.len(),
-                coverage.symbols_with_several_definitions
-            ));
-        }
+        self.limitations.extend(reading.describe());
         Ok(self)
     }
     /// The relation called `name`, if its family was captured.
@@ -600,24 +583,11 @@ impl<'a> Bridge<'a> {
 /// record it; a site several captured functions share names none.
 fn semantic(reading: &crate::analysis::semantic::Reading, facts: &Facts) -> Vec<Relation> {
     use crate::analysis::semantic::Semantic;
-    let mut at: BTreeMap<(&str, usize), Vec<&str>> = BTreeMap::new();
-    for function in &facts.functions {
-        at.entry((function.file.as_str(), function.line))
-            .or_default()
-            .push(function.id.as_str());
-    }
-    let function_at = |path: &str, line: usize| match at.get(&(path, line)).map(Vec::as_slice) {
-        Some([one]) => Some(*one),
-        _ => None,
-    };
     let mut call = Relation::new("semantic_call");
     let mut unknown = Relation::new("semantic_unknown");
-    for reading in &reading.calls {
-        let from = reading
-            .caller_site
-            .as_ref()
-            .and_then(|(path, line)| function_at(path, *line))
-            .unwrap_or_default();
+    for named in reading.named(facts) {
+        let reading = named.call;
+        let from = named.from.unwrap_or_default();
         let site = &reading.site;
         let (kind, detail) = match &reading.semantic {
             Semantic::Definition {
@@ -625,7 +595,7 @@ fn semantic(reading: &crate::analysis::semantic::Reading, facts: &Facts) -> Vec<
                 kind,
                 ..
             } => {
-                if let Some(to) = function_at(&definition.path, definition.line) {
+                if let Some(to) = named.to {
                     call.push([
                         witness("semantic_call", call.rows.len()),
                         from.into(),

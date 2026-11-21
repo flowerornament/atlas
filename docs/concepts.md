@@ -71,8 +71,12 @@ cannot find `rust-src`) is reported *unavailable*.
 
 `callers`, `callees`, `dependencies` and `flow` take `--evidence` to name the
 reading they answer from. `auto` (the default) and `qualified` are their
-current reading; `lexical` and `semantic` are refused with what to run
-instead (semantic readings in their output arrive in 0.20).
+current reading. `callers` and `callees` answer from the semantic reading
+too when given `--scip FILE` or `--semantic` (`--evidence semantic` names
+it, and needs one of them): the calls the index names a function
+for are added as rows marked `semantic`, and only the unresolved calls it
+pins to nothing stay listed. Elsewhere `lexical` and `semantic` are refused
+with what to run instead.
 
 Atlas never mixes these up. A rule you declared is never drawn as if it had
 been observed in the code. A relationship observed in the code is never hidden
