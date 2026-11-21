@@ -217,10 +217,6 @@ fn render(cell: &Cell) -> String {
 
 /// `standing` are the facts' fixed limitations, the same on every run: the
 /// text folds them into one line, and JSON keeps each.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn text(answer: &query::Answer, source: &str, show: usize, standing: &[String]) -> String {
     let more = crate::cli::output::rows::rerun_all();
     let mut out = String::new();
@@ -228,57 +224,7 @@ fn text(answer: &query::Answer, source: &str, show: usize, standing: &[String]) 
         if i > 0 {
             out.push('\n');
         }
-        let _ = writeln!(out, "{}", table.query);
-        let rows: Vec<Vec<String>> = table
-            .rows
-            .iter()
-            .take(show)
-            .map(|row| row.iter().map(render).collect())
-            .collect();
-        let mut widths: Vec<usize> = table.columns.iter().map(|c| c.chars().count()).collect();
-        for row in &rows {
-            for (w, cell) in widths.iter_mut().zip(row) {
-                *w = (*w).max(cell.chars().count());
-            }
-        }
-        let line = |cells: &[String]| {
-            let last = cells.len().saturating_sub(1);
-            cells
-                .iter()
-                .zip(&widths)
-                .enumerate()
-                .map(|(c, (cell, w))| {
-                    if c == last {
-                        cell.clone()
-                    } else {
-                        format!("{cell:<w$}")
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("  ")
-        };
-        if !table.columns.is_empty() {
-            let _ = writeln!(out, "  {}", line(&table.columns));
-        }
-        for row in &rows {
-            let _ = writeln!(out, "  {}", line(row));
-        }
-        let shown = rows.len();
-        let _ = match (table.total, table.rows.len()) {
-            (0, _) => writeln!(out, "  (no rows)"),
-            (total, listed) if shown < listed => writeln!(
-                out,
-                "{}\n  ({total} rows)",
-                crate::cli::output::rows::tail("  ", listed - shown, &more)
-            ),
-            (total, listed) if listed < total => {
-                writeln!(
-                    out,
-                    "  ({total} rows, the first {listed} by the query's limit)"
-                )
-            }
-            (total, _) => writeln!(out, "  ({total} rows)"),
-        };
+        write_table(&mut out, table, show, &more);
     }
     for accepted in &answer.accepted {
         let _ = writeln!(out, "\n{accepted}");
@@ -309,10 +255,62 @@ fn text(answer: &query::Answer, source: &str, show: usize, standing: &[String]) 
     out
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
+/// One table as aligned columns, its first `show` rows, then a count that
+/// says whether the display or the query's own limit held rows back.
+fn write_table(out: &mut String, table: &query::Table, show: usize, more: &str) {
+    let _ = writeln!(out, "{}", table.query);
+    let rows: Vec<Vec<String>> = table
+        .rows
+        .iter()
+        .take(show)
+        .map(|row| row.iter().map(render).collect())
+        .collect();
+    let mut widths: Vec<usize> = table.columns.iter().map(|c| c.chars().count()).collect();
+    for row in &rows {
+        for (w, cell) in widths.iter_mut().zip(row) {
+            *w = (*w).max(cell.chars().count());
+        }
+    }
+    let line = |cells: &[String]| {
+        let last = cells.len().saturating_sub(1);
+        cells
+            .iter()
+            .zip(&widths)
+            .enumerate()
+            .map(|(c, (cell, w))| {
+                if c == last {
+                    cell.clone()
+                } else {
+                    format!("{cell:<w$}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("  ")
+    };
+    if !table.columns.is_empty() {
+        let _ = writeln!(out, "  {}", line(&table.columns));
+    }
+    for row in &rows {
+        let _ = writeln!(out, "  {}", line(row));
+    }
+    let shown = rows.len();
+    let _ = match (table.total, table.rows.len()) {
+        (0, _) => writeln!(out, "  (no rows)"),
+        (total, listed) if shown < listed => writeln!(
+            out,
+            "{}\n  ({total} rows)",
+            crate::cli::output::rows::tail("  ", listed - shown, more)
+        ),
+        (total, listed) if listed < total => {
+            writeln!(
+                out,
+                "  ({total} rows, the first {listed} by the query's limit)"
+            )
+        }
+        (total, _) => writeln!(out, "  ({total} rows)"),
+    };
+}
+
 pub(crate) fn run(
     metadata: &cargo_metadata::Metadata,
     options: &Options,
@@ -343,47 +341,15 @@ pub(crate) fn run(
         });
     }
     let root = metadata.workspace_root.as_std_path();
-    let (relations, checked, source, mut notes) = if let Some(path) = &options.facts {
-        if options.tests.asked() {
-            return Err("--with-tests captures now; a saved export has the population it was exported with (cargo atlas facts --with-tests)".into());
-        }
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-        let relations = Relations::read(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-        let checked = query::check(&program, &relations.families, &check_options)?;
-        let (files, changed) = changed_since(root, &relations);
-        let mut notes = Vec::new();
-        if !changed.is_empty() {
-            let mut listed: Vec<&str> = changed.iter().map(String::as_str).take(5).collect();
-            if changed.len() > listed.len() {
-                listed.push("…");
-            }
-            notes.push(format!(
-                "{} of the export's {files} files differ from the tree now (missing or changed): {}; its rows describe the files as they were",
-                changed.len(),
-                listed.join(", ")
-            ));
-        }
-        (relations, checked, format!("{}", path.display()), notes)
+    let Reading {
+        relations,
+        checked,
+        source,
+        mut notes,
+    } = if let Some(path) = &options.facts {
+        read_export(root, path, &program, &check_options, options)?
     } else {
-        let checked = query::check(&program, &Family::ALL, &check_options)?;
-        let relations = capture(metadata, checked.families(), options, cache)?;
-        let families: Vec<&str> = checked.families().iter().map(|f| f.name()).collect();
-        let source = if families.is_empty() {
-            "none read".to_owned()
-        } else {
-            let tests = options.tests.asked()
-                && checked
-                    .families()
-                    .iter()
-                    .any(|family| *family != Family::Lexical);
-            format!(
-                "captured now ({}{})",
-                families.join(", "),
-                if tests { "; test code included" } else { "" }
-            )
-        };
-        (relations, checked, source, Vec::new())
+        capture_now(metadata, &program, &check_options, options, cache)?
     };
     let limits = Limits::default()
         .rows(options.max_rows)
@@ -391,9 +357,98 @@ pub(crate) fn run(
     let mut answer = query::run(&checked, &relations, limits)?;
     notes.append(&mut answer.notes);
     answer.notes = notes;
+    print_answer(options, &source, &answer, &relations.limitations)
+}
+
+/// The facts a checked program runs over, where they came from, and notes
+/// about them that belong with the answer.
+struct Reading {
+    relations: Relations,
+    checked: query::Checked,
+    source: String,
+    notes: Vec<String>,
+}
+
+/// Facts from a saved export, with a note when files it describes differ
+/// from the tree now.
+fn read_export(
+    root: &Path,
+    path: &Path,
+    program: &query::Program,
+    check_options: &QueryOptions,
+    options: &Options,
+) -> Result<Reading> {
+    if options.tests.asked() {
+        return Err("--with-tests captures now; a saved export has the population it was exported with (cargo atlas facts --with-tests)".into());
+    }
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let relations = Relations::read(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    let checked = query::check(program, &relations.families, check_options)?;
+    let (files, changed) = changed_since(root, &relations);
+    let mut notes = Vec::new();
+    if !changed.is_empty() {
+        let mut listed: Vec<&str> = changed.iter().map(String::as_str).take(5).collect();
+        if changed.len() > listed.len() {
+            listed.push("…");
+        }
+        notes.push(format!(
+            "{} of the export's {files} files differ from the tree now (missing or changed): {}; its rows describe the files as they were",
+            changed.len(),
+            listed.join(", ")
+        ));
+    }
+    Ok(Reading {
+        relations,
+        checked,
+        source: format!("{}", path.display()),
+        notes,
+    })
+}
+
+/// Facts captured now: only the families the checked program reads.
+fn capture_now(
+    metadata: &cargo_metadata::Metadata,
+    program: &query::Program,
+    check_options: &QueryOptions,
+    options: &Options,
+    cache: &super::semantic::IndexCache,
+) -> Result<Reading> {
+    let checked = query::check(program, &Family::ALL, check_options)?;
+    let relations = capture(metadata, checked.families(), options, cache)?;
+    let families: Vec<&str> = checked.families().iter().map(|f| f.name()).collect();
+    let source = if families.is_empty() {
+        "none read".to_owned()
+    } else {
+        let tests = options.tests.asked()
+            && checked
+                .families()
+                .iter()
+                .any(|family| *family != Family::Lexical);
+        format!(
+            "captured now ({}{})",
+            families.join(", "),
+            if tests { "; test code included" } else { "" }
+        )
+    };
+    Ok(Reading {
+        relations,
+        checked,
+        source,
+        notes: Vec::new(),
+    })
+}
+
+/// The answer as JSON Lines, one JSON document, or text tables.
+fn print_answer(
+    options: &Options,
+    source: &str,
+    answer: &query::Answer,
+    standing: &[String],
+) -> Result<()> {
     let mut stdout = std::io::stdout().lock();
     if options.output.chosen() == Some(As::Jsonl) {
-        return write_jsonl(&mut stdout, &source, &answer);
+        return write_jsonl(&mut stdout, source, answer);
     }
     if options.output.json() {
         #[derive(serde::Serialize)]
@@ -406,17 +461,18 @@ pub(crate) fn run(
         stdout.write_all(
             super::json(&Document {
                 schema: 1,
-                facts: &source,
-                answer: &answer,
+                facts: source,
+                answer,
             })?
             .as_bytes(),
         )?;
     } else {
         let show = options.show.unwrap_or_else(|| options.rows.limit(20));
-        stdout.write_all(text(&answer, &source, show, &relations.limitations).as_bytes())?;
+        stdout.write_all(text(answer, source, show, standing).as_bytes())?;
     }
     Ok(())
 }
+
 /// JSON Lines: one header object (the answer without its rows, each table's
 /// rows replaced by its row count), then one `{"table": i, "row": [...]}`
 /// object per row, in table order.

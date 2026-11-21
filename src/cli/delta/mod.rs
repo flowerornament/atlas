@@ -5,6 +5,7 @@ use atlas_lib::{
         delta::{self, Basis},
         policy::{self, Policy, Status},
     },
+    discovery::Snapshot,
     revision::GitStore,
 };
 use cargo_atlas::{Result, discovery};
@@ -36,10 +37,6 @@ pub(crate) struct Options {
     #[command(flatten)]
     output: crate::cli::output::form::Report,
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(crate) fn run(
     root: &Path,
     metadata: &cargo_metadata::Metadata,
@@ -78,25 +75,7 @@ pub(crate) fn run(
         candidate: candidate_id.clone(),
     };
     let description = store.description(&candidate_id)?;
-    let mut inputs = delta::Inputs::new(&after, basis, description);
-    inputs.policy = policy::observe(&after, &policy);
-    if !options.citation_markers.is_empty() {
-        let markers = options
-            .citation_markers
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        inputs.concentration = concentration::Inputs {
-            before_headers: concentration::observe_headers(&before, &markers)?,
-            after_headers: concentration::observe_headers(&after, &markers)?,
-            citations: None,
-            test_support_features: Vec::new(),
-        };
-    }
-    inputs
-        .concentration
-        .test_support_features
-        .clone_from(&options.test_support_features);
+    let inputs = inputs(options, &before, &after, &policy, basis, description)?;
     let report = delta::check(&before, &after, &published, &policy, &inputs)?;
     let stats = Stats::read(&report, &policy)?;
     let display = presentation::display(
@@ -130,6 +109,39 @@ pub(crate) fn run(
         Err(display.into())
     }
 }
+
+/// The checker's explicit inputs: candidate policy observations, header
+/// citations on both sides only when the caller names markers, and the
+/// features the caller permits as test support.
+fn inputs(
+    options: &Options,
+    before: &Snapshot,
+    after: &Snapshot,
+    policy: &Policy,
+    basis: Basis,
+    description: String,
+) -> Result<delta::Inputs> {
+    let mut inputs = delta::Inputs::new(after, basis, description);
+    inputs.policy = policy::observe(after, policy);
+    if !options.citation_markers.is_empty() {
+        let markers = options
+            .citation_markers
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        inputs.concentration = concentration::Inputs {
+            before_headers: concentration::observe_headers(before, &markers)?,
+            after_headers: concentration::observe_headers(after, &markers)?,
+            citations: None,
+            test_support_features: Vec::new(),
+        };
+    }
+    inputs
+        .concentration
+        .test_support_features
+        .clone_from(&options.test_support_features);
+    Ok(inputs)
+}
 #[derive(serde::Serialize)]
 struct CountChange {
     before: usize,
@@ -158,10 +170,6 @@ struct Stats {
     removed: Vec<String>,
 }
 impl Stats {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     fn read(report: &delta::Report, policy: &Policy) -> Result<Option<Self>> {
         let Some(measured) = &report.measurements else {
             return Ok(None);
@@ -181,39 +189,7 @@ impl Stats {
         let old_tokens = total(&measured.before.crates, |row| row.tokens);
         let density_before = old_tokens.saturating_mul(10) / before.max(1);
         let density_after = tokens.saturating_mul(10) / after.max(1);
-        let block = |shape: Option<&atlas_lib::review::Shape>| {
-            shape
-                .and_then(|shape| shape.largest_block.as_ref())
-                .map_or(0, |block| block.lines)
-        };
-        let largest = measured
-            .shape
-            .changes
-            .iter()
-            .max_by_key(|change| block(change.before.as_ref()).max(block(change.after.as_ref())))
-            .map(|change| Largest {
-                module: change.file.clone(),
-                block: change
-                    .after
-                    .as_ref()
-                    .or(change.before.as_ref())
-                    .and_then(|shape| shape.largest_block.as_ref())
-                    .map_or_else(String::new, |block| block.name.clone()),
-                block_loc: CountChange {
-                    before: block(change.before.as_ref()),
-                    after: block(change.after.as_ref()),
-                },
-                top_level_items: CountChange {
-                    before: change
-                        .before
-                        .as_ref()
-                        .map_or(0, |shape| shape.top_level_items),
-                    after: change
-                        .after
-                        .as_ref()
-                        .map_or(0, |shape| shape.top_level_items),
-                },
-            });
+        let largest = largest(measured);
         let denser = (after < before && density_after > density_before)
             || largest
                 .as_ref()
@@ -224,21 +200,7 @@ impl Stats {
             .iter()
             .map(|(name, row)| (name.clone(), row.surface))
             .collect();
-        let surface_delta = policy
-            .surface
-            .keys()
-            .try_fold(0i64, |sum, name| -> Result<_> {
-                Ok(sum
-                    .checked_add(difference(
-                        measured
-                            .before
-                            .crates
-                            .get(name)
-                            .map_or(0, |row| row.surface),
-                        measured.after.crates.get(name).map_or(0, |row| row.surface),
-                    )?)
-                    .ok_or("surface delta overflow")?)
-            })?;
+        let surface_delta = surface_delta(measured, policy)?;
         let edges = |dag: &BTreeMap<String, BTreeSet<String>>| {
             dag.iter()
                 .flat_map(|(from, targets)| targets.iter().map(move |to| format!("{from}->{to}")))
@@ -263,6 +225,63 @@ impl Stats {
         }))
     }
 }
+
+/// The shape change whose largest block is longest on either side.
+fn largest(measured: &delta::Measurements) -> Option<Largest> {
+    let block = |shape: Option<&atlas_lib::review::Shape>| {
+        shape
+            .and_then(|shape| shape.largest_block.as_ref())
+            .map_or(0, |block| block.lines)
+    };
+    measured
+        .shape
+        .changes
+        .iter()
+        .max_by_key(|change| block(change.before.as_ref()).max(block(change.after.as_ref())))
+        .map(|change| Largest {
+            module: change.file.clone(),
+            block: change
+                .after
+                .as_ref()
+                .or(change.before.as_ref())
+                .and_then(|shape| shape.largest_block.as_ref())
+                .map_or_else(String::new, |block| block.name.clone()),
+            block_loc: CountChange {
+                before: block(change.before.as_ref()),
+                after: block(change.after.as_ref()),
+            },
+            top_level_items: CountChange {
+                before: change
+                    .before
+                    .as_ref()
+                    .map_or(0, |shape| shape.top_level_items),
+                after: change
+                    .after
+                    .as_ref()
+                    .map_or(0, |shape| shape.top_level_items),
+            },
+        })
+}
+
+/// The net change in public declarations over the crates with a policy surface ceiling.
+fn surface_delta(measured: &delta::Measurements, policy: &Policy) -> Result<i64> {
+    policy
+        .surface
+        .keys()
+        .try_fold(0i64, |sum, name| -> Result<_> {
+            Ok(sum
+                .checked_add(difference(
+                    measured
+                        .before
+                        .crates
+                        .get(name)
+                        .map_or(0, |row| row.surface),
+                    measured.after.crates.get(name).map_or(0, |row| row.surface),
+                )?)
+                .ok_or("surface delta overflow")?)
+        })
+}
+
 fn difference(before: usize, after: usize) -> Result<i64> {
     Ok(i64::try_from(after)?
         .checked_sub(i64::try_from(before)?)

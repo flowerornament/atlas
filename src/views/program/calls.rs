@@ -11,10 +11,6 @@ use crate::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(super) fn build(
     index: &Index,
     architecture: &Architecture,
@@ -40,138 +36,27 @@ pub(super) fn build(
                 .map(|i| index.functions()[i].id.clone())
         })
         .collect::<Result<_>>()?;
-    let mut pending = roots.clone();
+    let mut trace = Trace {
+        pending: roots.clone(),
+        ..Trace::default()
+    };
     let mut seen = BTreeSet::new();
-    let mut nodes = BTreeMap::new();
-    let mut connections = BTreeMap::<(String, String), Vec<Vec<Hop>>>::new();
-    let mut observations = Vec::new();
-    let mut files = BTreeSet::new();
-    while let Some(i) = pending.pop() {
+    while let Some(i) = trace.pending.pop() {
         if !seen.insert(i) {
             continue;
         }
-        let f = &index.functions()[i];
-        files.insert(f.flow.site.path.clone());
-        nodes.insert(
-            f.id.clone(),
-            Node {
-                id: f.id.clone(),
-                label: f.flow.function.clone(),
-                group: if roots.contains(&i) {
-                    "Entry".into()
-                } else {
-                    "Coordinators".into()
-                },
-                source_sites: vec![f.flow.site.link()],
-                context: false,
-                internal_relationships: vec![],
-                surface: None,
-            },
-        );
-        opaque(&f.id, &f.flow.steps, &mut observations);
-        for (ordinal, call) in f.flow.calls.iter().enumerate() {
-            let target = match index.resolve(i, call) {
-                Target::Function(target) => {
-                    pending.push(target);
-                    index.functions()[target].id.clone()
-                }
-                Target::Boundary(boundary, member) => {
-                    let b = &index.boundaries()[boundary];
-                    let module = &b.module;
-                    let id = member.as_ref().map_or_else(
-                        || module.name.clone(),
-                        |member| format!("{}::{member}", module.name),
-                    );
-                    let label = member.as_ref().map_or_else(
-                        || module.name.clone(),
-                        |member| format!("{}::{member}", module.name),
-                    );
-                    let node = nodes.entry(id.clone()).or_insert_with(|| Node {
-                        id: id.clone(),
-                        label,
-                        group: if b.path.len() > 2 {
-                            b.path[1].clone()
-                        } else {
-                            module.label().into()
-                        },
-                        source_sites: vec![],
-                        context: false,
-                        internal_relationships: vec![],
-                        surface: Some(Surface {
-                            entry: module.entry.clone(),
-                            types: module.types.clone(),
-                        }),
-                    });
-                    let site = call.site.link();
-                    if !node.source_sites.contains(&site) {
-                        node.source_sites.push(site);
-                    }
-                    for file in index.inventory() {
-                        if architecture::contains(&module.path, file) {
-                            files.insert(file.clone());
-                        }
-                    }
-                    id
-                }
-                Target::InvalidFunction(position) => {
-                    return Err(format!("invalid indexed function position {position}").into());
-                }
-                Target::Summarized(reason) => {
-                    observations.push(Observation {
-                        function: f.id.clone(),
-                        call: Some(call.clone()),
-                        reason: reason.message,
-                    });
-                    continue;
-                }
-                // A resolution this view does not know stays unresolved.
-                other => {
-                    observations.push(Observation {
-                        function: f.id.clone(),
-                        call: Some(call.clone()),
-                        reason: format!("unrecognized call resolution: {other:?}"),
-                    });
-                    continue;
-                }
-            };
-            connections
-                .entry((f.id.clone(), target))
-                .or_default()
-                .push(vec![Hop {
-                    function: f.id.clone(),
-                    ordinal: ordinal + 1,
-                    call: call.clone(),
-                    context: context(&f.flow.steps, &call.site),
-                }]);
-        }
+        trace.inspect(index, i, roots.contains(&i))?;
     }
     if entry.is_none() {
-        for b in index.boundaries() {
-            let module = &b.module;
-            if module.kind == Kind::Stage
-                && !nodes.values().any(|n| {
-                    n.surface.as_ref().is_some_and(|s| s.entry == module.entry)
-                        && n.id.starts_with(&module.name)
-                })
-            {
-                nodes.insert(
-                    module.name.clone(),
-                    Node {
-                        id: module.name.clone(),
-                        label: module.name.clone(),
-                        group: "Not surfaced".into(),
-                        source_sites: vec![module.path.clone()],
-                        context: true,
-                        internal_relationships: vec![],
-                        surface: Some(Surface {
-                            entry: module.entry.clone(),
-                            types: module.types.clone(),
-                        }),
-                    },
-                );
-            }
-        }
+        add_unsurfaced_stages(index, &mut trace.nodes);
     }
+    let Trace {
+        nodes,
+        connections,
+        observations,
+        files,
+        ..
+    } = trace;
     let roots = roots
         .iter()
         .map(|&i| index.functions()[i].id.clone())
@@ -196,6 +81,162 @@ pub(super) fn build(
             .collect(),
         nodes: nodes.into_values().collect(),
     })
+}
+
+/// What the walk from the roots has observed so far, and the coordinators it
+/// has still to inspect.
+#[derive(Default)]
+struct Trace {
+    pending: Vec<usize>,
+    nodes: BTreeMap<String, Node>,
+    connections: BTreeMap<(String, String), Vec<Vec<Hop>>>,
+    observations: Vec<Observation>,
+    files: BTreeSet<String>,
+}
+
+impl Trace {
+    /// Record coordinator `i` and each of its calls: a workspace function is
+    /// queued for inspection, a declared boundary becomes its surface node,
+    /// and a summarized or unknown resolution stays an observation.
+    fn inspect(&mut self, index: &Index, i: usize, root: bool) -> Result<()> {
+        let f = &index.functions()[i];
+        self.files.insert(f.flow.site.path.clone());
+        self.nodes.insert(
+            f.id.clone(),
+            Node {
+                id: f.id.clone(),
+                label: f.flow.function.clone(),
+                group: if root {
+                    "Entry".into()
+                } else {
+                    "Coordinators".into()
+                },
+                source_sites: vec![f.flow.site.link()],
+                context: false,
+                internal_relationships: vec![],
+                surface: None,
+            },
+        );
+        opaque(&f.id, &f.flow.steps, &mut self.observations);
+        for (ordinal, call) in f.flow.calls.iter().enumerate() {
+            let target = match index.resolve(i, call) {
+                Target::Function(target) => {
+                    self.pending.push(target);
+                    index.functions()[target].id.clone()
+                }
+                Target::Boundary(boundary, member) => {
+                    self.boundary(index, boundary, member.as_deref(), &call.site)
+                }
+                Target::InvalidFunction(position) => {
+                    return Err(format!("invalid indexed function position {position}").into());
+                }
+                Target::Summarized(reason) => {
+                    self.observations.push(Observation {
+                        function: f.id.clone(),
+                        call: Some(call.clone()),
+                        reason: reason.message,
+                    });
+                    continue;
+                }
+                // A resolution this view does not know stays unresolved.
+                other => {
+                    self.observations.push(Observation {
+                        function: f.id.clone(),
+                        call: Some(call.clone()),
+                        reason: format!("unrecognized call resolution: {other:?}"),
+                    });
+                    continue;
+                }
+            };
+            self.connections
+                .entry((f.id.clone(), target))
+                .or_default()
+                .push(vec![Hop {
+                    function: f.id.clone(),
+                    ordinal: ordinal + 1,
+                    call: call.clone(),
+                    context: context(&f.flow.steps, &call.site),
+                }]);
+        }
+        Ok(())
+    }
+
+    /// The surface node for a call into a declared boundary (or one named
+    /// member of it), citing the call site; the boundary's files become
+    /// represented. Returns the node's id.
+    fn boundary(
+        &mut self,
+        index: &Index,
+        boundary: usize,
+        member: Option<&str>,
+        site: &Site,
+    ) -> String {
+        let b = &index.boundaries()[boundary];
+        let module = &b.module;
+        let id = member.map_or_else(
+            || module.name.clone(),
+            |member| format!("{}::{member}", module.name),
+        );
+        let label = member.map_or_else(
+            || module.name.clone(),
+            |member| format!("{}::{member}", module.name),
+        );
+        let node = self.nodes.entry(id.clone()).or_insert_with(|| Node {
+            id: id.clone(),
+            label,
+            group: if b.path.len() > 2 {
+                b.path[1].clone()
+            } else {
+                module.label().into()
+            },
+            source_sites: vec![],
+            context: false,
+            internal_relationships: vec![],
+            surface: Some(Surface {
+                entry: module.entry.clone(),
+                types: module.types.clone(),
+            }),
+        });
+        let site = site.link();
+        if !node.source_sites.contains(&site) {
+            node.source_sites.push(site);
+        }
+        for file in index.inventory() {
+            if architecture::contains(&module.path, file) {
+                self.files.insert(file.clone());
+            }
+        }
+        id
+    }
+}
+
+/// A declared stage that no call reached is still shown, as context.
+fn add_unsurfaced_stages(index: &Index, nodes: &mut BTreeMap<String, Node>) {
+    for b in index.boundaries() {
+        let module = &b.module;
+        if module.kind == Kind::Stage
+            && !nodes.values().any(|n| {
+                n.surface.as_ref().is_some_and(|s| s.entry == module.entry)
+                    && n.id.starts_with(&module.name)
+            })
+        {
+            nodes.insert(
+                module.name.clone(),
+                Node {
+                    id: module.name.clone(),
+                    label: module.name.clone(),
+                    group: "Not surfaced".into(),
+                    source_sites: vec![module.path.clone()],
+                    context: true,
+                    internal_relationships: vec![],
+                    surface: Some(Surface {
+                        entry: module.entry.clone(),
+                        types: module.types.clone(),
+                    }),
+                },
+            );
+        }
+    }
 }
 fn opaque(function: &str, steps: &[Step], out: &mut Vec<Observation>) {
     for step in steps {

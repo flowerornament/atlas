@@ -58,10 +58,6 @@ impl Question {
         }
     }
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(crate) fn run(
     root: &Path,
     metadata: &cargo_metadata::Metadata,
@@ -77,29 +73,7 @@ pub(crate) fn run(
             if options.output.json() {
                 print_json(&commit, question, &report)?;
             } else {
-                println!("Module shape against {commit} (current source)");
-                let content_only = report.changes.iter().filter(|c| !c.shape_changed).count();
-                let changed: Vec<_> = report.changes.iter().filter(|c| c.shape_changed).collect();
-                let limit = options.rows.limit(15);
-                for change in changed.iter().take(limit) {
-                    println!("{}", change.file);
-                    for (side, shape) in [("before", &change.before), ("after", &change.after)] {
-                        if let Some(shape) = shape {
-                            println!(
-                                "  {side}: {} non-test lines; {} top-level items; largest block {}",
-                                shape.non_test_lines,
-                                shape.top_level_items,
-                                shape.largest_block.as_ref().map_or(0, |block| block.lines)
-                            );
-                        } else {
-                            println!("  {side}: absent");
-                        }
-                    }
-                }
-                if changed.len() > limit {
-                    println!("{}", tail("", changed.len() - limit, &rerun_all()));
-                }
-                same_shape_note(content_only);
+                print_shape(&commit, &report, options.rows);
             }
         }
         Question::Visibility => {
@@ -111,37 +85,7 @@ pub(crate) fn run(
             if options.output.json() {
                 print_json(&commit, question, &report)?;
             } else {
-                // Repeated keys matter only as a caveat: say how many, once.
-                let approximate = match report.ambiguous_keys {
-                    0 => String::new(),
-                    1 => " (1 item shares a name with another and was paired approximately; --json lists it)".to_owned(),
-                    n => format!(
-                        " ({n} items share a name and were paired approximately; --json lists them)"
-                    ),
-                };
-                let changes = report.widened.len() + report.rescoped.len() + report.narrowed.len();
-                if changes == 0 {
-                    println!("No visibility changes against {commit}{approximate}.");
-                } else {
-                    println!(
-                        "Written visibility against {commit}: {} widened; {} rescoped; {} narrowed{approximate}",
-                        report.widened.len(),
-                        report.rescoped.len(),
-                        report.narrowed.len(),
-                    );
-                }
-                for (label, rows) in [
-                    ("widened", &report.widened),
-                    ("rescoped", &report.rescoped),
-                    ("narrowed", &report.narrowed),
-                ] {
-                    print_bounded(rows, options.rows.limit(15), "", rerun_all, |row| {
-                        pair(label, row);
-                    });
-                }
-                for limit in &report.limits {
-                    println!("limit: {limit}");
-                }
+                print_visibility(&commit, &report, options.rows);
             }
         }
         Question::Moved => {
@@ -153,45 +97,114 @@ pub(crate) fn run(
             if options.output.json() {
                 print_json(&commit, question, &report)?;
             } else {
-                println!(
-                    "Token bodies against {}: {} exact; {} rerooted; {} changed; {} only before; {} only after; {} unreadable ({} exact/rerooted relocated)",
-                    commit,
-                    report.exact,
-                    report.rerooted.len(),
-                    report.changed.len(),
-                    report.only_before.len(),
-                    report.only_after.len(),
-                    report.unreadable.len(),
-                    report.relocated
-                );
-                let limit = options.rows.limit(8);
-                for (label, rows) in [
-                    ("relocated", &report.exact_relocated),
-                    ("rerooted (review)", &report.rerooted),
-                    ("changed", &report.changed),
-                ] {
-                    print_bounded(rows, limit, "", rerun_all, |row| pair(label, row));
-                }
-                for (label, rows) in [
-                    ("only before", &report.only_before),
-                    ("only after", &report.only_after),
-                    ("unreadable", &report.unreadable),
-                ] {
-                    print_bounded(rows, limit, "", rerun_all, |row| {
-                        println!(
-                            "{label}: {} {} {} at {}:{}",
-                            row.crate_name, row.class, row.name, row.site.file, row.site.line
-                        );
-                    });
-                }
-                for limit in &report.limits {
-                    println!("limit: {limit}");
-                }
+                print_moved(&commit, &report, options.rows);
             }
         }
     }
     Ok(())
 }
+
+/// Each file whose module shape changed, both sides' measures, then the
+/// count whose text alone changed.
+fn print_shape(commit: &str, report: &atlas_lib::review::ShapeDiff, rows: Rows) {
+    println!("Module shape against {commit} (current source)");
+    let content_only = report.changes.iter().filter(|c| !c.shape_changed).count();
+    let changed: Vec<_> = report.changes.iter().filter(|c| c.shape_changed).collect();
+    let limit = rows.limit(15);
+    for change in changed.iter().take(limit) {
+        println!("{}", change.file);
+        for (side, shape) in [("before", &change.before), ("after", &change.after)] {
+            if let Some(shape) = shape {
+                println!(
+                    "  {side}: {} non-test lines; {} top-level items; largest block {}",
+                    shape.non_test_lines,
+                    shape.top_level_items,
+                    shape.largest_block.as_ref().map_or(0, |block| block.lines)
+                );
+            } else {
+                println!("  {side}: absent");
+            }
+        }
+    }
+    if changed.len() > limit {
+        println!("{}", tail("", changed.len() - limit, &rerun_all()));
+    }
+    same_shape_note(content_only);
+}
+
+/// The visibility change counts, then each widened, rescoped and narrowed pair.
+fn print_visibility(commit: &str, report: &atlas_lib::review::moves::VisibilityReport, rows: Rows) {
+    // Repeated keys matter only as a caveat: say how many, once.
+    let approximate = match report.ambiguous_keys {
+        0 => String::new(),
+        1 => " (1 item shares a name with another and was paired approximately; --json lists it)"
+            .to_owned(),
+        n => format!(" ({n} items share a name and were paired approximately; --json lists them)"),
+    };
+    let changes = report.widened.len() + report.rescoped.len() + report.narrowed.len();
+    if changes == 0 {
+        println!("No visibility changes against {commit}{approximate}.");
+    } else {
+        println!(
+            "Written visibility against {commit}: {} widened; {} rescoped; {} narrowed{approximate}",
+            report.widened.len(),
+            report.rescoped.len(),
+            report.narrowed.len(),
+        );
+    }
+    for (label, pairs) in [
+        ("widened", &report.widened),
+        ("rescoped", &report.rescoped),
+        ("narrowed", &report.narrowed),
+    ] {
+        print_bounded(pairs, rows.limit(15), "", rerun_all, |row| {
+            pair(label, row);
+        });
+    }
+    for limit in &report.limits {
+        println!("limit: {limit}");
+    }
+}
+
+/// The token-body pairing counts, then each relocated, rerooted, changed,
+/// one-sided and unreadable body.
+fn print_moved(commit: &str, report: &atlas_lib::review::moves::MoveReport, rows: Rows) {
+    println!(
+        "Token bodies against {}: {} exact; {} rerooted; {} changed; {} only before; {} only after; {} unreadable ({} exact/rerooted relocated)",
+        commit,
+        report.exact,
+        report.rerooted.len(),
+        report.changed.len(),
+        report.only_before.len(),
+        report.only_after.len(),
+        report.unreadable.len(),
+        report.relocated
+    );
+    let limit = rows.limit(8);
+    for (label, pairs) in [
+        ("relocated", &report.exact_relocated),
+        ("rerooted (review)", &report.rerooted),
+        ("changed", &report.changed),
+    ] {
+        print_bounded(pairs, limit, "", rerun_all, |row| pair(label, row));
+    }
+    for (label, bodies) in [
+        ("only before", &report.only_before),
+        ("only after", &report.only_after),
+        ("unreadable", &report.unreadable),
+    ] {
+        print_bounded(bodies, limit, "", rerun_all, |row| {
+            println!(
+                "{label}: {} {} {} at {}:{}",
+                row.crate_name, row.class, row.name, row.site.file, row.site.line
+            );
+        });
+    }
+    for limit in &report.limits {
+        println!("limit: {limit}");
+    }
+}
+
 fn print_json(commit: &str, question: Question, report: &impl serde::Serialize) -> Result<()> {
     println!(
         "{}",
@@ -261,10 +274,6 @@ struct DeclarationReview {
     shapes: atlas_lib::review::ShapeDiff,
     items: atlas_lib::queries::navigation::DeclarationDiff,
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(crate) fn diff(
     root: &Path,
     metadata: &cargo_metadata::Metadata,
@@ -312,8 +321,34 @@ pub(crate) fn diff(
         .filter(|c| !c.shape_changed)
         .count();
     same_shape_note(content_only);
+    print_declarations(&report.items, rows);
+    if let Some(relationships) = &report.items.relationships {
+        print_bounded(relationships, rows.limit(5), "", rerun_all, |incident| {
+            println!(
+                "{:?}: {}:{} {} -{}-> {} [{:?}]",
+                incident.side,
+                incident.edge.source.file,
+                incident.edge.source.line,
+                incident.edge.source.name,
+                incident.edge.evidence.label(),
+                incident.edge.target,
+                incident.edge.resolution
+            );
+        });
+    }
+    println!("{}", report.items.limits);
+    for (side, basis) in [
+        ("prior", &report.items.before),
+        ("current", &report.items.after),
+    ] {
+        source_limits(side, &basis.diagnostics, rows);
+    }
+    Ok(())
+}
+/// Each changed declaration's site, owner and first line, up to the row limit.
+fn print_declarations(items: &atlas_lib::queries::navigation::DeclarationDiff, rows: Rows) {
     let limit = rows.limit(12);
-    for change in report.items.declarations.iter().take(limit) {
+    for change in items.declarations.iter().take(limit) {
         use atlas_lib::queries::navigation::ChangedDeclaration;
         let (label, version) = match change {
             ChangedDeclaration::Added { after } => ("added", after),
@@ -338,34 +373,12 @@ pub(crate) fn diff(
             version.declaration_block.lines().next().unwrap_or_default()
         );
     }
-    if report.items.declarations.len() > limit {
+    if items.declarations.len() > limit {
         println!(
             "{}",
-            tail("", report.items.declarations.len() - limit, &rerun_all())
+            tail("", items.declarations.len() - limit, &rerun_all())
         );
     }
-    if let Some(relationships) = &report.items.relationships {
-        print_bounded(relationships, rows.limit(5), "", rerun_all, |incident| {
-            println!(
-                "{:?}: {}:{} {} -{}-> {} [{:?}]",
-                incident.side,
-                incident.edge.source.file,
-                incident.edge.source.line,
-                incident.edge.source.name,
-                incident.edge.evidence.label(),
-                incident.edge.target,
-                incident.edge.resolution
-            );
-        });
-    }
-    println!("{}", report.items.limits);
-    for (side, basis) in [
-        ("prior", &report.items.before),
-        ("current", &report.items.after),
-    ] {
-        source_limits(side, &basis.diagnostics, rows);
-    }
-    Ok(())
 }
 /// A side's source limits, one line per kind with a count and one example,
 /// most first: the same limit repeats once per file it applies to, and the

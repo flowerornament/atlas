@@ -5,6 +5,7 @@ use super::output::form::{As, formats};
 use atlas_lib::{
     analysis::Analysis,
     discovery,
+    model::SourceGraph,
     relations::{Family, Relations, schema},
 };
 use cargo_atlas::Result;
@@ -140,10 +141,6 @@ pub(crate) fn schema() -> Result<String> {
     })
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(crate) fn run(
     metadata: &cargo_metadata::Metadata,
     options: &Options,
@@ -199,6 +196,17 @@ pub(crate) fn run(
         }
         _ => relations,
     };
+    emit(&relations, options, metadata, graph)
+}
+
+/// Write the export to `--out`, refusing to overwrite any scanned input, or
+/// stream it to stdout.
+fn emit(
+    relations: &Relations,
+    options: &Options,
+    metadata: &cargo_metadata::Metadata,
+    graph: &SourceGraph,
+) -> Result<()> {
     let write = |out: &mut dyn Write| -> Result<()> {
         match options.format() {
             Format::Json => {

@@ -30,10 +30,6 @@ pub(crate) struct Options {
     #[command(flatten)]
     rows: crate::cli::output::rows::Rows,
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Result<()> {
     let snapshot = atlas_lib::discovery::snapshot_metadata(metadata)?;
     let markers = options
@@ -74,41 +70,47 @@ pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Res
             )?
         );
     } else {
-        println!(
-            "Documentation audit: {} files, {} selected items",
-            report.checked_files, report.checked_items
-        );
-        if report.citation_markers.is_none() {
-            println!("Citation checking not requested; pass --citation-markers to apply it.");
-        }
-        let limit = options.rows.limit(40);
-        for finding in report.findings.iter().take(limit) {
-            match finding {
-                documentation::Finding::MissingHeader { file } => {
-                    println!("{file}: no //! line documentation in the selected header scope");
-                }
-                documentation::Finding::UncitedHeader { file, .. } => {
-                    println!(
-                        "{file}: selected //! line documentation has no requested citation marker"
-                    );
-                }
-                documentation::Finding::MissingOuterLineDoc { file, name, line } => {
-                    println!("{file}:{line}: {name} has no outer /// comment");
-                }
-                // A finding this text output does not know is still shown.
-                other => println!("{other:?}"),
-            }
-        }
-        if report.findings.len() > limit {
-            println!(
-                "{}",
-                crate::cli::output::rows::tail(
-                    "",
-                    report.findings.len() - limit,
-                    &crate::cli::output::rows::rerun_all()
-                )
-            );
-        }
+        print_text(&report, options);
     }
     Ok(())
+}
+
+/// The counts, whether citations were checked, and up to the row limit of
+/// findings, with a rerun hint for the rest.
+fn print_text(report: &documentation::Report, options: &Options) {
+    println!(
+        "Documentation audit: {} files, {} selected items",
+        report.checked_files, report.checked_items
+    );
+    if report.citation_markers.is_none() {
+        println!("Citation checking not requested; pass --citation-markers to apply it.");
+    }
+    let limit = options.rows.limit(40);
+    for finding in report.findings.iter().take(limit) {
+        match finding {
+            documentation::Finding::MissingHeader { file } => {
+                println!("{file}: no //! line documentation in the selected header scope");
+            }
+            documentation::Finding::UncitedHeader { file, .. } => {
+                println!(
+                    "{file}: selected //! line documentation has no requested citation marker"
+                );
+            }
+            documentation::Finding::MissingOuterLineDoc { file, name, line } => {
+                println!("{file}:{line}: {name} has no outer /// comment");
+            }
+            // A finding this text output does not know is still shown.
+            other => println!("{other:?}"),
+        }
+    }
+    if report.findings.len() > limit {
+        println!(
+            "{}",
+            crate::cli::output::rows::tail(
+                "",
+                report.findings.len() - limit,
+                &crate::cli::output::rows::rerun_all()
+            )
+        );
+    }
 }

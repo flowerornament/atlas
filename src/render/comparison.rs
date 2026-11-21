@@ -30,16 +30,42 @@ fn value<'a>(c: &Change, v: Option<&'a str>) -> &'a str {
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(crate) fn pele(c: &Comparison, palette: &Palette, bare: bool) -> Result<Artifact> {
     if c.changes.len() > 40 {
         return Err(
             "more than 40 changes; narrow --query or use ASCII/JSON (nothing truncated)".into(),
         );
     }
+    let source = table_source(c, palette)?;
+    let svg = pele::render_source_named(&source, "atlas-comparison", palette)?;
+    if bare {
+        // Pele's own drawing already carries a background and padding.
+        return Ok(Artifact {
+            primary: Document {
+                suffix: "svg",
+                bytes: svg.into_bytes(),
+            },
+            companions: vec![Document {
+                suffix: "mmd",
+                bytes: source.into_bytes(),
+            }],
+        });
+    }
+    let out = framed(c, &svg, palette)?;
+    Ok(Artifact {
+        primary: Document {
+            suffix: "svg",
+            bytes: out.into_bytes(),
+        },
+        companions: vec![Document {
+            suffix: "mmd",
+            bytes: source.into_bytes(),
+        }],
+    })
+}
+
+/// The Pele block source: one status/before/after row per change.
+fn table_source(c: &Comparison, palette: &Palette) -> Result<String> {
     let mut source = "block-beta\ncolumns 3\n".to_owned();
     if c.changes.is_empty() {
         source.push_str("unchanged[\"No changed observations in this question\"]:3\n");
@@ -68,21 +94,13 @@ pub(crate) fn pele(c: &Comparison, palette: &Palette, bare: bool) -> Result<Arti
     source.push_str(&palette.cell.def("default", ",font-size:17px"));
     source.push_str(&palette.before.def("before", ""));
     source.push_str(&palette.after.def("after", ""));
-    let svg = pele::render_source_named(&source, "atlas-comparison", palette)?;
-    if bare {
-        // Pele's own drawing already carries a background and padding.
-        return Ok(Artifact {
-            primary: Document {
-                suffix: "svg",
-                bytes: svg.into_bytes(),
-            },
-            companions: vec![Document {
-                suffix: "mmd",
-                bytes: source.into_bytes(),
-            }],
-        });
-    }
-    let (w, h) = pele::dimensions(&svg)?;
+    Ok(source)
+}
+
+/// The rendered table framed by its question, its limits and any unknown
+/// observations.
+fn framed(c: &Comparison, svg: &str, palette: &Palette) -> Result<String> {
+    let (w, h) = pele::dimensions(svg)?;
     let width = (w + 80.).max(1500.);
     let height = h + 350.;
     let mut out = format!(
@@ -113,14 +131,5 @@ pub(crate) fn pele(c: &Comparison, palette: &Palette, bare: bool) -> Result<Arti
         )?;
     }
     out.push_str("</svg>");
-    Ok(Artifact {
-        primary: Document {
-            suffix: "svg",
-            bytes: out.into_bytes(),
-        },
-        companions: vec![Document {
-            suffix: "mmd",
-            bytes: source.into_bytes(),
-        }],
-    })
+    Ok(out)
 }

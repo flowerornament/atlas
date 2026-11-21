@@ -83,10 +83,6 @@ pub fn pele(v: &Views, panel: Panel, options: &Pele) -> Result<Artifact> {
 pub(crate) fn vertical(v: &Views, panel: Panel, palette: &Palette, bare: bool) -> Result<Artifact> {
     render(v, panel, true, palette, bare)
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn render(
     v: &Views,
     panel: Panel,
@@ -94,7 +90,63 @@ fn render(
     palette: &Palette,
     bare: bool,
 ) -> Result<Artifact> {
-    let sources = match panel {
+    let sources = panel_sources(v, panel, palette)?;
+    let mut panels = Vec::new();
+    let mut mmd = String::new();
+    for (index, (title, (source, edges))) in sources.into_iter().enumerate() {
+        let source = if vertical {
+            source.replacen("flowchart LR", "flowchart TB", 1)
+        } else {
+            source
+        };
+        writeln!(mmd, "%% {title}\n{source}").expect("formatting into a String cannot fail");
+        let svg = render_source_named(&source, &format!("atlas-representation-{index}"), palette)?;
+        let svg = contracts::provenance(&svg, &edges)?;
+        let svg = provenance(v, &svg);
+        let (w, h) = dimensions(&svg)?;
+        panels.push((title, svg, w, h));
+    }
+    let layout = Layout::of(&panels, matches!(panel, Panel::All), bare);
+    let (width, height) = (layout.width, layout.height);
+    let mut out = format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {width} {height}\" width=\"{width}\" height=\"{height}\" role=\"img\"><title>{}</title><rect width=\"100%\" height=\"100%\" fill=\"{}\"/>",
+        xml(&v.query.title),
+        palette.background
+    );
+    if !bare {
+        write_headings(&mut out, v, panel, palette);
+    }
+    for (i, (title, svg, _, _)) in panels.iter().enumerate() {
+        let (x, y) = layout.origin(i, &panels);
+        if !bare {
+            caption(&mut out, palette, (x, y - 20.), 23, title);
+        }
+        write!(out, "<g transform=\"translate({x},{y})\">{svg}</g>")
+            .expect("formatting into a String cannot fail");
+    }
+    if !bare {
+        write_footer(&mut out, panel, palette, height);
+    }
+    out.push_str("</svg>");
+    Ok(Artifact {
+        primary: Document {
+            suffix: "svg",
+            bytes: out.into_bytes(),
+        },
+        companions: vec![Document {
+            suffix: "mmd",
+            bytes: mmd.into_bytes(),
+        }],
+    })
+}
+
+/// A panel's heading, its Pele source and the contract edges in that source.
+type PanelSource = (&'static str, (String, Vec<contracts::Edge>));
+
+/// The titled Pele sources the selected panel draws, with any contract edges
+/// whose provenance must be attached after rendering.
+fn panel_sources(v: &Views, panel: Panel, palette: &Palette) -> Result<Vec<PanelSource>> {
+    Ok(match panel {
         Panel::All => vec![
             ("A  Representation contracts", contracts::source(v, palette)),
             (
@@ -119,71 +171,90 @@ fn render(
             "C  Preparation returners and producer calls",
             (preparation::source(v, palette), vec![]),
         )],
-    };
-    let mut panels = Vec::new();
-    let mut mmd = String::new();
-    for (index, (title, (source, edges))) in sources.into_iter().enumerate() {
-        let source = if vertical {
-            source.replacen("flowchart LR", "flowchart TB", 1)
+    })
+}
+
+/// Page geometry. Panel 0 spans the top; with every panel drawn, panels 1
+/// and 2 sit side by side below it. A bare page keeps only a small margin.
+struct Layout {
+    margin: f64,
+    top: f64,
+    gap: f64,
+    width: f64,
+    height: f64,
+}
+
+impl Layout {
+    fn of(panels: &[(&str, String, f64, f64)], all: bool, bare: bool) -> Self {
+        let (margin, top, gap) = if bare {
+            (20., 20., 40.)
         } else {
-            source
+            (40., 205., 85.)
         };
-        writeln!(mmd, "%% {title}\n{source}").expect("formatting into a String cannot fail");
-        let svg = render_source_named(&source, &format!("atlas-representation-{index}"), palette)?;
-        let svg = contracts::provenance(&svg, &edges)?;
-        let svg = provenance(v, &svg);
-        let (w, h) = dimensions(&svg)?;
-        panels.push((title, svg, w, h));
-    }
-    let all = matches!(panel, Panel::All);
-    // Panel 0 spans the top; panels 1 and 2 sit side by side below it.
-    let (margin, top, gap) = if bare {
-        (20., 20., 40.)
-    } else {
-        (40., 205., 85.)
-    };
-    let lower = if all {
-        panels[1].3.max(panels[2].3)
-    } else {
-        0.
-    };
-    let content = if all {
-        panels[0].2.max(panels[1].2 + panels[2].2 + 40.)
-    } else {
-        panels[0].2
-    };
-    let (width, height) = if bare {
-        (
-            content + 2. * margin,
-            top + panels[0].3 + if all { gap + lower } else { 0. } + margin,
-        )
-    } else {
-        (
-            (content + 2. * margin).max(1500.),
-            panels[0].3 + if all { lower + 440. } else { 320. },
-        )
-    };
-    let mut out = format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {width} {height}\" width=\"{width}\" height=\"{height}\" role=\"img\"><title>{}</title><rect width=\"100%\" height=\"100%\" fill=\"{}\"/>",
-        xml(&v.query.title),
-        palette.background
-    );
-    let text = |out: &mut String, x: f64, y: f64, size: u32, s: &str| {
-        if bare {
-            return;
+        let lower = if all {
+            panels[1].3.max(panels[2].3)
+        } else {
+            0.
+        };
+        let content = if all {
+            panels[0].2.max(panels[1].2 + panels[2].2 + 40.)
+        } else {
+            panels[0].2
+        };
+        let (width, height) = if bare {
+            (
+                content + 2. * margin,
+                top + panels[0].3 + if all { gap + lower } else { 0. } + margin,
+            )
+        } else {
+            (
+                (content + 2. * margin).max(1500.),
+                panels[0].3 + if all { lower + 440. } else { 320. },
+            )
+        };
+        Self {
+            margin,
+            top,
+            gap,
+            width,
+            height,
         }
-        write!(
-            out,
-            "<text x=\"{x}\" y=\"{y}\" font-family=\"system-ui,sans-serif\" font-size=\"{size}\" fill=\"{}\">{}</text>",
-            palette.heading,
-            xml(s),
-        ).expect("formatting into a String cannot fail");
-    };
-    text(&mut out, 40., 48., 32, &v.query.title);
-    text(
-        &mut out,
-        40.,
-        82.,
+    }
+
+    /// The top-left corner of panel `i`.
+    fn origin(&self, i: usize, panels: &[(&str, String, f64, f64)]) -> (f64, f64) {
+        if i == 0 {
+            (self.margin, self.top)
+        } else {
+            (
+                if i == 1 {
+                    self.margin
+                } else {
+                    self.margin + panels[1].2 + 40.
+                },
+                self.top + panels[0].3 + self.gap,
+            )
+        }
+    }
+}
+
+/// One line of page text. A bare page carries none, so callers skip it there.
+fn caption(out: &mut String, palette: &Palette, (x, y): (f64, f64), size: u32, s: &str) {
+    write!(
+        out,
+        "<text x=\"{x}\" y=\"{y}\" font-family=\"system-ui,sans-serif\" font-size=\"{size}\" fill=\"{}\">{}</text>",
+        palette.heading,
+        xml(s),
+    ).expect("formatting into a String cannot fail");
+}
+
+/// The title and what the selected panel's shapes do and do not assert.
+fn write_headings(out: &mut String, v: &Views, panel: Panel, palette: &Palette) {
+    caption(out, palette, (40., 48.), 32, &v.query.title);
+    caption(
+        out,
+        palette,
+        (40., 82.),
         18,
         if matches!(panel, Panel::Preparation) {
             "Direct resolved producer calls. Boxes are functions, grouped by physical source file."
@@ -191,10 +262,10 @@ fn render(
             "Source contracts and construction observations; shared types do not assert shared runtime values or execution order."
         },
     );
-    text(
-        &mut out,
-        40.,
-        112.,
+    caption(
+        out,
+        palette,
+        (40., 112.),
         17,
         if matches!(panel, Panel::Retention) {
             "Matrix: row contains column. & = reference; * = nested type; hover for the complete field expression."
@@ -204,10 +275,10 @@ fn render(
             "Return contracts and literal construction are distinct observations. Repeated routes prompt reading; they do not prove duplication."
         },
     );
-    text(
-        &mut out,
-        40.,
-        140.,
+    caption(
+        out,
+        palette,
+        (40., 140.),
         16,
         &format!(
             "{} unresolved type spellings (includes external/primitive) and {} calls in selected items; not proved absent. JSON retains details.",
@@ -215,27 +286,14 @@ fn render(
             v.unknown_calls.len()
         ),
     );
-    for (i, (title, svg, _, _)) in panels.iter().enumerate() {
-        let (x, y) = if i == 0 {
-            (margin, top)
-        } else {
-            (
-                if i == 1 {
-                    margin
-                } else {
-                    margin + panels[1].2 + 40.
-                },
-                top + panels[0].3 + gap,
-            )
-        };
-        text(&mut out, x, y - 20., 23, title);
-        write!(out, "<g transform=\"translate({x},{y})\">{svg}</g>")
-            .expect("formatting into a String cannot fail");
-    }
-    text(
-        &mut out,
-        40.,
-        height - 58.,
+}
+
+/// The evidence limits under the panels, anchored to the page's bottom edge.
+fn write_footer(out: &mut String, panel: Panel, palette: &Palette, height: f64) {
+    caption(
+        out,
+        palette,
+        (40., height - 58.),
         16,
         if matches!(panel, Panel::Preparation) {
             "Call-site locations witness each edge. This is a selected call view, not a complete call graph or evaluation trace."
@@ -243,24 +301,13 @@ fn render(
             "Creation: literals and explicit Type::default() calls are separate. Default dispatch, Clone and macro construction may be unknown."
         },
     );
-    text(
-        &mut out,
-        40.,
-        height - 30.,
+    caption(
+        out,
+        palette,
+        (40., height - 30.),
         16,
         "Preparation shows direct producer calls; repeated patterns are observations, not a semantic duplication verdict.",
     );
-    out.push_str("</svg>");
-    Ok(Artifact {
-        primary: Document {
-            suffix: "svg",
-            bytes: out.into_bytes(),
-        },
-        companions: vec![Document {
-            suffix: "mmd",
-            bytes: mmd.into_bytes(),
-        }],
-    })
 }
 
 // Add source titles to emitted objects without reconstructing or restyling Pele geometry.

@@ -14,10 +14,6 @@ fn verdict(status: Status) -> &'static str {
         Status::Unavailable => "UNAVAILABLE",
     }
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(super) fn json(
     report: &delta::Report,
     policy: &Policy,
@@ -47,22 +43,7 @@ pub(super) fn json(
             "denser": s.denser,
         })
     });
-    let coupling = match stats {
-        None => json!({
-            "status": "unavailable",
-            "reason": "required source measurements unavailable",
-            "added": null,
-            "removed": null,
-            "violations": null,
-        }),
-        Some(s) => json!({
-            "status": "available",
-            "reason": null,
-            "added": s.added,
-            "removed": s.removed,
-            "violations": report.coupling_violations.len(),
-        }),
-    };
+    let coupling = coupling(report, stats);
     let surface = stats.map(|s| {
         json!({
             "delta": s.surface_delta,
@@ -71,22 +52,7 @@ pub(super) fn json(
             "authority_homes": report.policy.authority_homes.len(),
         })
     });
-    let seams = report
-        .seams
-        .iter()
-        .map(|s| {
-            json!({
-                "crate": s.crate_name,
-                "debt_items": s.totals.debt_items,
-                "unlisted_exports": s.totals.unlisted_exports,
-                "writer_sites": s.totals.writer_sites,
-                "test_pairs": s.totals.test_pairs,
-                "listed": s.listed,
-                "unlisted": s.unlisted,
-                "floor_added": s.floor_added,
-            })
-        })
-        .collect::<Vec<_>>();
+    let seams = seams(report);
     json!({
         "verb": "delta",
         "basis": report.basis,
@@ -110,10 +76,6 @@ pub(super) fn json(
     })
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(super) fn display(
     report: &delta::Report,
     policy: &Policy,
@@ -127,6 +89,68 @@ pub(super) fn display(
         &before[..12.min(before.len())],
         &after[..12.min(after.len())]
     );
+    write_size_and_shape(&mut out, policy, stats)?;
+    write_tree(&mut out, report)?;
+    write_coupling_and_surface(&mut out, report, policy, stats)?;
+    write_seams(&mut out, report)?;
+    write!(out, "\nverdict   {}", verdict(report.status()))?;
+    for hint in report
+        .concentration
+        .iter()
+        .flat_map(|summary| &summary.hints)
+    {
+        write!(out, "\nhint      {hint}")?;
+    }
+    for refusal in &report.violations {
+        write!(out, "\nrefusal   {refusal}")?;
+    }
+    for missing in &report.unavailable {
+        write!(out, "\nunavailable {}: {}", missing.field, missing.reason)?;
+    }
+    Ok(out)
+}
+
+/// Coupling counts, or an explicit unavailable record with null counts.
+fn coupling(report: &delta::Report, stats: Option<&Stats>) -> Value {
+    match stats {
+        None => json!({
+            "status": "unavailable",
+            "reason": "required source measurements unavailable",
+            "added": null,
+            "removed": null,
+            "violations": null,
+        }),
+        Some(s) => json!({
+            "status": "available",
+            "reason": null,
+            "added": s.added,
+            "removed": s.removed,
+            "violations": report.coupling_violations.len(),
+        }),
+    }
+}
+
+fn seams(report: &delta::Report) -> Vec<Value> {
+    report
+        .seams
+        .iter()
+        .map(|s| {
+            json!({
+                "crate": s.crate_name,
+                "debt_items": s.totals.debt_items,
+                "unlisted_exports": s.totals.unlisted_exports,
+                "writer_sites": s.totals.writer_sites,
+                "test_pairs": s.totals.test_pairs,
+                "listed": s.listed,
+                "unlisted": s.unlisted,
+                "floor_added": s.floor_added,
+            })
+        })
+        .collect::<Vec<_>>()
+}
+
+/// Size against its ceiling and the largest touched block, when measured.
+fn write_size_and_shape(out: &mut String, policy: &Policy, stats: Option<&Stats>) -> Result<()> {
     if let Some(s) = stats {
         write!(
             out,
@@ -156,6 +180,11 @@ pub(super) fn display(
     } else {
         out.push_str("\nsize      unavailable\nshape     unavailable");
     }
+    Ok(())
+}
+
+/// Concentration debt over each limit, when the tree was measured.
+fn write_tree(out: &mut String, report: &delta::Report) -> Result<()> {
     if let Some(tree) = &report.concentration {
         let over = |row: &atlas_lib::checks::concentration::DebtSummary| -> Result<_> {
             Ok(format!(
@@ -177,6 +206,16 @@ pub(super) fn display(
     } else {
         out.push_str("\ntree      unavailable");
     }
+    Ok(())
+}
+
+/// Coupling edge changes and public surface against each ceiling, when measured.
+fn write_coupling_and_surface(
+    out: &mut String,
+    report: &delta::Report,
+    policy: &Policy,
+    stats: Option<&Stats>,
+) -> Result<()> {
     if let Some(s) = stats {
         write!(
             out,
@@ -205,6 +244,11 @@ pub(super) fn display(
     } else {
         out.push_str("\ncoupling  unavailable\nsurface   unavailable");
     }
+    Ok(())
+}
+
+/// Each crate seam's debt, its added floor and its boundary listing changes.
+fn write_seams(out: &mut String, report: &delta::Report) -> Result<()> {
     for seam in &report.seams {
         write!(
             out,
@@ -228,22 +272,9 @@ pub(super) fn display(
             }
         }
     }
-    write!(out, "\nverdict   {}", verdict(report.status()))?;
-    for hint in report
-        .concentration
-        .iter()
-        .flat_map(|summary| &summary.hints)
-    {
-        write!(out, "\nhint      {hint}")?;
-    }
-    for refusal in &report.violations {
-        write!(out, "\nrefusal   {refusal}")?;
-    }
-    for missing in &report.unavailable {
-        write!(out, "\nunavailable {}: {}", missing.field, missing.reason)?;
-    }
-    Ok(out)
+    Ok(())
 }
+
 fn signed(value: i64) -> String {
     if value > 0 {
         format!("+{value}")

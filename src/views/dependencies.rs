@@ -2,7 +2,7 @@
 use crate::{
     Result,
     diagram::{Coverage, Diagram, Edge, EdgeEvidence, Level, Node, View},
-    types::{Facts, Role},
+    types::{Facts, Function, Role},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -54,10 +54,6 @@ pub struct Dependencies {
 }
 /// Every edge has a positive source witness; unresolved names create no guessed edge.
 /// The physical scope chooses both endpoints. Outside relationships remain in evidence.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub fn project(facts: &Facts, scope: &str, relation: Relation) -> Result<Dependencies> {
     let files: BTreeSet<_> = facts
         .fingerprints
@@ -69,6 +65,63 @@ pub fn project(facts: &Facts, scope: &str, relation: Relation) -> Result<Depende
         return Err(format!("no production files in {scope}").into());
     }
     let functions: BTreeMap<_, _> = facts.functions.iter().map(|f| (f.id.as_str(), f)).collect();
+    let raw = witnesses(facts, relation, &functions);
+    let (witnesses, outside): (Vec<_>, Vec<_>) = raw
+        .into_iter()
+        .filter(|w| w.from != w.to && files.contains(&w.from))
+        .partition(|w| files.contains(&w.to));
+    let edges = edges(&witnesses);
+    let unresolved_calls = facts
+        .unknown_calls
+        .iter()
+        .filter(|u| {
+            functions
+                .get(u.from.as_str())
+                .is_some_and(|f| files.contains(&f.file))
+        })
+        .count();
+    let mut diagram = Diagram {
+        title: format!(
+            "Source {:?}: {}",
+            relation,
+            if scope.is_empty() { "workspace" } else { scope }
+        ),
+        level: Level::Files,
+        view: View::Types,
+        nodes: file_nodes(&files),
+        edges,
+        inventory: files.iter().cloned().collect(),
+        coverage: Coverage {
+            source_relationships: witnesses.len(),
+            represented_files: files.into_iter().collect(),
+            ..Coverage::default()
+        },
+        notes: vec![
+            "Calls, signature types and direct field types are separate positive source observations; none denotes runtime order.".into(),
+            format!(
+                "{} outside-scope observations retained in evidence; {unresolved_calls} unresolved/external call observations are not proved absent.",
+                outside.len()
+            ),
+        ],
+        evidence_links: vec![],
+    };
+    diagram.notes.extend(facts.limitations.clone());
+    diagram.validate()?;
+    Ok(Dependencies {
+        diagram,
+        witnesses,
+        outside,
+        unresolved_calls,
+    })
+}
+
+/// Every positive source witness for the chosen relation, in either scope,
+/// sorted by endpoints, line and description.
+fn witnesses(
+    facts: &Facts,
+    relation: Relation,
+    functions: &BTreeMap<&str, &Function>,
+) -> Vec<Witness> {
     let types: BTreeMap<_, _> = facts.types.iter().map(|t| (t.id.as_str(), t)).collect();
     let mut raw = Vec::new();
     if matches!(relation, Relation::All | Relation::Calls) {
@@ -125,10 +178,12 @@ pub fn project(facts: &Facts, scope: &str, relation: Relation) -> Result<Depende
     raw.sort_by(|a, b| {
         (&a.from, &a.to, a.line, &a.description).cmp(&(&b.from, &b.to, b.line, &b.description))
     });
-    let (witnesses, outside): (Vec<_>, Vec<_>) = raw
-        .into_iter()
-        .filter(|w| w.from != w.to && files.contains(&w.from))
-        .partition(|w| files.contains(&w.to));
+    raw
+}
+
+/// One edge per file pair and relation, labelled by its distinct witness
+/// descriptions and citing every witness by index.
+fn edges(witnesses: &[Witness]) -> Vec<Edge> {
     let mut grouped = BTreeMap::<(String, String, Relation), Vec<usize>>::new();
     for (i, w) in witnesses.iter().enumerate() {
         grouped
@@ -136,7 +191,7 @@ pub fn project(facts: &Facts, scope: &str, relation: Relation) -> Result<Depende
             .or_default()
             .push(i);
     }
-    let edges = grouped
+    grouped
         .into_iter()
         .map(|((from, to, _), indices)| {
             let first = &witnesses[indices[0]];
@@ -163,58 +218,24 @@ pub fn project(facts: &Facts, scope: &str, relation: Relation) -> Result<Depende
                 declarations: vec![],
             }
         })
-        .collect();
-    let unresolved_calls = facts
-        .unknown_calls
+        .collect()
+}
+
+/// One node per scoped file, grouped by its parent directory.
+fn file_nodes(files: &BTreeSet<String>) -> Vec<Node> {
+    files
         .iter()
-        .filter(|u| {
-            functions
-                .get(u.from.as_str())
-                .is_some_and(|f| files.contains(&f.file))
+        .map(|file| Node {
+            id: file.clone(),
+            label: file.rsplit('/').next().unwrap_or(file).into(),
+            group: file
+                .rsplit_once('/')
+                .map_or(".", |(parent, _)| parent)
+                .into(),
+            source_sites: vec![file.clone()],
+            context: false,
+            internal_relationships: vec![],
+            surface: None,
         })
-        .count();
-    let mut diagram = Diagram {
-        title: format!(
-            "Source {:?}: {}",
-            relation,
-            if scope.is_empty() { "workspace" } else { scope }
-        ),
-        level: Level::Files,
-        view: View::Types,
-        nodes: files
-            .iter()
-            .map(|file| Node {
-                id: file.clone(),
-                label: file.rsplit('/').next().unwrap_or(file).into(),
-                group: file.rsplit_once('/').map_or(".", |(parent, _)| parent).into(),
-                source_sites: vec![file.clone()],
-                context: false,
-                internal_relationships: vec![],
-                surface: None,
-            })
-            .collect(),
-        edges,
-        inventory: files.iter().cloned().collect(),
-        coverage: Coverage {
-            source_relationships: witnesses.len(),
-            represented_files: files.into_iter().collect(),
-            ..Coverage::default()
-        },
-        notes: vec![
-            "Calls, signature types and direct field types are separate positive source observations; none denotes runtime order.".into(),
-            format!(
-                "{} outside-scope observations retained in evidence; {unresolved_calls} unresolved/external call observations are not proved absent.",
-                outside.len()
-            ),
-        ],
-        evidence_links: vec![],
-    };
-    diagram.notes.extend(facts.limitations.clone());
-    diagram.validate()?;
-    Ok(Dependencies {
-        diagram,
-        witnesses,
-        outside,
-        unresolved_calls,
-    })
+        .collect()
 }

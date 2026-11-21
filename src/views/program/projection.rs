@@ -1,15 +1,11 @@
 //! Contract single-callee wrappers; keep roots, selected anchors and branching coordinators.
-use super::{Connection, Overview, Program};
+use super::{Connection, Hop, Overview, Program};
 use crate::{
     Result,
-    diagram::{Coverage, Diagram, Edge, EdgeEvidence, Level, View},
+    diagram::{Coverage, Diagram, Edge, EdgeEvidence, Level, Node, View},
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(super) fn overview(program: &Program) -> Overview {
     let mut nodes: BTreeMap<_, _> = program
         .nodes
@@ -28,21 +24,7 @@ pub(super) fn overview(program: &Program) -> Overview {
         .cloned()
         .collect();
     let mut collapsed = BTreeMap::new();
-    loop {
-        let candidate = nodes
-            .values()
-            .filter(|n| n.surface.is_none() && !n.context && !protected.contains(&n.id))
-            .find_map(|n| {
-                let out: Vec<_> = edges.keys().filter(|(from, _)| from == &n.id).collect();
-                if out.is_empty() {
-                    Some((n.id.clone(), None))
-                } else if out.len() == 1 && out[0].1 != n.id {
-                    Some((n.id.clone(), Some(out[0].1.clone())))
-                } else {
-                    None
-                }
-            });
-        let Some((id, target)) = candidate else { break };
+    while let Some((id, target)) = contractible(&nodes, &edges, &protected) {
         let incoming: Vec<_> = edges
             .iter()
             .filter(|((_, to), _)| to == &id)
@@ -85,6 +67,27 @@ pub(super) fn overview(program: &Program) -> Overview {
             .collect(),
         collapsed,
     }
+}
+/// The first unprotected coordinator that is a leaf (`None`) or calls exactly
+/// one other node (`Some(target)`); a surface or context node never contracts.
+fn contractible(
+    nodes: &BTreeMap<String, Node>,
+    edges: &BTreeMap<(String, String), Vec<Vec<Hop>>>,
+    protected: &BTreeSet<String>,
+) -> Option<(String, Option<String>)> {
+    nodes
+        .values()
+        .filter(|n| n.surface.is_none() && !n.context && !protected.contains(&n.id))
+        .find_map(|n| {
+            let out: Vec<_> = edges.keys().filter(|(from, _)| from == &n.id).collect();
+            if out.is_empty() {
+                Some((n.id.clone(), None))
+            } else if out.len() == 1 && out[0].1 != n.id {
+                Some((n.id.clone(), Some(out[0].1.clone())))
+            } else {
+                None
+            }
+        })
 }
 fn label(edge: &Connection) -> String {
     let values: BTreeSet<_> = edge

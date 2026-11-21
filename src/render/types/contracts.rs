@@ -1,6 +1,6 @@
 //! API contracts are type-level relations. All literal sites remain in their source titles.
 use super::{Palette, Views, head, label, shape, style, xml};
-use crate::Result;
+use crate::{Result, types::Contract};
 use std::{collections::BTreeMap, fmt::Write};
 pub(super) struct Edge {
     from: String,
@@ -8,10 +8,6 @@ pub(super) struct Edge {
     label: String,
     title: String,
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(super) fn source(v: &Views, palette: &Palette) -> (String, Vec<Edge>) {
     let ids: BTreeMap<_, _> = v
         .types
@@ -29,76 +25,7 @@ pub(super) fn source(v: &Views, palette: &Palette) -> (String, Vec<Edge>) {
         ));
     }
     for (i, c) in v.contracts.iter().enumerate() {
-        let extra = if c.additional_constructor {
-            " · literal initializer"
-        } else {
-            ""
-        };
-        let title = format!(
-            "{}:{}\n{}\n{}",
-            c.function.file,
-            c.function.line,
-            c.function.signature,
-            c.literals
-                .iter()
-                .map(|l| format!(
-                    "literal {} at line {}",
-                    v.types
-                        .iter()
-                        .find(|t| t.id == l.to)
-                        .map_or("?", |t| t.name.as_str()),
-                    l.line
-                ))
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
-        let mut edge = |from: &str, to: &str, label: String| {
-            edges.push(Edge {
-                from: from.into(),
-                to: to.into(),
-                label,
-                title: title.clone(),
-            });
-        };
-        // A return already shows this type-level relation, not the count/identity of values.
-        let local: Vec<_> = c
-            .literals
-            .iter()
-            .filter(|l| !c.outputs.iter().any(|r| r.to == l.to))
-            .collect();
-        if c.inputs.len() == 1 && !c.outputs.is_empty() && local.is_empty() && c.failures.is_empty()
-        {
-            for r in &c.outputs {
-                edge(
-                    &ids[c.inputs[0].to.as_str()],
-                    &ids[r.to.as_str()],
-                    format!("{}(){} · {}", c.function.name, extra, shape(r)),
-                );
-            }
-        } else {
-            let id = format!("op{i}");
-            groups.entry(&c.function.file).or_default().push(format!(
-                "{id}[\"{}(){extra}\"]:::operation",
-                label(&c.function.name)
-            ));
-            for r in &c.inputs {
-                edge(&ids[r.to.as_str()], &id, shape(r));
-            }
-            for r in &c.outputs {
-                edge(&id, &ids[r.to.as_str()], shape(r));
-            }
-            for (j, (t, r)) in c.failures.iter().enumerate() {
-                let failure = format!("err{i}_{j}");
-                groups
-                    .entry(&t.file)
-                    .or_default()
-                    .push(format!("{failure}[\"{}\"]:::detail", label(&t.name)));
-                edge(&id, &failure, shape(r));
-            }
-            for l in local {
-                edge(&id, &ids[l.to.as_str()], format!("literal at {}", l.line));
-            }
-        }
+        add_contract(v, &ids, i, c, &mut groups, &mut edges);
     }
     let mut s = head();
     for (i, (file, rows)) in groups.into_iter().enumerate() {
@@ -116,6 +43,94 @@ pub(super) fn source(v: &Views, palette: &Palette) -> (String, Vec<Edge>) {
     }
     s.push_str(&style(palette));
     (s, edges)
+}
+
+/// A one-input contract whose only other relations are its outputs is drawn as
+/// direct type-to-type edges. Any other contract gets its own operation node,
+/// with its inputs, outputs, failures and non-returned literals attached to it.
+fn add_contract<'a>(
+    v: &Views,
+    ids: &BTreeMap<&str, String>,
+    i: usize,
+    c: &'a Contract,
+    groups: &mut BTreeMap<&'a str, Vec<String>>,
+    edges: &mut Vec<Edge>,
+) {
+    let extra = if c.additional_constructor {
+        " · literal initializer"
+    } else {
+        ""
+    };
+    let title = contract_title(v, c);
+    let mut edge = |from: &str, to: &str, label: String| {
+        edges.push(Edge {
+            from: from.into(),
+            to: to.into(),
+            label,
+            title: title.clone(),
+        });
+    };
+    // A return already shows this type-level relation, not the count/identity of values.
+    let local: Vec<_> = c
+        .literals
+        .iter()
+        .filter(|l| !c.outputs.iter().any(|r| r.to == l.to))
+        .collect();
+    if c.inputs.len() == 1 && !c.outputs.is_empty() && local.is_empty() && c.failures.is_empty() {
+        for r in &c.outputs {
+            edge(
+                &ids[c.inputs[0].to.as_str()],
+                &ids[r.to.as_str()],
+                format!("{}(){} · {}", c.function.name, extra, shape(r)),
+            );
+        }
+        return;
+    }
+    let id = format!("op{i}");
+    groups.entry(&c.function.file).or_default().push(format!(
+        "{id}[\"{}(){extra}\"]:::operation",
+        label(&c.function.name)
+    ));
+    for r in &c.inputs {
+        edge(&ids[r.to.as_str()], &id, shape(r));
+    }
+    for r in &c.outputs {
+        edge(&id, &ids[r.to.as_str()], shape(r));
+    }
+    for (j, (t, r)) in c.failures.iter().enumerate() {
+        let failure = format!("err{i}_{j}");
+        groups
+            .entry(&t.file)
+            .or_default()
+            .push(format!("{failure}[\"{}\"]:::detail", label(&t.name)));
+        edge(&id, &failure, shape(r));
+    }
+    for l in local {
+        edge(&id, &ids[l.to.as_str()], format!("literal at {}", l.line));
+    }
+}
+
+/// The hover title every edge of one contract carries: its site, signature
+/// and every literal it constructs.
+fn contract_title(v: &Views, c: &Contract) -> String {
+    format!(
+        "{}:{}\n{}\n{}",
+        c.function.file,
+        c.function.line,
+        c.function.signature,
+        c.literals
+            .iter()
+            .map(|l| format!(
+                "literal {} at line {}",
+                v.types
+                    .iter()
+                    .find(|t| t.id == l.to)
+                    .map_or("?", |t| t.name.as_str()),
+                l.line
+            ))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
 }
 /// Check the pinned renderer's edge order/endpoints before attaching API provenance.
 pub(super) fn provenance(svg: &str, edges: &[Edge]) -> Result<String> {

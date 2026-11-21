@@ -29,10 +29,7 @@ mod types;
 use args::{Cli, Command};
 use cargo_atlas::Result;
 use clap::{CommandFactory, FromArgMatches};
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
+use std::path::Path;
 pub(crate) fn run() -> Result<()> {
     let mut args: Vec<_> = std::env::args_os().collect();
     // Cargo runs `cargo atlas ARGS` as `cargo-atlas atlas ARGS`.
@@ -72,60 +69,69 @@ pub(crate) fn run() -> Result<()> {
         .exec()?;
     let root = metadata.workspace_root.as_std_path().canonicalize()?;
     let cache = cache::open(cli.no_cache, &root)?;
-    let result = match cli.command {
-        Command::Delta(options) => delta::run(&root, &metadata, &options),
-        Command::Policy(options) => policy::run(&root, &metadata, &options),
-        Command::Stages(options) => {
-            stages::run(&root, &metadata, &options, stages::Question::Stages)
-        }
-        Command::Seams(options) => stages::seams(&root, &metadata, &options),
+    let result = dispatch(cli.command, &root, &metadata, &selected_root, &cache);
+    cache.finish(result.map_err(with_scope_hint))
+}
+
+/// Run the one command the arguments chose, in the resolved project.
+fn dispatch(
+    command: Command,
+    root: &Path,
+    metadata: &cargo_metadata::Metadata,
+    selected_root: &Path,
+    cache: &cache::Session,
+) -> Result<()> {
+    match command {
+        Command::Delta(options) => delta::run(root, metadata, &options),
+        Command::Policy(options) => policy::run(root, metadata, &options),
+        Command::Stages(options) => stages::run(root, metadata, &options, stages::Question::Stages),
+        Command::Seams(options) => stages::seams(root, metadata, &options),
         Command::Help(options) => help::run(&options),
-        Command::Comments(options) => documentation::run(&metadata, &options),
-        Command::Diff(options) => review::diff(&root, &metadata, &options),
+        Command::Comments(options) => documentation::run(metadata, &options),
+        Command::Diff(options) => review::diff(root, metadata, &options),
         Command::Visibility(options) => {
-            review::run(&root, &metadata, &options, review::Question::Visibility)
+            review::run(root, metadata, &options, review::Question::Visibility)
         }
-        Command::Moved(options) => review::run(&root, &metadata, &options, review::Question::Moved),
-        Command::Compare(options) => comparison::run(&root, &metadata, &options),
-        Command::Overview(options) => overview::run(&root, &metadata, options),
-        Command::Dependencies(options) => dependencies::run(&root, &metadata, &options),
-        Command::Types(options) => types::run(&root, &metadata, &options),
-        Command::Flow(options) => flow::run(&root, &metadata, &options, &cache.semantic()),
+        Command::Moved(options) => review::run(root, metadata, &options, review::Question::Moved),
+        Command::Compare(options) => comparison::run(root, metadata, &options),
+        Command::Overview(options) => overview::run(root, metadata, options),
+        Command::Dependencies(options) => dependencies::run(root, metadata, &options),
+        Command::Types(options) => types::run(root, metadata, &options),
+        Command::Flow(options) => flow::run(root, metadata, &options, &cache.semantic()),
         Command::Spans(options) => {
-            review::source_review(&metadata, &options, review::SourceQuestion::Spans)
+            review::source_review(metadata, &options, review::SourceQuestion::Spans)
         }
         Command::NontestLoc(options) => {
-            review::source_review(&metadata, &options, review::SourceQuestion::Loc)
+            review::source_review(metadata, &options, review::SourceQuestion::Loc)
         }
         Command::Concentration(options) => {
-            review::source_review(&metadata, &options, review::SourceQuestion::Concentration)
+            review::source_review(metadata, &options, review::SourceQuestion::Concentration)
         }
-        Command::Program(options) => program::run(&root, &metadata, &options),
-        Command::Map(options) => map::run(&root, &metadata, &options),
+        Command::Program(options) => program::run(root, metadata, &options),
+        Command::Map(options) => map::run(root, metadata, &options),
         Command::Orient(options) => {
-            orient::run(&metadata, &selected_root, &options, &cache.semantic())
+            orient::run(metadata, selected_root, &options, &cache.semantic())
         }
-        Command::Dump(args) => navigation::run_dump(&root, &metadata, &args, &cache.semantic()),
-        Command::Facts(options) => facts::run(&metadata, &options, &cache.semantic()),
-        Command::Query(options) => query::run(&metadata, &options, &cache.semantic()),
-        Command::Census(args) => navigation::run_census(&metadata, &args),
-        Command::Name(args) => navigation::run_name(&metadata, &args),
-        Command::Module(args) => navigation::run_module(&metadata, &args),
+        Command::Dump(args) => navigation::run_dump(root, metadata, &args, &cache.semantic()),
+        Command::Facts(options) => facts::run(metadata, &options, &cache.semantic()),
+        Command::Query(options) => query::run(metadata, &options, &cache.semantic()),
+        Command::Census(args) => navigation::run_census(metadata, &args),
+        Command::Name(args) => navigation::run_name(metadata, &args),
+        Command::Module(args) => navigation::run_module(metadata, &args),
         Command::Callers(options) => callers::run(
-            &metadata,
+            metadata,
             &options,
             callers::Direction::Callers,
             &cache.semantic(),
         ),
         Command::Callees(options) => callers::run(
-            &metadata,
+            metadata,
             &options,
             callers::Direction::Callees,
             &cache.semantic(),
         ),
-        Command::Related(args) => navigation::run_related(&metadata, &args),
-    };
-    cache.finish(result.map_err(with_scope_hint))
+        Command::Related(args) => navigation::run_related(metadata, &args),
+    }
 }
 
 /// An ambiguous scope names its candidates; end the refusal with this run's

@@ -89,10 +89,6 @@ pub(in crate::cli) struct Indexing {
 /// Produce (or reuse) an index of the workspace at `root`. `sources` are the
 /// captured source files, which are digested with the manifests,
 /// configuration and build scripts.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(in crate::cli) fn index(
     root: &Path,
     metadata: &cargo_metadata::Metadata,
@@ -137,45 +133,13 @@ pub(in crate::cli) fn index(
     }
     let output = tempfile::tempdir()?;
     let file = output.path().join("index.scip");
-    fs::create_dir_all(&target)?;
-    eprintln!(
-        "atlas: indexing with rust-analyzer, which runs this workspace's build scripts and proc macros; building in {} (stops after {} s)",
-        target.display(),
-        args.semantic_timeout
-    );
-    let mut command = Command::new(&program);
-    command
-        .arg("scip")
-        .arg(root)
-        .arg("--output")
-        .arg(&file)
-        .current_dir(root)
-        .env("CARGO_TARGET_DIR", &target);
-    let started = Instant::now();
-    let run = run(command, Duration::from_secs(args.semantic_timeout)).map_err(|e| {
-        format!(
-            "semantic evidence unavailable: cannot run {}: {e}",
-            program.display()
-        )
-    })?;
-    indexing.seconds = Some(started.elapsed().as_secs_f64());
-    match run {
-        Run::TimedOut => {
-            return Err(format!(
-                "semantic evidence unavailable: rust-analyzer did not finish within {} s; it and the processes it started were stopped. Raise --semantic-timeout, or supply an index with --scip",
-                args.semantic_timeout
-            )
-            .into());
-        }
-        Run::Exited { status, stderr, .. } if !status.success() => {
-            return Err(format!(
-                "semantic evidence unavailable: rust-analyzer scip failed ({status}): {}",
-                last_lines(&stderr, 12)
-            )
-            .into());
-        }
-        Run::Exited { .. } => {}
-    }
+    indexing.seconds = Some(run_indexer(
+        &program,
+        root,
+        &file,
+        &target,
+        args.semantic_timeout,
+    )?);
     let after = digest(&paths);
     if let Some(path) = changed(&before, &after) {
         return Err(format!(
@@ -197,6 +161,56 @@ pub(in crate::cli) fn index(
         },
     };
     Ok((index, indexing))
+}
+
+/// Run `rust-analyzer scip` into `file`, building under `target`, and return
+/// its wall time in seconds. A run that cannot start, times out or fails
+/// refuses: no index is read from it.
+fn run_indexer(
+    program: &Path,
+    root: &Path,
+    file: &Path,
+    target: &Path,
+    timeout: u64,
+) -> Result<f64> {
+    fs::create_dir_all(target)?;
+    eprintln!(
+        "atlas: indexing with rust-analyzer, which runs this workspace's build scripts and proc macros; building in {} (stops after {timeout} s)",
+        target.display()
+    );
+    let mut command = Command::new(program);
+    command
+        .arg("scip")
+        .arg(root)
+        .arg("--output")
+        .arg(file)
+        .current_dir(root)
+        .env("CARGO_TARGET_DIR", target);
+    let started = Instant::now();
+    let run = run(command, Duration::from_secs(timeout)).map_err(|e| {
+        format!(
+            "semantic evidence unavailable: cannot run {}: {e}",
+            program.display()
+        )
+    })?;
+    let seconds = started.elapsed().as_secs_f64();
+    match run {
+        Run::TimedOut => {
+            return Err(format!(
+                "semantic evidence unavailable: rust-analyzer did not finish within {timeout} s; it and the processes it started were stopped. Raise --semantic-timeout, or supply an index with --scip"
+            )
+            .into());
+        }
+        Run::Exited { status, stderr, .. } if !status.success() => {
+            return Err(format!(
+                "semantic evidence unavailable: rust-analyzer scip failed ({status}): {}",
+                last_lines(&stderr, 12)
+            )
+            .into());
+        }
+        Run::Exited { .. } => {}
+    }
+    Ok(seconds)
 }
 
 /// The indexer's `--version` line, or why it cannot be used.

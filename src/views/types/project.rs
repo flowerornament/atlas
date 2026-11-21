@@ -78,11 +78,71 @@ pub fn project(facts: &Facts, query: &Query) -> Result<Views> {
 
 /// The projection without the figure limits, for a view that divides a derived
 /// population itself and must check the limits per figure.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(crate) fn select(facts: &Facts, query: &Query) -> Result<Views> {
+    let selected = resolve_types(facts, query)?;
+    let mut types: Vec<_> = selected.values().cloned().collect();
+    types.sort_by(|a, b| (&a.name, &a.file).cmp(&(&b.name, &b.file)));
+    let refs: Vec<_> = facts
+        .references
+        .iter()
+        .filter(|r| selected.contains_key(&r.to))
+        .cloned()
+        .collect();
+    let returners: BTreeSet<_> = refs
+        .iter()
+        .filter(|r| r.role == Role::Output && !r.borrow)
+        .map(|r| r.from.as_str())
+        .collect();
+    let functions: BTreeMap<_, _> = facts.functions.iter().map(|f| (f.id.as_str(), f)).collect();
+    let mut operations = api_operations(facts, query, &returners)?;
+    let additional = unreached_constructors(facts, &selected, &operations);
+    operations.extend(additional.iter().cloned());
+    let contracts: Vec<_> = operations
+        .iter()
+        .map(|id| {
+            let function = functions[id.as_str()];
+            contract(facts, function, &refs, &selected, additional.contains(id))
+        })
+        .collect();
+    let preparation = preparation(facts, query, &refs, &returners, &functions)?;
+    let relevant: BTreeSet<_> = operations
+        .iter()
+        .map(String::as_str)
+        .chain(preparation.iter().map(|p| p.function.id.as_str()))
+        .chain(selected.keys().map(String::as_str))
+        .map(str::to_owned)
+        .collect();
+    let mut views = Views {
+        query: query.clone(),
+        producers: vec![],
+        types,
+        contracts,
+        retention: refs
+            .iter()
+            .filter(|r| r.role == Role::Field && selected.contains_key(&r.from))
+            .cloned()
+            .collect(),
+        preparation,
+        unknown_types: facts
+            .unknown_types
+            .iter()
+            .filter(|u| relevant.contains(u.from.as_str()))
+            .cloned()
+            .collect(),
+        unknown_calls: facts
+            .unknown_calls
+            .iter()
+            .filter(|u| relevant.contains(u.from.as_str()))
+            .cloned()
+            .collect(),
+        notes: facts.limitations.clone(),
+    };
+    views.producers = views.producers(facts);
+    Ok(views)
+}
+
+/// Each selected type name resolved to exactly one declaration, keyed by id.
+fn resolve_types(facts: &Facts, query: &Query) -> Result<BTreeMap<String, Type>> {
     let mut selected = BTreeMap::new();
     for s in &query.types {
         let found: Vec<_> = facts
@@ -100,20 +160,16 @@ pub(crate) fn select(facts: &Facts, query: &Query) -> Result<Views> {
         };
         selected.insert(t.id.clone(), (*t).clone());
     }
-    let mut types: Vec<_> = selected.values().cloned().collect();
-    types.sort_by(|a, b| (&a.name, &a.file).cmp(&(&b.name, &b.file)));
-    let refs: Vec<_> = facts
-        .references
-        .iter()
-        .filter(|r| selected.contains_key(&r.to))
-        .cloned()
-        .collect();
-    let returners: BTreeSet<_> = refs
-        .iter()
-        .filter(|r| r.role == Role::Output && !r.borrow)
-        .map(|r| r.from.as_str())
-        .collect();
-    let functions: BTreeMap<_, _> = facts.functions.iter().map(|f| (f.id.as_str(), f)).collect();
+    Ok(selected)
+}
+
+/// The question's named APIs, each resolved uniquely; with none named, every
+/// public or trait-impl function that returns a selected type.
+fn api_operations(
+    facts: &Facts,
+    query: &Query,
+    returners: &BTreeSet<&str>,
+) -> Result<BTreeSet<String>> {
     let mut operations: BTreeSet<String> = BTreeSet::new();
     if query.apis.is_empty() {
         operations.extend(
@@ -129,6 +185,16 @@ pub(crate) fn select(facts: &Facts, query: &Query) -> Result<Views> {
             operations.insert(f.id.clone());
         }
     }
+    Ok(operations)
+}
+
+/// Functions constructing a selected type literally that no operation reaches
+/// through resolved calls; they stay visible as additional initializers.
+fn unreached_constructors(
+    facts: &Facts,
+    selected: &BTreeMap<String, Type>,
+    operations: &BTreeSet<String>,
+) -> BTreeSet<String> {
     let mut outgoing = BTreeMap::<&str, Vec<&ResolvedCall>>::new();
     for call in &facts.calls {
         outgoing.entry(&call.from).or_default().push(call);
@@ -142,57 +208,77 @@ pub(crate) fn select(facts: &Facts, query: &Query) -> Result<Views> {
             }
         }
     }
-    let additional: BTreeSet<_> = facts
+    facts
         .constructors
         .iter()
         .filter(|c| selected.contains_key(&c.to) && !reached.contains(&c.from))
         .map(|c| c.from.clone())
-        .collect();
-    operations.extend(additional.iter().cloned());
-    let contracts: Vec<_> = operations
-        .iter()
-        .map(|id| Contract {
-            function: functions[id.as_str()].clone(),
-            inputs: refs
-                .iter()
-                .filter(|r| r.from == *id && r.role == Role::Input)
-                .cloned()
-                .collect(),
-            outputs: refs
-                .iter()
-                .filter(|r| {
-                    r.from == *id
-                        && r.role == Role::Output
-                        && !r.borrow
-                        && !r.wrappers.iter().any(|w| w == "Result[1]")
-                })
-                .cloned()
-                .collect(),
-            failures: facts
-                .references
-                .iter()
-                .filter(|r| {
-                    r.from == *id
-                        && r.role == Role::Output
-                        && r.wrappers.iter().any(|w| w == "Result[1]")
-                })
-                .filter_map(|r| {
-                    facts
-                        .types
-                        .iter()
-                        .find(|t| t.id == r.to)
-                        .map(|t| (t.clone(), r.clone()))
-                })
-                .collect(),
-            literals: facts
-                .constructors
-                .iter()
-                .filter(|c| c.from == *id && selected.contains_key(&c.to))
-                .cloned()
-                .collect(),
-            additional_constructor: additional.contains(id),
-        })
-        .collect();
+        .collect()
+}
+
+/// One operation's inputs and owned successful outputs of selected types, its
+/// named workspace error forms, and its literals of selected types.
+fn contract(
+    facts: &Facts,
+    function: &Function,
+    refs: &[Reference],
+    selected: &BTreeMap<String, Type>,
+    additional_constructor: bool,
+) -> Contract {
+    let id = &function.id;
+    Contract {
+        function: function.clone(),
+        inputs: refs
+            .iter()
+            .filter(|r| r.from == *id && r.role == Role::Input)
+            .cloned()
+            .collect(),
+        outputs: refs
+            .iter()
+            .filter(|r| {
+                r.from == *id
+                    && r.role == Role::Output
+                    && !r.borrow
+                    && !r.wrappers.iter().any(|w| w == "Result[1]")
+            })
+            .cloned()
+            .collect(),
+        failures: facts
+            .references
+            .iter()
+            .filter(|r| {
+                r.from == *id
+                    && r.role == Role::Output
+                    && r.wrappers.iter().any(|w| w == "Result[1]")
+            })
+            .filter_map(|r| {
+                facts
+                    .types
+                    .iter()
+                    .find(|t| t.id == r.to)
+                    .map(|t| (t.clone(), r.clone()))
+            })
+            .collect(),
+        literals: facts
+            .constructors
+            .iter()
+            .filter(|c| c.from == *id && selected.contains_key(&c.to))
+            .cloned()
+            .collect(),
+        additional_constructor,
+    }
+}
+
+/// Returners of selected types that the question prepares, with their direct
+/// calls to returners of selected types in source order. A named preparation
+/// function or file the question cannot use refuses.
+fn preparation(
+    facts: &Facts,
+    query: &Query,
+    refs: &[Reference],
+    returners: &BTreeSet<&str>,
+    functions: &BTreeMap<&str, &Function>,
+) -> Result<Vec<Preparation>> {
     for selector in &query.preparation_functions {
         let function = function(facts, selector)?;
         if !returners.contains(function.id.as_str()) || !query.prepares(function) {
@@ -232,40 +318,7 @@ pub(crate) fn select(facts: &Facts, query: &Query) -> Result<Views> {
             );
         }
     }
-    let relevant: BTreeSet<_> = operations
-        .iter()
-        .map(String::as_str)
-        .chain(preparation.iter().map(|p| p.function.id.as_str()))
-        .chain(selected.keys().map(String::as_str))
-        .map(str::to_owned)
-        .collect();
-    let mut views = Views {
-        query: query.clone(),
-        producers: vec![],
-        types,
-        contracts,
-        retention: refs
-            .iter()
-            .filter(|r| r.role == Role::Field && selected.contains_key(&r.from))
-            .cloned()
-            .collect(),
-        preparation,
-        unknown_types: facts
-            .unknown_types
-            .iter()
-            .filter(|u| relevant.contains(u.from.as_str()))
-            .cloned()
-            .collect(),
-        unknown_calls: facts
-            .unknown_calls
-            .iter()
-            .filter(|u| relevant.contains(u.from.as_str()))
-            .cloned()
-            .collect(),
-        notes: facts.limitations.clone(),
-    };
-    views.producers = views.producers(facts);
-    Ok(views)
+    Ok(preparation)
 }
 
 /// Every observed returner and immediate literal initializer for one selected type.
