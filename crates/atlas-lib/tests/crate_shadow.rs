@@ -79,3 +79,25 @@ fn a_local_function_does_not_shadow_a_crate_of_its_name() {
         "{calls:#?}"
     );
 }
+
+/// The same rule for a re-export's target, which the index reads while it
+/// is still being built.
+#[test]
+fn a_reexport_of_a_local_module_names_the_module_not_the_crate() {
+    let calls = calls(&[
+        (
+            "Cargo.toml",
+            "[package]\nname=\"crate-shadow\"\nversion=\"0.1.0\"\nedition=\"2024\"\n",
+        ),
+        (
+            "src/lib.rs",
+            "mod crate_shadow { pub fn target() {} }\nfn target() {}\npub use crate_shadow::target as exported;\npub mod user;\n",
+        ),
+        ("src/user.rs", "pub fn caller() { crate::exported(); }\n"),
+    ]);
+    assert_eq!(
+        calls.get("src/user.rs caller").map(String::as_str),
+        Some("src/lib.rs crate_shadow::target"),
+        "{calls:#?}"
+    );
+}

@@ -3,7 +3,7 @@
 use super::{
     Function, Index,
     mounts::Mounts,
-    resolve::{normalize, path, ty},
+    resolve::{path, ty},
 };
 use crate::{
     Result,
@@ -21,6 +21,10 @@ impl Index {
         tests: TestSelection,
     ) -> Result<()> {
         let packages = &mounts.crates;
+        // Re-export targets as written, with the module they are written
+        // in: made absolute once every module is known, so a local module
+        // named like a crate is read first (`relative`).
+        let mut written_exports = Vec::new();
         for file in graph
             .physical_files()
             .filter(|f| tests.admits_file(f.test_only))
@@ -37,11 +41,9 @@ impl Index {
                 for (name, target) in &parsed.exports {
                     let mut key = scope.clone();
                     key.push(name.clone());
-                    let values: Vec<_> = target
-                        .iter()
-                        .map(|target| normalize(scope, target, &mounts.crates))
-                        .collect();
-                    self.exports.entry(key).or_default().extend(values);
+                    for target in target {
+                        written_exports.push((key.clone(), scope.clone(), target.clone()));
+                    }
                 }
                 for path in &parsed.types {
                     self.type_names.extend(path.last().cloned());
@@ -76,6 +78,10 @@ impl Index {
                     });
                 }
             }
+        }
+        for (key, scope, target) in written_exports {
+            let value = self.relative(&scope, &target);
+            self.exports.entry(key).or_default().push(value);
         }
         Ok(())
     }

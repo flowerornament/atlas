@@ -40,7 +40,8 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  crate even where the caller's module declares a module or type of that
  name, which Rust reads first (a wrong edge). A relative path now names
  the module's own module or type first; a local function of that name
- still does not shadow the crate. No call changes on this repository or
+ still does not shadow the crate. The same holds for a `pub use` target,
+ read once every module is known. No call changes on this repository or
  two private workspaces.
 - Fixed: a method receiver's type was read through the module's item even
  when the body shadows it (`type A = B; let v: A = ...; v.run()` or a

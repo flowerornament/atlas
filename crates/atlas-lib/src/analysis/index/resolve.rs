@@ -130,7 +130,7 @@ impl Index {
     /// path names the module's own items first: a local `mod json` is
     /// `self::json` even in a workspace with a crate `json`, as in Rust,
     /// where a name in scope shadows the extern prelude.
-    fn relative(&self, scope: &[String], path: &[String]) -> Vec<String> {
+    pub(super) fn relative(&self, scope: &[String], path: &[String]) -> Vec<String> {
         match path.first() {
             Some(first) if self.crates.contains(first) && self.declares_path_root(scope, first) => {
                 let mut local = scope.to_vec();
