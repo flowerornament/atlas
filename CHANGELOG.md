@@ -6,6 +6,15 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `delta` judges function limits over a change: a raised or removed
+ `function_lines`/`function_nesting` refuses, as does a new `generated`
+ path; a new or raised `function` row is a `Raise` for the host to admit
+ (with the row's `owner`); a function that grows within an unchanged row
+ refuses (a row holds the lesser of its value and the base measure). A row
+ follows a function moved unchanged (same fingerprint, one match), and a
+ row on a repeated name (`f#2`) stays with its function when a twin is
+ inserted. **Library:** `Raise` lives in `checks::policy` (still
+ `checks::delta::Raise`), and `concentration::Verdict` gains `raises`.
 - Function limits are judged: `[concentration] function_lines` and
  `function_nesting` hold every production function of the population (and
  its build script) to Clippy's `too_many_lines` and `excessive_nesting`
@@ -14,7 +23,7 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  `cargo atlas policy` judges them on the tree; the law over a change comes
  with `delta`'s. A Clippy golden test (`just clippy-golden`, run in CI)
  holds the measure to Clippy's own flags. Atlas's policy adopts 70 and 6,
- its Clippy settings, with rows for the 26 functions it holds above them.
+ its Clippy settings, with a row for each function it holds above them.
 - atlas-lib: two public errors are typed. **Breaking:**
  `relations::Relations::read` returns `Result<Relations, relations::ReadError>`
  instead of `Result<Relations, String>`, and `source::Import::bindings` is

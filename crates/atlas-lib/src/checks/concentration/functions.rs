@@ -9,9 +9,11 @@
 //! --function` spells it. The tree law here reads one tree; the law over a
 //! change (rows held to the base, rows following a moved function) is the
 //! landing's.
+mod paired;
 use super::super::policy::{ConcentrationPolicy, FunctionRow};
 use super::super::{FileMap, Workspace};
 use crate::{architecture::contains, population::TestSelection};
+pub(in crate::checks) use paired::paired;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 

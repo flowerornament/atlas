@@ -17,17 +17,8 @@ pub struct Basis {
     pub baseline: String,
     pub candidate: String,
 }
-#[derive(Debug, PartialEq, Eq, Serialize)]
-#[non_exhaustive]
-pub struct Raise {
-    pub subject: String,
-    pub before: Option<usize>,
-    pub after: usize,
-    pub measured: usize,
-    /// The owner of the row that rose; a ceiling raise has none.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub owner: Option<String>,
-}
+/// A raise is the policy's: re-exported here, where it was first defined.
+pub use super::policy::Raise;
 #[derive(Default, Serialize)]
 #[non_exhaustive]
 pub struct Boundaries {
@@ -114,10 +105,6 @@ impl Report {
 }
 /// Capture owners supply source and identity; this function measures, judges, then returns data.
 /// A caller must not project PASS until this complete result is available.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub fn check(
     before: &Snapshot,
     after: &Snapshot,
@@ -159,47 +146,7 @@ pub fn check(
     let before_workspace = super::Workspace::of(before)?;
     let after_workspace = super::Workspace::of(after)?;
     match paired_measures(before, after, &before_workspace, &after_workspace) {
-        Ok(measured) => {
-            let size = measured
-                .after
-                .crates
-                .iter()
-                .map(|(name, count)| (name.clone(), count.token_lines))
-                .collect();
-            let surface = measured
-                .after
-                .crates
-                .iter()
-                .map(|(name, count)| (name.clone(), count.surface))
-                .collect();
-            out.violations
-                .extend(ceilings::ceiling_violations(policy, &size, &surface));
-            let (raises, refusals) = ceilings::ceiling_changes(published, policy, &size, &surface);
-            out.raises = raises;
-            if policy.size.approve_growth {
-                let before = measured
-                    .before
-                    .crates
-                    .iter()
-                    .map(|(name, count)| (name.clone(), count.token_lines))
-                    .collect();
-                let (changes, raises) = ceilings::size_growth(policy, &before, &size);
-                out.size_changes = changes;
-                out.raises.extend(raises);
-            }
-            out.violations.extend(refusals);
-            let members = measured.after.crates.keys().cloned().collect();
-            out.coupling_violations = policy
-                .crate_graph
-                .violations(&members, &measured.after.dependencies);
-            // `policy` judged the same graph; each row is reported once.
-            for row in &out.coupling_violations {
-                if !out.violations.contains(row) {
-                    out.violations.push(row.clone());
-                }
-            }
-            out.measurements = Some(measured);
-        }
+        Ok(measured) => judge_measures(published, policy, measured, &mut out),
         Err(error) => out.unavailable.push(MissingInput {
             field: "delta.measurements".into(),
             reason: error.to_string(),
@@ -224,6 +171,64 @@ pub fn check(
             reason: error.to_string(),
         }),
     }
+    judge_concentration(
+        published,
+        policy,
+        (&before_workspace, &after_workspace),
+        inputs,
+        &mut out,
+    );
+    Ok(out)
+}
+/// The laws over the paired measurements: ceilings and their raises, size
+/// growth for the host to approve, and the crate graph.
+fn judge_measures(published: &Policy, policy: &Policy, measured: Measurements, out: &mut Report) {
+    let size = token_lines(&measured.after);
+    let surface = measured
+        .after
+        .crates
+        .iter()
+        .map(|(name, count)| (name.clone(), count.surface))
+        .collect();
+    out.violations
+        .extend(ceilings::ceiling_violations(policy, &size, &surface));
+    let (raises, refusals) = ceilings::ceiling_changes(published, policy, &size, &surface);
+    out.raises = raises;
+    if policy.size.approve_growth {
+        let (changes, raises) =
+            ceilings::size_growth(policy, &token_lines(&measured.before), &size);
+        out.size_changes = changes;
+        out.raises.extend(raises);
+    }
+    out.violations.extend(refusals);
+    let members = measured.after.crates.keys().cloned().collect();
+    out.coupling_violations = policy
+        .crate_graph
+        .violations(&members, &measured.after.dependencies);
+    // `policy` judged the same graph; each row is reported once.
+    for row in &out.coupling_violations {
+        if !out.violations.contains(row) {
+            out.violations.push(row.clone());
+        }
+    }
+    out.measurements = Some(measured);
+}
+fn token_lines(measures: &measure::Measures) -> BTreeMap<String, usize> {
+    measures
+        .crates
+        .iter()
+        .map(|(name, count)| (name.clone(), count.token_lines))
+        .collect()
+}
+/// The core population's loosening law, and the concentration section's
+/// landing over the two trees, its function raises included.
+fn judge_concentration(
+    published: &Policy,
+    policy: &Policy,
+    (before, after): (&super::Workspace, &super::Workspace),
+    inputs: &Inputs,
+    out: &mut Report,
+) {
     out.violations.extend(ceilings::population_changes(
         published,
         policy,
@@ -235,16 +240,16 @@ pub fn check(
         let held = concentration::landing_workspaces(
             concentration,
             published.concentration.as_ref(),
-            &before_workspace,
-            &after_workspace,
+            before,
+            after,
             &inputs.concentration,
             &inputs.description,
         );
         out.violations.extend(held.violations);
         out.unavailable.extend(held.unavailable);
+        out.raises.extend(held.raises);
         out.concentration = held.report;
     }
-    Ok(out)
 }
 fn paired_measures(
     before: &Snapshot,

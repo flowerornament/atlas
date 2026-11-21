@@ -337,7 +337,14 @@ header_uncited = { tutorial = 2 }
   `{ file = "src/big.rs", function = "Parser::expr", lines = 140 }` (or
   `nesting = 8`, or both). `function` is written as `cargo atlas flow
   --function` prints it: `Type::method`, `<Type as Trait>::method`,
-  `module::name`. Rows behave as `entry` and `file` rows, `owner` included.
+  `module::name`, with `#2` for the second function of one name in a
+  file. Rows behave as `entry` and `file` rows, `owner` included. Over a
+  change, `delta` refuses a raised or removed function limit and a new
+  `generated` path, holds a row to the lesser of its value and its
+  function's earlier measure, and reports a new or raised row as a raise
+  for the project to approve. A row follows its function to another file
+  only when the function moved unchanged; where a file has two functions
+  of one name, a row stays with the one it was written for.
 - `generated = [{ path, reason }]`: files or directories whose functions are
   not measured.
 - `conventional_names`: module names any package may reuse, such as `error`.

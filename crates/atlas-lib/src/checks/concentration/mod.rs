@@ -78,6 +78,8 @@ pub struct Summary {
 pub struct Verdict {
     pub violations: Vec<String>,
     pub unavailable: Vec<MissingInput>,
+    /// Function rows the candidate adds or raises, for the host to admit.
+    pub raises: Vec<crate::checks::policy::Raise>,
     /// None when required measurement input is unavailable; never a fabricated zero.
     pub report: Option<Summary>,
 }
@@ -257,10 +259,11 @@ pub(in crate::checks) fn landing_workspaces(
         return Verdict {
             violations: Vec::new(),
             unavailable,
+            raises: Vec::new(),
             report: None,
         };
     }
-    ratchets::landing(
+    let mut verdict = ratchets::landing(
         policy,
         published,
         reported,
@@ -268,7 +271,19 @@ pub(in crate::checks) fn landing_workspaces(
         &new,
         description,
         inputs.citations.as_ref(),
-    )
+    );
+    // The function grain over the change: limits, rows and raises.
+    if let Some(published) = published {
+        let found = functions::paired(
+            policy,
+            published,
+            &functions::measured(before, policy),
+            &functions::measured(after, policy),
+        );
+        verdict.violations.extend(found.refusals);
+        verdict.raises = found.raises;
+    }
+    verdict
 }
 
 #[cfg(test)]

@@ -543,6 +543,21 @@ impl Policy {
     }
 }
 
+/// A limit or ceiling the candidate policy raises (or a row it adds or
+/// raises), for the host to admit: from `before` (none when new) to
+/// `after`, with what the tree `measured`.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct Raise {
+    pub subject: String,
+    pub before: Option<usize>,
+    pub after: usize,
+    pub measured: usize,
+    /// The owner of the row that rose; a ceiling raise has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+}
+
 /// A written project authority and its exact authored field address.
 #[derive(Debug, Clone, Serialize)]
 #[non_exhaustive]

@@ -65,10 +65,6 @@ struct Findings {
 /// Every cap reads the base tree: a listed path holds at most the lesser of
 /// its published row and what it measured in the base. `description` is the
 /// candidate's commit description, which must cite each new ruling's bead.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub(super) fn landing(
     policy: &ConcentrationPolicy,
     published: Option<&ConcentrationPolicy>,
@@ -138,6 +134,24 @@ pub(super) fn landing(
     name_rows(policy, published, &trees, description, citations, &mut out);
     alias_rows(policy, published, &trees, &mut out);
     header_counts(policy, published, &trees, &mut out);
+    let report = summary(policy, base_policy, reported, new, out.hints);
+    Verdict {
+        violations: out.refusals,
+        unavailable: out.unavailable,
+        raises: Vec::new(),
+        report: Some(report),
+    }
+}
+
+/// The section's debt before and after, for the report: rows, and files
+/// over each limit in the reported base and the candidate.
+fn summary(
+    policy: &ConcentrationPolicy,
+    base_policy: &ConcentrationPolicy,
+    reported: &Measure,
+    new: &Measure,
+    hints: Vec<String>,
+) -> Summary {
     let total = |measure: &Measure, policy: &ConcentrationPolicy| {
         (
             Measure::over(&measure.entry, policy.entry_lines),
@@ -146,7 +160,7 @@ pub(super) fn landing(
     };
     let (entry_before, file_before) = total(reported, base_policy);
     let (entry_after, file_after) = total(new, policy);
-    let report = Summary {
+    Summary {
         population: policy.population.clone(),
         entry: DebtSummary {
             limit: policy.entry_lines,
@@ -163,13 +177,8 @@ pub(super) fn landing(
         names: policy.name.len(),
         aliases: policy.alias.len(),
         header_uncited: new.uncited.values().map(BTreeSet::len).sum(),
-        hints: out.hints,
+        hints,
         measured: new.rows(policy),
-    };
-    Verdict {
-        violations: out.refusals,
-        unavailable: out.unavailable,
-        report: Some(report),
     }
 }
 

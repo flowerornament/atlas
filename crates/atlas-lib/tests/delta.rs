@@ -289,3 +289,65 @@ fn paired_capture_uses_each_revisions_package_members_without_reopening_the_base
     assert!(measurements.before.dependencies["fix"].contains("retired"));
     assert!(measurements.after.dependencies["fix"].contains("fresh"));
 }
+
+/// A function row raised with the change is a raise for the host, carrying
+/// its owner; a function that grows within an unchanged row refuses.
+#[test]
+fn a_raised_function_row_is_a_raise_and_growth_within_a_row_refuses() {
+    let root = fixture();
+    let body = |n: usize| {
+        (0..n)
+            .map(|i| format!("    let _v{i} = {i};\n"))
+            .collect::<Vec<_>>()
+            .concat()
+    };
+    write(
+        root.path(),
+        "src/lib.rs",
+        &format!(
+            "//! fixture: meaning\npub struct Home;\nfn long() {{\n{}}}\n",
+            body(3)
+        ),
+    );
+    let before = snapshot_workspace(root.path()).unwrap();
+    let section = |lines: usize| {
+        POLICY.replace(
+            "conventional_names=[]\n",
+            &format!("conventional_names=[]\nfunction_lines=2\nfunction=[{{file='src/lib.rs',function='long',lines={lines},owner='ticket-1'}}]\n"),
+        )
+    };
+    let published = Policy::parse(&section(3)).unwrap();
+    write(
+        root.path(),
+        "src/lib.rs",
+        &format!(
+            "//! fixture: meaning\npub struct Home;\nfn long() {{\n{}}}\n",
+            body(4)
+        ),
+    );
+    let after = snapshot_workspace(root.path()).unwrap();
+    let evidence = inputs(&before, &after);
+    let grown = delta::check(&before, &after, &published, &published, &evidence).unwrap();
+    assert!(
+        grown
+            .violations
+            .iter()
+            .any(|v| v.contains("`long` in `src/lib.rs` is 4 code lines, above its row's lines 3")),
+        "{:?}",
+        grown.violations
+    );
+    let raised = Policy::parse(&section(4)).unwrap();
+    let report = delta::check(&before, &after, &published, &raised, &evidence).unwrap();
+    let raise = report
+        .raises
+        .iter()
+        .find(|r| r.subject == "concentration.function.src/lib.rs::long.lines")
+        .unwrap_or_else(|| panic!("{:?}", report.raises));
+    assert_eq!((raise.before, raise.after, raise.measured), (Some(3), 4, 4));
+    assert_eq!(raise.owner.as_deref(), Some("ticket-1"));
+    assert!(
+        !report.violations.iter().any(|v| v.contains("`long`")),
+        "{:?}",
+        report.violations
+    );
+}
