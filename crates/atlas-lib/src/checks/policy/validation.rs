@@ -21,6 +21,24 @@ pub struct Inputs {
     pub paths: BTreeMap<String, PathState>,
     pub patterns: BTreeMap<String, PatternState>,
     pub references: Vec<ReferenceResolution>,
+    /// Per authority fact, per `forbid_new_pattern` name: what the pattern
+    /// matched in this capture (Atlas observes these, with ast-grep).
+    pub new_patterns: BTreeMap<String, BTreeMap<String, SpellingState>>,
+    /// Per authority fact, per `forbid_new_observed` class: the wrapper's
+    /// occurrences in this capture.
+    pub observed: BTreeMap<String, BTreeMap<String, SpellingState>>,
+}
+/// One spelling's occurrences in one capture, or why there are none.
+#[derive(Serialize)]
+#[serde(tag = "kind", content = "reading", rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum SpellingState {
+    /// `sources` are the fingerprints of the files read (as for patterns).
+    Read {
+        sources: BTreeMap<String, String>,
+        occurrences: Vec<super::Occurrence>,
+    },
+    Unavailable(String),
 }
 impl Inputs {
     pub fn new(snapshot: &Snapshot) -> Self {
@@ -28,6 +46,8 @@ impl Inputs {
             workspace: snapshot.metadata().workspace_root.as_std_path().to_owned(),
             paths: BTreeMap::new(),
             patterns: BTreeMap::new(),
+            new_patterns: BTreeMap::new(),
+            observed: BTreeMap::new(),
             references: Vec::new(),
         }
     }

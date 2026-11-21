@@ -273,6 +273,27 @@ a path a macro spells without parsing as code, makes the check
 `UNAVAILABLE`, naming the site and the fix; a macro's arguments that
 parse as expressions are read as code.
 
+`forbid_new_pattern = [{ name, pattern }]` names [ast-grep](https://ast-grep.github.io/)
+patterns that may not appear anew or grow outside the home, though the
+ones already there may stay; `forbid_new_observed = [name]` does the same
+for spellings a project wrapper observes (each written text is its own
+spelling, `name:text`). `delta` counts them on both sides, per file, item
+and spelling: an item's count may only fall. A count that falls is freed
+only when its item left its file, for the same item and spelling arriving
+elsewhere, so moving an item or renaming a file is neutral, but a fix in
+one item never pays for growth in another (not even one of the same
+name), and a renamed or copied item starts at 0. Test code and literal
+text never count. `allowed_in = [{ file, item, counts, owner, reason }]`
+lets an item hold a spelling up to `counts` (by path inside the item, `""`
+for the item itself); `item` is a function, type, const or static, or a
+top-level trait impl by its header (`impl Display for Width`, generics and
+`where` kept, whitespace collapsed). A new or raised bound is a raise for
+the project to approve and must equal what the item uses. Removing a
+spelling, or changing its pattern, while the base holds it refuses. A
+pattern cannot see inside a macro's input; `delta` reports how many files
+invoke macros, and a project that needs them counted supplies those
+spellings as an observed class.
+
 ### Crate graph
 
 ```toml
@@ -406,14 +427,6 @@ skipped a rule you wrote. A field written empty, such as `final_stages = []` or
 `production_sites = {}`, is a claim ("none") and counts as written; only a
 field left out claims nothing.
 
-- In an `authority` entry:
-  - `forbid_new_pattern = [{ name, pattern }]`: ast-grep patterns that may
-    not appear anew or grow outside the home; existing matches are counted
-    from the baseline. `forbid_new_observed = [name]` is the same for
-    spellings a project wrapper observes.
-  - `allowed_in = [{ file, item, counts, owner, reason }]`: items that may
-    hold a `forbid_new` spelling, up to `counts` (by path inside the item,
-    `""` for the item itself, then by spelling name).
 - `pipeline = [{ file, function, calls, loops }]` in a `stage_order`
   entry: each function that runs the stages (a package may have several)
   makes exactly `calls`, in a straight line; `loops = true` allows one

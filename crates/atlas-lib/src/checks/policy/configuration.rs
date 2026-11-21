@@ -87,6 +87,7 @@ impl Policy {
                     .map_err(|error| format!("policy: authority `{}` home: {error}", row.fact))?;
             }
             super::readers::validate(row)?;
+            super::spellings::validate(row)?;
             for item in &row.forbid_item {
                 super::anchor(item, "forbid_item")?;
             }

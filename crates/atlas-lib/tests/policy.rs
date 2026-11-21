@@ -543,9 +543,6 @@ fn every_extension_field_parses_and_is_unavailable_until_judged() {
         .map(|m| m.field.as_str())
         .collect();
     for field in [
-        "authority.0.forbid_new_pattern",
-        "authority.0.forbid_new_observed",
-        "authority.0.allowed_in",
         "stage_order.fixture.pipeline.0",
         "stage_seams.fixture.final_stages",
         "stage_seams.fixture.writers.Model.production_sites",

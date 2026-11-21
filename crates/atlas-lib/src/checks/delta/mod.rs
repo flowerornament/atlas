@@ -2,6 +2,7 @@
 mod ceilings;
 mod coupling;
 pub mod measure;
+mod spellings;
 use super::{
     concentration,
     policy::{self, MissingInput, Policy, Status},
@@ -32,6 +33,10 @@ pub struct Inputs {
     pub basis: Basis,
     pub description: String,
     pub policy: policy::Inputs,
+    /// The base capture's observations, for the laws that count both sides
+    /// (`forbid_new_*`): fill them from the base snapshot under the
+    /// published policy.
+    pub before_policy: policy::Inputs,
     pub concentration: concentration::Inputs,
     pub boundaries: Boundaries,
 }
@@ -41,6 +46,7 @@ impl Inputs {
             basis,
             description,
             policy: policy::Inputs::new(after),
+            before_policy: policy::Inputs::new(after),
             concentration: concentration::Inputs::default(),
             boundaries: Boundaries::default(),
         }
@@ -61,6 +67,19 @@ pub struct SeamDelta {
     pub listed: Vec<String>,
     pub unlisted: Vec<String>,
     pub floor_added: Vec<String>,
+}
+/// One authority's held spelling debt across the change.
+#[derive(Debug, Default, Serialize)]
+#[non_exhaustive]
+pub struct SpellingSummary {
+    pub debt_before: usize,
+    pub debt_after: usize,
+    /// Occurrences left out on the candidate side (test code, literals).
+    pub dropped: usize,
+    /// Candidate files with macro invocations: a pattern cannot see a
+    /// spelling inside a macro's input, so these may hold debt it misses
+    /// (a wrapper supplies such spellings as an observed class).
+    pub files_with_macros: usize,
 }
 /// One core crate's size across the change, with `[size] approve_growth`:
 /// token lines in the base (none when the base has no such crate) and in
@@ -86,6 +105,10 @@ pub struct Report {
     /// grown or not, so the host can check what it approves.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub size_changes: Vec<SizeChange>,
+    /// Per authority with `forbid_new_*`: its held debt on each side, and
+    /// the assumption it rests on.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub spellings: BTreeMap<String, SpellingSummary>,
     pub coupling_violations: Vec<String>,
     pub seams: Vec<SeamDelta>,
     pub concentration: Option<concentration::Summary>,
@@ -129,6 +152,7 @@ pub fn check(
         policy: policy_reading,
         raises: Vec::new(),
         size_changes: Vec::new(),
+        spellings: BTreeMap::new(),
         coupling_violations: Vec::new(),
         seams: Vec::new(),
         concentration: None,
@@ -171,9 +195,9 @@ pub fn check(
             reason: error.to_string(),
         }),
     }
-    judge_concentration(
-        published,
-        policy,
+    judge_landing(
+        (published, policy),
+        (before, after),
         (&before_workspace, &after_workspace),
         inputs,
         &mut out,
@@ -219,6 +243,29 @@ fn token_lines(measures: &measure::Measures) -> BTreeMap<String, usize> {
         .iter()
         .map(|(name, count)| (name.clone(), count.token_lines))
         .collect()
+}
+/// The laws over the landing that read both trees as code: the population
+/// and concentration laws, and the held spelling debt of `forbid_new_*`.
+fn judge_landing(
+    (published, policy): (&Policy, &Policy),
+    (before, after): (&Snapshot, &Snapshot),
+    workspaces: (&super::Workspace, &super::Workspace),
+    inputs: &Inputs,
+    out: &mut Report,
+) {
+    judge_concentration(published, policy, workspaces, inputs, out);
+    let side = |name, snapshot, inputs| spellings::Side {
+        name,
+        snapshot,
+        inputs,
+    };
+    spellings::judge(
+        published,
+        policy,
+        &side("before", before, &inputs.before_policy),
+        &side("after", after, &inputs.policy),
+        out,
+    );
 }
 /// The core population's loosening law, and the concentration section's
 /// landing over the two trees, its function raises included.

@@ -4,10 +4,13 @@ mod observations;
 pub use observations::{observe, observe_with_helper};
 mod readers;
 pub use readers::ReaderReading;
+mod spellings;
+pub use spellings::{Census, Held, Key, Occurrence};
+pub(in crate::checks) use spellings::{census, chain};
 mod validation;
 pub use validation::{
     Inputs, Match, MissingInput, PathState, PatternState, ReferenceResolution, Report, Resolution,
-    Status, validate,
+    SpellingState, Status, validate,
 };
 
 use serde::{Deserialize, Serialize};
@@ -628,6 +631,18 @@ impl Policy {
                 }
             }
         }
+        for (index, rule) in self.authority.iter().enumerate() {
+            for (row, allowance) in rule.allowed_in.iter().enumerate() {
+                if let Some(owner) = &allowance.owner {
+                    let (index, row) = (index.to_string(), row.to_string());
+                    push(
+                        out,
+                        &["authority", &index, "allowed_in", &row, "owner"],
+                        owner,
+                    );
+                }
+            }
+        }
         if let Some(amendment) = &self.population.amended_by {
             push(out, &["population", "amended_by", "bead"], &amendment.bead);
         }
@@ -679,17 +694,6 @@ impl Policy {
     /// unavailable, never a complete PASS.
     pub fn unjudged(&self) -> Vec<String> {
         let mut out = Vec::new();
-        for (index, rule) in self.authority.iter().enumerate() {
-            for (written, field) in [
-                (!rule.forbid_new_pattern.is_empty(), "forbid_new_pattern"),
-                (!rule.forbid_new_observed.is_empty(), "forbid_new_observed"),
-                (!rule.allowed_in.is_empty(), "allowed_in"),
-            ] {
-                if written {
-                    out.push(format!("authority.{index}.{field}"));
-                }
-            }
-        }
         for order in &self.stage_order {
             for index in 0..order.pipeline.len() {
                 out.push(format!("stage_order.{}.pipeline.{index}", order.crate_name));

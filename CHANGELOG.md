@@ -6,6 +6,19 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `authority.forbid_new_pattern`, `forbid_new_observed` and `allowed_in`
+ are judged by `delta`: held spelling debt outside a home, counted per
+ (file, owning item, spelling) on the base (under the published policy)
+ and the candidate, may only fall; debt that falls is freed only when its
+ item left its file and only for that item and spelling arriving
+ elsewhere; a new or raised `allowed_in` bound is a `Raise` that must equal
+ its measure; a guard removed or a pattern changed while the base holds
+ debt refuses. `delta::Report::spellings` gives each fact's debt on both
+ sides and the files with macro invocations a pattern cannot see into.
+ **Library:** `delta::Inputs::before_policy`, `policy::Inputs::{new_patterns,
+ observed}`, `SpellingState`, `Occurrence`, `Census`. The command line
+ observes these in the next change; until then `delta` reports them
+ unavailable.
 - `authority.allowed_readers` is judged: the only files whose production
  code may read a home, each with its exact count of reading sites (each
  `use` leaf and each written path leading into the home, re-exports, glob
