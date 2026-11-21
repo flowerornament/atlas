@@ -440,52 +440,26 @@ impl RootTable {
     /// a crate module (`use crate::cover::timing;`) carries its inline paths
     /// (`timing::RegionWork`) with it, so a module import cannot hide what
     /// is read through it.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     pub(super) fn edges(
         &self,
         file: &str,
         module: &[&str],
         lines: &[SourceLine<'_>],
     ) -> (Vec<Edge>, Vec<UnjudgedPath>) {
-        let from = module[0].to_owned();
+        let from = module[0];
         let aliases = root_aliases(module, lines, self);
-        let mut edges = Vec::new();
-        let mut unjudged = lines
-            .iter()
-            .filter_map(|source| match source {
-                SourceLine::UnreadableUse { line, text } => Some(UnjudgedPath {
-                    file: file.to_owned(),
-                    line: *line,
-                    path: (*text).to_owned(),
-                    why: Unjudged::UnreadableImport,
-                }),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        let mut import_aliases = BTreeMap::new();
-        for source in lines {
-            if let SourceLine::Use { line, bindings, .. } = source {
-                for binding in *bindings {
-                    import_aliases
-                        .entry((*line, binding.source_path.as_str()))
-                        .or_insert(binding.local_name.as_str());
-                }
-            }
-        }
-        let mut module_aliases: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        let mut push = |line: usize, path: &str, target: Vec<String>| {
-            edges.push(Edge {
-                file: file.to_owned(),
-                line,
-                from: from.clone(),
-                to: target[0].clone(),
-                path: path.to_owned(),
-                target,
-            });
+        let edge = |line: usize, path: &str, target: Vec<String>| Edge {
+            file: file.to_owned(),
+            line,
+            from: from.to_owned(),
+            to: target[0].clone(),
+            path: path.to_owned(),
+            target,
         };
+        let mut edges = Vec::new();
+        let mut unjudged = unreadable_uses(file, lines);
+        let import_aliases = import_aliases(lines);
+        let mut module_aliases: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for (line, path, form) in crate_paths(lines, &aliases) {
             match read_path(module, &path, form, self, &aliases) {
                 Ok(targets) => {
@@ -497,9 +471,7 @@ impl RootTable {
                     {
                         module_aliases.insert((*local).to_owned(), target.clone());
                     }
-                    for target in targets {
-                        push(line, &path, target);
-                    }
+                    edges.extend(targets.into_iter().map(|target| edge(line, &path, target)));
                 }
                 Err(why) => unjudged.push(UnjudgedPath {
                     file: file.to_owned(),
@@ -509,21 +481,64 @@ impl RootTable {
                 }),
             }
         }
-        let names: BTreeSet<String> = module_aliases.keys().cloned().collect();
-        for source in lines {
-            let SourceLine::Code { line, code } = source else {
-                continue;
-            };
-            for path in inline_paths(code, &names) {
-                let mut segments = path.split("::");
-                let Some(target) = segments.next().and_then(|head| module_aliases.get(head)) else {
-                    continue;
-                };
-                let mut target = target.clone();
-                target.extend(segments.map(str::to_owned));
-                push(*line, path, target);
-            }
+        for (line, path, target) in through_module_aliases(lines, &module_aliases) {
+            edges.push(edge(line, path, target));
         }
         (edges, unjudged)
     }
+}
+
+/// Each `use` the reading cannot parse, as an unjudged path.
+fn unreadable_uses(file: &str, lines: &[SourceLine<'_>]) -> Vec<UnjudgedPath> {
+    lines
+        .iter()
+        .filter_map(|source| match source {
+            SourceLine::UnreadableUse { line, text } => Some(UnjudgedPath {
+                file: file.to_owned(),
+                line: *line,
+                path: (*text).to_owned(),
+                why: Unjudged::UnreadableImport,
+            }),
+            _ => None,
+        })
+        .collect()
+}
+/// Each `use` binding's local name, by (line, source path).
+fn import_aliases<'a>(lines: &'a [SourceLine<'_>]) -> BTreeMap<(usize, &'a str), &'a str> {
+    let mut aliases = BTreeMap::new();
+    for source in lines {
+        if let SourceLine::Use { line, bindings, .. } = source {
+            for binding in *bindings {
+                aliases
+                    .entry((*line, binding.source_path.as_str()))
+                    .or_insert(binding.local_name.as_str());
+            }
+        }
+    }
+    aliases
+}
+/// The inline paths written through a local name bound to a crate module
+/// (`timing::RegionWork` after `use crate::cover::timing;`), with their
+/// targets.
+fn through_module_aliases<'a>(
+    lines: &'a [SourceLine<'_>],
+    module_aliases: &BTreeMap<String, Vec<String>>,
+) -> Vec<(usize, &'a str, Vec<String>)> {
+    let names: BTreeSet<String> = module_aliases.keys().cloned().collect();
+    let mut found = Vec::new();
+    for source in lines {
+        let SourceLine::Code { line, code } = source else {
+            continue;
+        };
+        for path in inline_paths(code, &names) {
+            let mut segments = path.split("::");
+            let Some(target) = segments.next().and_then(|head| module_aliases.get(head)) else {
+                continue;
+            };
+            let mut target = target.clone();
+            target.extend(segments.map(str::to_owned));
+            found.push((*line, path, target));
+        }
+    }
+    found
 }

@@ -364,22 +364,18 @@ impl SeamReading {
     /// narrowed (a method or function dropped) or widened (a producer added).
     /// A new floor stage, a new row, an added method and a dropped producer
     /// tighten and pass.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     fn policy_refusals(&self, published: &policy::PublishedStages) -> Vec<String> {
         let name = &self.crate_name;
         let Some(was) = published.seams.get(name) else {
             return Vec::new();
         };
-        let mut refusals = Vec::new();
         let staged = published
             .orders
             .iter()
             .find(|order| &order.crate_name == name)
             .map(|order| order.stages.as_slice())
             .unwrap_or_default();
+        let mut refusals = Vec::new();
         for stage in self
             .held
             .floor
@@ -403,58 +399,56 @@ impl SeamReading {
             ));
         }
         for (ty, before) in &was.writers {
-            let Some(now) = self.held.writers.get(ty) else {
-                refusals.push(format!(
-                    "stage writers `{name}`: the published writers row for `{ty}` is gone; a row leaves only with the listing it guards"
-                ));
-                continue;
-            };
-            let mut changes = Vec::new();
-            if now.stage != before.stage {
-                changes.push(format!(
-                    "its stage moved from {} to {}",
-                    before.stage, now.stage
-                ));
-            }
-            let dropped: Vec<&String> = before
-                .methods
-                .iter()
-                .chain(&before.functions)
-                .filter(|method| !now.methods.contains(method) && !now.functions.contains(method))
-                .collect();
-            if !dropped.is_empty() {
-                changes.push(format!(
-                    "it no longer counts {}",
-                    dropped
-                        .iter()
-                        .map(|method| method.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ));
-            }
-            let added: Vec<&String> = now
-                .producers
-                .iter()
-                .filter(|producer| !before.producers.contains(producer))
-                .collect();
-            if !added.is_empty() {
-                changes.push(format!(
-                    "it adds producers {}",
-                    added
-                        .iter()
-                        .map(|producer| producer.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ));
-            }
-            if !changes.is_empty() {
-                refusals.push(format!(
-                    "stage writers `{name}`: the writers row for `{ty}` loosens: {}; a writers row only tightens",
-                    changes.join("; ")
-                ));
-            }
+            refusals.extend(self.writer_row_loosening(ty, before));
         }
         refusals
+    }
+    /// A published writers row gone, or loosened: moved to another stage, a
+    /// method or function no longer counted, a producer added.
+    fn writer_row_loosening(&self, ty: &str, before: &policy::Writers) -> Option<String> {
+        let name = &self.crate_name;
+        let Some(now) = self.held.writers.get(ty) else {
+            return Some(format!(
+                "stage writers `{name}`: the published writers row for `{ty}` is gone; a row leaves only with the listing it guards"
+            ));
+        };
+        let joined = |names: Vec<&String>| {
+            names
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let mut changes = Vec::new();
+        if now.stage != before.stage {
+            changes.push(format!(
+                "its stage moved from {} to {}",
+                before.stage, now.stage
+            ));
+        }
+        let dropped: Vec<&String> = before
+            .methods
+            .iter()
+            .chain(&before.functions)
+            .filter(|method| !now.methods.contains(method) && !now.functions.contains(method))
+            .collect();
+        if !dropped.is_empty() {
+            changes.push(format!("it no longer counts {}", joined(dropped)));
+        }
+        let added: Vec<&String> = now
+            .producers
+            .iter()
+            .filter(|producer| !before.producers.contains(producer))
+            .collect();
+        if !added.is_empty() {
+            changes.push(format!("it adds producers {}", joined(added)));
+        }
+        (!changes.is_empty()).then(|| {
+            format!(
+                "stage writers `{name}`: the writers row for `{ty}` loosens: {}; a writers row only tightens",
+                changes.join("; ")
+            )
+        })
     }
 
     /// Test coupling: an owner above its recorded pairs, an item the owner's

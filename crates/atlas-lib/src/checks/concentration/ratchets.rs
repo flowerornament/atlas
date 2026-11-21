@@ -1,6 +1,6 @@
 //! Native path-fixed debt and no-growth laws over paired measurements.
 use super::super::policy::{
-    Alias, AliasKind, ConcentrationPolicy, Knob, LineRow, MissingInput, Ruling,
+    Alias, AliasKind, ConcentrationPolicy, Knob, LineRow, MissingInput, NameRow, Ruling,
 };
 use super::{Citations, DebtSummary, Measure, Summary, Verdict};
 use std::collections::{BTreeMap, BTreeSet};
@@ -456,10 +456,9 @@ fn against_published(
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
+/// Each name row against the tree (a home gained refuses, a home lost or a
+/// name with one home is a hint), against the published rows, and every
+/// repeated module name without a row.
 fn name_rows(
     policy: &ConcentrationPolicy,
     published: Option<&ConcentrationPolicy>,
@@ -469,12 +468,6 @@ fn name_rows(
     out: &mut Findings,
 ) {
     let measured = trees.now;
-    let listed = |path: &BTreeSet<String>| {
-        path.iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
     for row in &policy.name {
         let name = &row.name;
         match measured.homes.get(name) {
@@ -494,53 +487,8 @@ fn name_rows(
         let Some(published) = published else {
             continue;
         };
-        match published.name.iter().find(|old| old.name == *name) {
-            // New collision debt is never admitted by writing it down; only a
-            // crate joining the population records the collision it brings:
-            // its homes pre-exist, beside at most one pre-existing home
-            // elsewhere.
-            None if row.ruling == Ruling::Collision => {
-                let (joined, others): (Vec<&String>, Vec<&String>) =
-                    row.homes.iter().partition(|home| trees.recorded_home(home));
-                let recorded = !joined.is_empty()
-                    && others.len() <= 1
-                    && others.iter().all(|home| trees.base.modules.contains(*home));
-                if !recorded {
-                    out.refusals.push(format!(
-                        "module name `{name}` gets a new collision row; a collision is debt owed a rename and is not admitted by a row: give the new module a name of its own"
-                    ));
-                }
-            }
-            // A published collision gains no home, whatever its row now says,
-            // and becomes a facet only by a cited re-ruling. A module that
-            // moves keeps its home only if its module id stays.
-            Some(old) if old.ruling == Ruling::Collision => {
-                if row.ruling == Ruling::Facet {
-                    match &row.reruled_by {
-                        None => out.refusals.push(format!(
-                            "module name `{name}` is a published collision re-ruled a facet without naming who re-ruled it; add `reruled_by = \"<bead id>\"` to its row and cite the bead, or keep it a collision"
-                        )),
-                        Some(bead) if known_uncited("concentration", bead, description, citations, &mut out.unavailable) => out.refusals.push(format!(
-                            "module name `{name}` is re-ruled a facet by `{bead}`, which this landing's description does not cite; cite it as ({bead}) so the bead-citations gate checks it exists"
-                        )),
-                        Some(_) => {}
-                    }
-                }
-                let gained: BTreeSet<String> = row
-                    .homes
-                    .difference(&old.homes)
-                    .filter(|home| !trees.recorded_home(home))
-                    .cloned()
-                    .collect();
-                if !gained.is_empty() {
-                    out.refusals.push(format!(
-                        "module name `{name}` is a published collision, two concepts owed a rename, and gained {}; give the module a name of its own, so the collision goes away (a move keeps its home only when the module id stays, as `plan.rs` to `plan/mod.rs`; re-ruling it a facet does not admit a new home)",
-                        listed(&gained)
-                    ));
-                }
-            }
-            _ => {}
-        }
+        let published_row = published.name.iter().find(|old| old.name == *name);
+        published_name_law(row, published_row, trees, (description, citations), out);
     }
     let ruled: BTreeSet<&str> = policy.name.iter().map(|row| row.name.as_str()).collect();
     for (name, homes) in &measured.homes {
@@ -552,6 +500,74 @@ fn name_rows(
             ));
         }
     }
+}
+
+/// A name row against its published row: a new collision row is refused
+/// unless a crate joining the population brings it; a published collision
+/// gains no home, and becomes a facet only by a cited re-ruling.
+fn published_name_law(
+    row: &NameRow,
+    published_row: Option<&NameRow>,
+    trees: &Trees<'_>,
+    (description, citations): (&str, Option<&Citations>),
+    out: &mut Findings,
+) {
+    let name = &row.name;
+    match published_row {
+        // New collision debt is never admitted by writing it down; only a
+        // crate joining the population records the collision it brings:
+        // its homes pre-exist, beside at most one pre-existing home
+        // elsewhere.
+        None if row.ruling == Ruling::Collision => {
+            let (joined, others): (Vec<&String>, Vec<&String>) =
+                row.homes.iter().partition(|home| trees.recorded_home(home));
+            let recorded = !joined.is_empty()
+                && others.len() <= 1
+                && others.iter().all(|home| trees.base.modules.contains(*home));
+            if !recorded {
+                out.refusals.push(format!(
+                    "module name `{name}` gets a new collision row; a collision is debt owed a rename and is not admitted by a row: give the new module a name of its own"
+                ));
+            }
+        }
+        // A published collision gains no home, whatever its row now says,
+        // and becomes a facet only by a cited re-ruling. A module that
+        // moves keeps its home only if its module id stays.
+        Some(old) if old.ruling == Ruling::Collision => {
+            if row.ruling == Ruling::Facet {
+                match &row.reruled_by {
+                    None => out.refusals.push(format!(
+                        "module name `{name}` is a published collision re-ruled a facet without naming who re-ruled it; add `reruled_by = \"<bead id>\"` to its row and cite the bead, or keep it a collision"
+                    )),
+                    Some(bead) if known_uncited("concentration", bead, description, citations, &mut out.unavailable) => out.refusals.push(format!(
+                        "module name `{name}` is re-ruled a facet by `{bead}`, which this landing's description does not cite; cite it as ({bead}) so the bead-citations gate checks it exists"
+                    )),
+                    Some(_) => {}
+                }
+            }
+            let gained: BTreeSet<String> = row
+                .homes
+                .difference(&old.homes)
+                .filter(|home| !trees.recorded_home(home))
+                .cloned()
+                .collect();
+            if !gained.is_empty() {
+                out.refusals.push(format!(
+                    "module name `{name}` is a published collision, two concepts owed a rename, and gained {}; give the module a name of its own, so the collision goes away (a move keeps its home only when the module id stays, as `plan.rs` to `plan/mod.rs`; re-ruling it a facet does not admit a new home)",
+                    listed(&gained)
+                ));
+            }
+        }
+        _ => {}
+    }
+}
+/// Paths for a message, comma separated.
+fn listed(paths: &BTreeSet<String>) -> String {
+    paths
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn alias_rows(

@@ -173,10 +173,7 @@ pub fn seams_with_test_support(
         unavailable,
     })
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
+/// Each seamed crate's reading, or the inputs that keep it from one.
 fn seam_readings(
     snapshot: &crate::discovery::Snapshot,
     workspace: &Workspace,
@@ -214,53 +211,9 @@ fn seam_readings(
             .crate_named(name)
             .ok_or("seamed package is absent")?;
         let supplied = declarations.get(name);
-        let start = unavailable.len();
-        unavailable.extend(
-            snapshot
-                .source_diagnostics()
-                .iter()
-                .filter(|issue| {
-                    issue.package.as_ref().is_none_or(|p| p == name)
-                        && snapshot.source_facts(&issue.file).is_none()
-                        && crate::architecture::contains(&package.src_rel, &issue.file)
-                })
-                .cloned(),
-        );
-        if let Some(mounts) = snapshot.mounted_sources(name) {
-            for missing in &mounts.unavailable {
-                unavailable.push(crate::model::Diagnostic {
-                    code: crate::model::DiagnosticCode::TestMountUnavailable,
-                    package: Some(name.clone()),
-                    file: missing.declaring_file.clone(),
-                    line: None,
-                    message: format!(
-                        "required test mount {} unavailable: {}",
-                        missing.module,
-                        missing.candidates.join(", ")
-                    ),
-                });
-            }
-        }
-        for file in package
-            .files
-            .iter()
-            .chain(package.mounted.iter().map(|mount| &mount.file))
-        {
-            for import in file
-                .source
-                .imports()
-                .filter(|import| import.bindings.is_err())
-            {
-                unavailable.push(crate::model::Diagnostic {
-                    code: crate::model::DiagnosticCode::SeamImportUnavailable,
-                    package: Some(name.clone()),
-                    file: file.rel.clone(),
-                    line: Some(import.line),
-                    message: "required seam import syntax unavailable".into(),
-                });
-            }
-        }
-        if unavailable.len() != start {
+        let missing = seam_inputs_unavailable(snapshot, package, name);
+        if !missing.is_empty() {
+            unavailable.extend(missing);
             continue;
         }
         let empty = BTreeMap::new();
@@ -280,4 +233,59 @@ fn seam_readings(
         }
     }
     Ok((crates, unavailable))
+}
+/// What a seamed crate's reading needs and lacks: source Atlas could not
+/// read in `src`, a required test mount, or an unreadable `use`.
+fn seam_inputs_unavailable(
+    snapshot: &crate::discovery::Snapshot,
+    package: &CrateMap,
+    name: &str,
+) -> Vec<crate::model::Diagnostic> {
+    let mut unavailable: Vec<_> = snapshot
+        .source_diagnostics()
+        .iter()
+        .filter(|issue| {
+            issue.package.as_ref().is_none_or(|p| p == name)
+                && snapshot.source_facts(&issue.file).is_none()
+                && crate::architecture::contains(&package.src_rel, &issue.file)
+        })
+        .cloned()
+        .collect();
+    for missing in snapshot
+        .mounted_sources(name)
+        .into_iter()
+        .flat_map(|mounts| &mounts.unavailable)
+    {
+        unavailable.push(crate::model::Diagnostic {
+            code: crate::model::DiagnosticCode::TestMountUnavailable,
+            package: Some(name.to_owned()),
+            file: missing.declaring_file.clone(),
+            line: None,
+            message: format!(
+                "required test mount {} unavailable: {}",
+                missing.module,
+                missing.candidates.join(", ")
+            ),
+        });
+    }
+    let files = package
+        .files
+        .iter()
+        .chain(package.mounted.iter().map(|mount| &mount.file));
+    for file in files {
+        for import in file
+            .source
+            .imports()
+            .filter(|import| import.bindings.is_err())
+        {
+            unavailable.push(crate::model::Diagnostic {
+                code: crate::model::DiagnosticCode::SeamImportUnavailable,
+                package: Some(name.to_owned()),
+                file: file.rel.clone(),
+                line: Some(import.line),
+                message: "required seam import syntax unavailable".into(),
+            });
+        }
+    }
+    unavailable
 }

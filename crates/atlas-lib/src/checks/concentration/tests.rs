@@ -518,13 +518,7 @@ const BASE_KNOBS: &str =
 // Critic: the section may not loosen itself, in any of its three forms,
 // unless the landing names a new, cited ruling that covers the knob.
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 fn the_section_cannot_loosen_itself_without_a_named_ruling() {
-    let tree = workspace(&[("lib.rs", CITED)]);
-    let published = section(BASE_KNOBS, "");
     let cases = [
         (
             "population = ['fix', 'gone']\nentry_lines = 4\nfile_lines = 6\nconventional_names = ['error']",
@@ -545,52 +539,67 @@ fn the_section_cannot_loosen_itself_without_a_named_ruling() {
             "['conventional_names']",
         ),
     ];
-    let cited = "concentration: loosen (demo-ruling)";
     for (knobs, expected, covers) in cases {
-        let refused = refusals(&section(knobs, ""), Some(&published), &tree);
-        assert_eq!(refused.len(), expected.len(), "{refused:?}");
-        for (row, change) in refused.iter().zip(&expected) {
-            assert!(row.contains(change) && row.contains("amended_by"), "{row}");
-        }
-        let ruled = section(
-            knobs,
-            &format!("amended_by = {{ bead = 'demo-ruling', covers = {covers} }}"),
-        );
-        let verdict = landing(&ruled, Some(&published), &tree, &tree, cited);
-        assert!(verdict.violations.is_empty(), "{:?}", verdict.violations);
-        // Uncited: the bead-citations gate could not check the bead.
-        let uncited = landing(&ruled, Some(&published), &tree, &tree, "no citation").violations;
-        assert_eq!(uncited.len(), 1, "{uncited:?}");
-        assert!(uncited[0].contains("does not cite"));
-        // Uncovered: a ruling for another knob waives nothing here, and
-        // names a knob this landing does not loosen.
-        let other = if covers.contains("population") {
-            "['file_lines']"
-        } else {
-            "['population']"
-        };
-        let uncovered = section(
-            knobs,
-            &format!("amended_by = {{ bead = 'demo-ruling', covers = {other} }}"),
-        );
-        assert_eq!(
-            landing(&uncovered, Some(&published), &tree, &tree, cited)
-                .violations
-                .len(),
-            expected.len() + 1
-        );
-        // A ruling already published rules nothing new.
-        let stale = section(
-            BASE_KNOBS,
-            &format!("amended_by = {{ bead = 'demo-ruling', covers = {covers} }}"),
-        );
-        assert_eq!(
-            landing(&ruled, Some(&stale), &tree, &tree, cited)
-                .violations
-                .len(),
-            expected.len()
-        );
+        a_loosening_needs_its_ruling(knobs, &expected, covers);
     }
+}
+
+/// One loosening: refused without a ruling, admitted by a new, cited one
+/// covering its knob, refused uncited, uncovered, or by a stale ruling.
+fn a_loosening_needs_its_ruling(knobs: &str, expected: &[&str], covers: &str) {
+    let tree = workspace(&[("lib.rs", CITED)]);
+    let published = section(BASE_KNOBS, "");
+    let cited = "concentration: loosen (demo-ruling)";
+    let refused = refusals(&section(knobs, ""), Some(&published), &tree);
+    assert_eq!(refused.len(), expected.len(), "{refused:?}");
+    for (row, change) in refused.iter().zip(expected) {
+        assert!(row.contains(change) && row.contains("amended_by"), "{row}");
+    }
+    let ruled = section(
+        knobs,
+        &format!("amended_by = {{ bead = 'demo-ruling', covers = {covers} }}"),
+    );
+    let verdict = landing(&ruled, Some(&published), &tree, &tree, cited);
+    assert!(verdict.violations.is_empty(), "{:?}", verdict.violations);
+    // Uncited: the bead-citations gate could not check the bead.
+    let uncited = landing(&ruled, Some(&published), &tree, &tree, "no citation").violations;
+    assert_eq!(uncited.len(), 1, "{uncited:?}");
+    assert!(uncited[0].contains("does not cite"));
+    // Uncovered: a ruling for another knob waives nothing here, and
+    // names a knob this landing does not loosen.
+    let other = if covers.contains("population") {
+        "['file_lines']"
+    } else {
+        "['population']"
+    };
+    let uncovered = section(
+        knobs,
+        &format!("amended_by = {{ bead = 'demo-ruling', covers = {other} }}"),
+    );
+    assert_eq!(
+        landing(&uncovered, Some(&published), &tree, &tree, cited)
+            .violations
+            .len(),
+        expected.len() + 1
+    );
+    // A ruling already published rules nothing new.
+    let stale = section(
+        BASE_KNOBS,
+        &format!("amended_by = {{ bead = 'demo-ruling', covers = {covers} }}"),
+    );
+    assert_eq!(
+        landing(&ruled, Some(&stale), &tree, &tree, cited)
+            .violations
+            .len(),
+        expected.len()
+    );
+}
+
+#[test]
+fn a_ruling_covers_only_what_loosens_and_tightening_needs_none() {
+    let tree = workspace(&[("lib.rs", CITED)]);
+    let published = section(BASE_KNOBS, "");
+    let cited = "concentration: loosen (demo-ruling)";
     // A ruling may cover only what this landing loosens.
     let loosened = section(
         "population = ['fix', 'gone']\nentry_lines = 4\nfile_lines = 5\nconventional_names = ['error']",

@@ -351,10 +351,9 @@ fn paired_measures(
         shape,
     })
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
+/// The stage and seam laws: the candidate's readings under its policy, and
+/// the base's under the published policy with the candidate's seam rows
+/// for the crates the published policy already orders.
 fn stage_judgment(
     before: &Snapshot,
     after: &Snapshot,
@@ -364,36 +363,68 @@ fn stage_judgment(
     before_workspace: &super::Workspace,
     after_workspace: &super::Workspace,
 ) -> Result<(Vec<String>, Vec<MissingInput>, Vec<SeamDelta>)> {
-    let (stages, roots) = super::read_stages(after_workspace, policy, None)?;
-    let (crates, unavailable) = super::seam_readings(
+    let (mut now, mut unavailable) = seam_side(
         after,
         after_workspace,
         policy,
         &inputs.after,
+        "delta.stages",
+    )?;
+    let mut violations = std::mem::take(&mut now.stages.policy_violations);
+    for (name, report) in &now.stages.crates {
+        violations.extend(report.refusals(name));
+    }
+    let (base, base_unavailable) = seam_side(
+        before,
+        before_workspace,
+        &base_policy(published, policy),
+        &inputs.before,
+        "delta.base_stages",
+    )?;
+    unavailable.extend(base_unavailable);
+    let summary = seam_deltas(now, &base, published, policy, &mut violations)?;
+    Ok((violations, unavailable, summary))
+}
+/// One side's stage and seam readings, and its missing evidence by file
+/// under `field`.
+fn seam_side(
+    snapshot: &Snapshot,
+    workspace: &super::Workspace,
+    policy: &Policy,
+    declarations: &BTreeMap<String, BTreeMap<String, BoundaryDeclaration>>,
+    field: &str,
+) -> Result<(super::SeamReports, Vec<MissingInput>)> {
+    let (stages, roots) = super::read_stages(workspace, policy, None)?;
+    let (crates, unavailable) = super::seam_readings(
+        snapshot,
+        workspace,
+        policy,
+        declarations,
         None,
         &stages,
         &roots,
     )?;
-    let now = super::SeamReports {
+    let reports = super::SeamReports {
         stages,
         crates,
         unavailable,
     };
-    let mut violations = now.stages.policy_violations;
-    for (name, report) in &now.stages.crates {
-        violations.extend(report.refusals(name));
-    }
-    let mut unavailable = now
+    let missing = reports
         .unavailable
         .iter()
-        .chain(&now.stages.unavailable)
+        .chain(&reports.stages.unavailable)
         .map(|issue| MissingInput {
-            field: format!("delta.stages.{}", issue.file),
+            field: format!("{field}.{}", issue.file),
             reason: issue.message.clone(),
         })
-        .collect::<Vec<_>>();
-    let mut base_policy = published.clone();
-    base_policy.stage_seams = policy
+        .collect();
+    Ok((reports, missing))
+}
+/// The published policy, with the candidate's seam rows for the crates it
+/// already orders: the base is read under the rows the change proposes.
+fn base_policy(published: &Policy, policy: &Policy) -> Policy {
+    let mut base = published.clone();
+    base.stage_seams = policy
         .stage_seams
         .iter()
         .filter(|(name, _)| {
@@ -404,30 +435,16 @@ fn stage_judgment(
         })
         .map(|(name, seams)| (name.clone(), seams.clone()))
         .collect();
-    let (base_stages, base_roots) = super::read_stages(before_workspace, &base_policy, None)?;
-    let (base_crates, base_unavailable) = super::seam_readings(
-        before,
-        before_workspace,
-        &base_policy,
-        &inputs.before,
-        None,
-        &base_stages,
-        &base_roots,
-    )?;
-    let base = super::SeamReports {
-        stages: base_stages,
-        crates: base_crates,
-        unavailable: base_unavailable,
-    };
-    unavailable.extend(
-        base.unavailable
-            .iter()
-            .chain(&base.stages.unavailable)
-            .map(|issue| MissingInput {
-                field: format!("delta.base_stages.{}", issue.file),
-                reason: issue.message.clone(),
-            }),
-    );
+    base
+}
+/// Each seamed crate's ratchet refusals against its base, and its summary.
+fn seam_deltas(
+    now: super::SeamReports,
+    base: &super::SeamReports,
+    published: &Policy,
+    policy: &Policy,
+    violations: &mut Vec<String>,
+) -> Result<Vec<SeamDelta>> {
     let published = policy::PublishedStages::from(published);
     let mut summary = Vec::new();
     for (name, reading) in now.crates {
@@ -458,7 +475,7 @@ fn stage_judgment(
             floor_added,
         });
     }
-    Ok((violations, unavailable, summary))
+    Ok(summary)
 }
 
 #[cfg(test)]

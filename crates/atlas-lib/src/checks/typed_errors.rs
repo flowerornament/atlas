@@ -27,10 +27,6 @@ pub enum Unavailable {
 }
 /// Read the native typed-error population, package by package. Unknown packages
 /// are invalid selection; missing required source or syntax is unavailable data.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
 pub fn read(
     analysis: &Analysis<'_>,
     packages: &[String],
@@ -72,58 +68,81 @@ pub fn read(
         let src_rel = crate::source::discovery::path_key(
             src.strip_prefix(metadata.workspace_root.as_std_path())?,
         );
-        let mut report = Reading::default();
-        for file in observations.get(name.as_str()).into_iter().flatten() {
-            report
-                .sources
-                .insert(file.path.clone(), file.content_fingerprint.clone());
-            let ast = match analysis.syntax(&file.path) {
-                Ok(ast) => ast,
-                Err(error) => {
-                    report.unavailable.push(Unavailable::Syntax {
-                        file: file.path.clone(),
-                        reason: error.to_string(),
-                    });
-                    continue;
-                }
-            };
-            let source = snapshot
-                .source_facts(&file.path)
-                .ok_or("source population lacks captured facts")?;
-            let mut visitor = Boundaries {
-                source,
-                lines: BTreeSet::new(),
-            };
-            visitor.visit_file(ast);
-            if !visitor.lines.is_empty() {
-                report.boundaries.insert(file.path.clone(), visitor.lines);
-            }
-        }
-        let source_prefix = format!("{src_rel}/");
-        for diagnostic in &snapshot.graph().diagnostics {
-            if diagnostic
-                .package
-                .as_ref()
-                .is_none_or(|package| package == name)
-                && diagnostic.file.starts_with(&source_prefix)
-                && !report.sources.contains_key(&diagnostic.file)
-                && snapshot.source_facts(&diagnostic.file).is_none()
-                && !snapshot.graph().files.iter().any(|file| {
-                    file.path == diagnostic.file && file.crate_name == *name && file.test_only
-                })
-            {
-                report.unavailable.push(Unavailable::ExcludedSource {
-                    path: diagnostic.file.clone(),
-                    reason: diagnostic.message.clone(),
-                });
-            }
-        }
+        let files = observations
+            .get(name.as_str())
+            .map_or(&[][..], Vec::as_slice);
+        let mut report = read_files(analysis, files)?;
+        excluded_sources(snapshot, name, &src_rel, &mut report);
         if report.sources.is_empty() {
             report.unavailable.push(Unavailable::EmptyPopulation);
         }
         reports.insert(name.clone(), report);
     }
     Ok(reports)
+}
+/// The written String-error lines of a package's production files, and
+/// each file whose syntax Atlas cannot read.
+fn read_files(
+    analysis: &Analysis<'_>,
+    files: &[&crate::model::SourceFile],
+) -> crate::Result<Reading> {
+    let mut report = Reading::default();
+    for file in files {
+        report
+            .sources
+            .insert(file.path.clone(), file.content_fingerprint.clone());
+        let ast = match analysis.syntax(&file.path) {
+            Ok(ast) => ast,
+            Err(error) => {
+                report.unavailable.push(Unavailable::Syntax {
+                    file: file.path.clone(),
+                    reason: error.to_string(),
+                });
+                continue;
+            }
+        };
+        let source = analysis
+            .snapshot()
+            .source_facts(&file.path)
+            .ok_or("source population lacks captured facts")?;
+        let mut visitor = Boundaries {
+            source,
+            lines: BTreeSet::new(),
+        };
+        visitor.visit_file(ast);
+        if !visitor.lines.is_empty() {
+            report.boundaries.insert(file.path.clone(), visitor.lines);
+        }
+    }
+    Ok(report)
+}
+/// Production source under `src` that discovery reported but could not
+/// read, and so was never part of the reading.
+fn excluded_sources(
+    snapshot: &crate::discovery::Snapshot,
+    name: &str,
+    src_rel: &str,
+    report: &mut Reading,
+) {
+    let source_prefix = format!("{src_rel}/");
+    for diagnostic in &snapshot.graph().diagnostics {
+        if diagnostic
+            .package
+            .as_ref()
+            .is_none_or(|package| package == name)
+            && diagnostic.file.starts_with(&source_prefix)
+            && !report.sources.contains_key(&diagnostic.file)
+            && snapshot.source_facts(&diagnostic.file).is_none()
+            && !snapshot.graph().files.iter().any(|file| {
+                file.path == diagnostic.file && file.crate_name == name && file.test_only
+            })
+        {
+            report.unavailable.push(Unavailable::ExcludedSource {
+                path: diagnostic.file.clone(),
+                reason: diagnostic.message.clone(),
+            });
+        }
+    }
 }
 struct Boundaries<'a> {
     source: &'a crate::source::Source,

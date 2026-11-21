@@ -7,10 +7,6 @@ impl CrateGraphPolicy {
     /// The graph's violations over `members` and their normal dependencies
     /// on members (`dag`). The rules are checked for shape first
     /// (`validate_configuration`): every rule writes `allowed`.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
     pub(in crate::checks) fn violations(
         &self,
         members: &BTreeSet<String>,
@@ -57,32 +53,12 @@ impl CrateGraphPolicy {
         let none = BTreeSet::new();
         for (source, rule) in &rules {
             let targets = dag.get(*source).unwrap_or(&none);
-            for target in targets {
-                if terminal.contains(target.as_str()) {
-                    violations.push(format!(
-                        "TERMINAL LEAK: `{source}` depends on terminal `{target}`"
-                    ));
-                } else if let Some(Allowed::Crates(allowed)) = &rule.allowed
-                    && !allowed.contains(target)
-                    && !transparent.contains(target.as_str())
-                {
-                    violations.push(format!(
-                        "ILLEGAL EDGE: `{source}` -> `{target}`; allowed: {allowed:?}{}",
-                        rule.law
-                            .as_ref()
-                            .map_or_else(String::new, |law| format!(" [{law}]"))
-                    ));
-                }
-            }
-            // An allowance the crate does not use is slack a later edge
-            // would spend without anyone deciding it.
-            if let Some(Allowed::Crates(allowed)) = &rule.allowed {
-                for unused in allowed.iter().filter(|target| !targets.contains(*target)) {
-                    violations.push(format!(
-                        "UNUSED ALLOWANCE: `{source}` allows `{unused}` but does not depend on it; remove it from the allowed set"
-                    ));
-                }
-            }
+            violations.extend(edge_violations(
+                source,
+                rule,
+                targets,
+                (&terminal, &transparent),
+            ));
         }
         // Code copied in from elsewhere was written against no member.
         for source in &vendored {
@@ -99,6 +75,45 @@ impl CrateGraphPolicy {
         }
         violations
     }
+}
+
+/// One rule's edges: a dependency on a terminal package, one its
+/// `allowed` list does not name (unless the target is transparent), and an
+/// allowance it does not use.
+fn edge_violations(
+    source: &str,
+    rule: &super::super::policy::CrateRule,
+    targets: &BTreeSet<String>,
+    (terminal, transparent): (&BTreeSet<&str>, &BTreeSet<&str>),
+) -> Vec<String> {
+    let mut violations = Vec::new();
+    for target in targets {
+        if terminal.contains(target.as_str()) {
+            violations.push(format!(
+                "TERMINAL LEAK: `{source}` depends on terminal `{target}`"
+            ));
+        } else if let Some(Allowed::Crates(allowed)) = &rule.allowed
+            && !allowed.contains(target)
+            && !transparent.contains(target.as_str())
+        {
+            violations.push(format!(
+                "ILLEGAL EDGE: `{source}` -> `{target}`; allowed: {allowed:?}{}",
+                rule.law
+                    .as_ref()
+                    .map_or_else(String::new, |law| format!(" [{law}]"))
+            ));
+        }
+    }
+    // An allowance the crate does not use is slack a later edge
+    // would spend without anyone deciding it.
+    if let Some(Allowed::Crates(allowed)) = &rule.allowed {
+        for unused in allowed.iter().filter(|target| !targets.contains(*target)) {
+            violations.push(format!(
+                "UNUSED ALLOWANCE: `{source}` allows `{unused}` but does not depend on it; remove it from the allowed set"
+            ));
+        }
+    }
+    violations
 }
 
 fn find_cycle(dag: &BTreeMap<String, BTreeSet<String>>) -> Option<Vec<String>> {

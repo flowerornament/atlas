@@ -1,6 +1,6 @@
 //! Native body-line, module-home and alias units over retained source facts.
 use super::super::policy::{Alias, AliasKind, ConcentrationPolicy, LineRow};
-use super::super::{FileMap, Workspace};
+use super::super::{CrateMap, FileMap, Workspace};
 use super::{HeaderCitation, NameHomes, Rows};
 use crate::{
     discovery::child_directory,
@@ -36,14 +36,6 @@ pub struct Measure {
 }
 
 impl Measure {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
-    #[expect(
-        clippy::excessive_nesting,
-        reason = "nested deeper than 6 blocks; to be flattened along its decisions"
-    )]
     pub(super) fn of(
         ws: &Workspace,
         policy: &ConcentrationPolicy,
@@ -67,109 +59,126 @@ impl Measure {
             .iter()
             .filter(|crate_map| policy.in_population(&crate_map.name))
         {
-            let files: Vec<(Option<String>, &FileMap)> = crate_map.production_modules().collect();
-            // How many production files sit under each directory.
-            let mut under: BTreeMap<&str, usize> = BTreeMap::new();
-            for (_, file) in &files {
-                let mut directory = file.rel.as_str();
-                while let Some((parent, _)) = directory.rsplit_once('/') {
-                    *under.entry(parent).or_default() += 1;
-                    directory = parent;
-                }
-            }
-            // Alias identity follows Rust modules, including inline declarations;
-            // file/body and collision measurements below remain physical files.
-            let logical_modules: BTreeSet<String> = files
-                .iter()
-                .flat_map(|(module, file)| {
-                    module
-                        .iter()
-                        .cloned()
-                        .chain(declared_modules(file, module.as_deref()))
-                })
-                .collect();
-            let modules: BTreeSet<&str> = logical_modules.iter().map(String::as_str).collect();
-            let top_modules: BTreeSet<&str> = modules
-                .iter()
-                .map(|module| module.split("::").next().unwrap_or(module))
-                .collect();
-            let uncited = measure.uncited.entry(crate_map.name.clone()).or_default();
-            for (module, file) in &files {
-                let id = module.as_ref().map_or_else(
-                    || crate_map.name.clone(),
-                    |module| format!("{}::{module}", crate_map.name),
-                );
-                let fingerprint = crate::discovery::fingerprint(file.source.text().as_bytes());
-                measure
-                    .sources
-                    .insert(file.rel.clone(), fingerprint.clone());
-                let lines = body_lines(file);
-                measure.modules.insert(id.clone());
-                measure
-                    .remapped
-                    .extend(remapped_modules(file, test_support_features));
-                measure.file.insert(file.rel.clone(), lines);
-                measure
-                    .crates_of
-                    .entry(file.rel.clone())
-                    .or_default()
-                    .insert(crate_map.name.clone());
-                let children = child_directory(&file.rel);
-                let own = usize::from(
-                    file.rel.rsplit_once('/').map(|(parent, _)| parent) == Some(children.as_str()),
-                );
-                let entry = under.get(children.as_str()).copied().unwrap_or(0) > own;
-                if entry {
-                    measure.entry.insert(file.rel.clone(), lines);
-                }
-                if entry || module.is_none() {
-                    match headers.get(&file.rel) {
-                        Some(reading) if reading.content_fingerprint == fingerprint => {
-                            if !reading.cited {
-                                uncited.insert(file.rel.clone());
-                            }
-                        }
-                        supplied => measure.unavailable.push(Diagnostic {
-                            package: Some(crate_map.name.clone()),
-                            file: file.rel.clone(),
-                            line: None,
-                            code: if supplied.is_some() {
-                                crate::model::DiagnosticCode::HeaderCitationStale
-                            } else {
-                                crate::model::DiagnosticCode::HeaderCitationUnavailable
-                            },
-                            message: if supplied.is_some() {
-                                "header-citation observation has stale source custody".into()
-                            } else {
-                                "required project header-citation observation unavailable".into()
-                            },
-                        }),
-                    }
-                }
-                if let Some(module) = module {
-                    let name = module.rsplit("::").next().unwrap_or(module);
-                    if !policy.conventional_names.iter().any(|known| known == name) {
-                        measure
-                            .homes
-                            .entry(name.to_owned())
-                            .or_default()
-                            .insert(id.clone());
-                    }
-                }
-                match aliases(file, &id, module.is_none(), &modules, &top_modules) {
-                    Ok(aliases) => measure.aliases.extend(aliases),
-                    Err(why) => measure.unavailable.push(Diagnostic {
-                        code: crate::model::DiagnosticCode::MeasureUnavailable,
-                        package: Some(crate_map.name.clone()),
-                        file: file.rel.clone(),
-                        line: None,
-                        message: why,
-                    }),
-                }
-            }
+            measure.read_crate(crate_map, policy, headers, test_support_features);
         }
         measure.homes.retain(|_, homes| homes.len() > 1);
         measure
+    }
+    /// One population crate's production files: sizes, entry files, header
+    /// citations, module-name homes and aliases.
+    fn read_crate(
+        &mut self,
+        crate_map: &CrateMap,
+        policy: &ConcentrationPolicy,
+        headers: &BTreeMap<String, HeaderCitation>,
+        test_support_features: &[&str],
+    ) {
+        let files: Vec<(Option<String>, &FileMap)> = crate_map.production_modules().collect();
+        let under = files_under(&files);
+        // Alias identity follows Rust modules, including inline declarations;
+        // file/body and collision measurements below remain physical files.
+        let logical_modules: BTreeSet<String> = files
+            .iter()
+            .flat_map(|(module, file)| {
+                module
+                    .iter()
+                    .cloned()
+                    .chain(declared_modules(file, module.as_deref()))
+            })
+            .collect();
+        let modules: BTreeSet<&str> = logical_modules.iter().map(String::as_str).collect();
+        let top_modules: BTreeSet<&str> = modules
+            .iter()
+            .map(|module| module.split("::").next().unwrap_or(module))
+            .collect();
+        self.uncited.entry(crate_map.name.clone()).or_default();
+        for (module, file) in &files {
+            let id = module.as_ref().map_or_else(
+                || crate_map.name.clone(),
+                |module| format!("{}::{module}", crate_map.name),
+            );
+            let fingerprint = crate::discovery::fingerprint(file.source.text().as_bytes());
+            self.sources.insert(file.rel.clone(), fingerprint.clone());
+            let lines = body_lines(file);
+            self.modules.insert(id.clone());
+            self.remapped
+                .extend(remapped_modules(file, test_support_features));
+            self.file.insert(file.rel.clone(), lines);
+            self.crates_of
+                .entry(file.rel.clone())
+                .or_default()
+                .insert(crate_map.name.clone());
+            let children = child_directory(&file.rel);
+            let own = usize::from(
+                file.rel.rsplit_once('/').map(|(parent, _)| parent) == Some(children.as_str()),
+            );
+            let entry = under.get(children.as_str()).copied().unwrap_or(0) > own;
+            if entry {
+                self.entry.insert(file.rel.clone(), lines);
+            }
+            if entry || module.is_none() {
+                self.header(&crate_map.name, file, &fingerprint, headers);
+            }
+            if let Some(module) = module {
+                let name = module.rsplit("::").next().unwrap_or(module);
+                if !policy.conventional_names.iter().any(|known| known == name) {
+                    self.homes
+                        .entry(name.to_owned())
+                        .or_default()
+                        .insert(id.clone());
+                }
+            }
+            match aliases(file, &id, module.is_none(), &modules, &top_modules) {
+                Ok(aliases) => self.aliases.extend(aliases),
+                Err(why) => self.unavailable.push(Diagnostic {
+                    code: crate::model::DiagnosticCode::MeasureUnavailable,
+                    package: Some(crate_map.name.clone()),
+                    file: file.rel.clone(),
+                    line: None,
+                    message: why,
+                }),
+            }
+        }
+    }
+    /// A module root's header citation, from the project's reading of these
+    /// exact bytes: uncited is counted, a stale or missing reading is
+    /// unavailable.
+    fn header(
+        &mut self,
+        crate_name: &str,
+        file: &FileMap,
+        fingerprint: &str,
+        headers: &BTreeMap<String, HeaderCitation>,
+    ) {
+        let supplied = headers.get(&file.rel);
+        if let Some(reading) = supplied.filter(|reading| reading.content_fingerprint == fingerprint)
+        {
+            if !reading.cited {
+                self.uncited
+                    .entry(crate_name.to_owned())
+                    .or_default()
+                    .insert(file.rel.clone());
+            }
+            return;
+        }
+        let (code, message) = if supplied.is_some() {
+            (
+                crate::model::DiagnosticCode::HeaderCitationStale,
+                "header-citation observation has stale source custody",
+            )
+        } else {
+            (
+                crate::model::DiagnosticCode::HeaderCitationUnavailable,
+                "required project header-citation observation unavailable",
+            )
+        };
+        self.unavailable.push(Diagnostic {
+            package: Some(crate_name.to_owned()),
+            file: file.rel.clone(),
+            line: None,
+            code,
+            message: message.into(),
+        });
     }
 
     pub(super) fn over(lines: &BTreeMap<String, usize>, limit: usize) -> usize {
@@ -356,4 +365,17 @@ fn aliases(
         }
     }
     Ok(aliases)
+}
+
+/// How many of `files` sit under each directory.
+fn files_under<'a>(files: &[(Option<String>, &'a FileMap)]) -> BTreeMap<&'a str, usize> {
+    let mut under: BTreeMap<&str, usize> = BTreeMap::new();
+    for (_, file) in files {
+        let mut directory = file.rel.as_str();
+        while let Some((parent, _)) = directory.rsplit_once('/') {
+            *under.entry(parent).or_default() += 1;
+            directory = parent;
+        }
+    }
+    under
 }

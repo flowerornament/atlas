@@ -141,16 +141,14 @@ impl StageReport {
         let root = RootTable::of(crate_map, TestSelection::Production);
         Self::from_root(crate_map, stages, &root)
     }
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than 70 lines; to be split along its decisions"
-    )]
+    /// The crate's stage report: each production path between top-level
+    /// modules ranked against `stages`, and the paths through unplaced
+    /// modules.
     pub(in crate::checks) fn from_root(
         crate_map: &CrateMap,
         stages: &[String],
         root: &RootTable,
     ) -> Self {
-        let rank = |module: &str| stages.iter().position(|stage| stage == module);
         let mut report = Self {
             interfaces: None,
             floor: Vec::new(),
@@ -179,8 +177,26 @@ impl StageReport {
                 .cloned()
                 .collect(),
         };
+        let (present, reads) = report.rank_edges(crate_map, stages, root);
+        report.through_unplaced(&reads, stages);
+        report.absent = stages
+            .iter()
+            .filter(|stage| !present.contains(*stage))
+            .cloned()
+            .collect();
+        report
+    }
+    /// Each production module's paths into other top-level modules, ranked:
+    /// the modules present, and every cross-module read, placed or not.
+    fn rank_edges(
+        &mut self,
+        crate_map: &CrateMap,
+        stages: &[String],
+        root: &RootTable,
+    ) -> (BTreeSet<String>, BTreeMap<String, Vec<Edge>>) {
+        let report = self;
+        let rank = |module: &str| stages.iter().position(|stage| stage == module);
         let mut present = BTreeSet::new();
-        // Every cross-module read, placed or not, for the transitive judgment.
         let mut reads: BTreeMap<String, Vec<Edge>> = BTreeMap::new();
         for (module, file) in crate_map.production_modules() {
             let Some(module) = module else {
@@ -217,8 +233,14 @@ impl StageReport {
                 }
             }
         }
+        (present, reads)
+    }
+    /// A ranked stage reaching a later one through unplaced modules.
+    fn through_unplaced(&mut self, reads: &BTreeMap<String, Vec<Edge>>, stages: &[String]) {
+        let report = self;
+        let rank = |module: &str| stages.iter().position(|stage| stage == module);
         for via in &report.unplaced {
-            let Some((chain, onward)) = latest_reach(via, &reads, &report.unplaced, &rank) else {
+            let Some((chain, onward)) = latest_reach(via, reads, &report.unplaced, &rank) else {
                 continue;
             };
             let onward_rank = rank(&onward.to).expect("reach ends at a ranked stage");
@@ -234,12 +256,6 @@ impl StageReport {
                 }
             }
         }
-        report.absent = stages
-            .iter()
-            .filter(|stage| !present.contains(*stage))
-            .cloned()
-            .collect();
-        report
     }
 }
 

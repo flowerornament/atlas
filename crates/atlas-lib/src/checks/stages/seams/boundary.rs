@@ -1,5 +1,5 @@
 //! Export inventory from captured facts and explicitly interpreted project boundaries.
-use super::super::super::{CrateMap, module_path_of};
+use super::super::super::{CrateMap, FileMap, module_path_of};
 use super::super::{PathForm, RootTable, inline_paths, read_path};
 use super::ItemRef;
 use crate::scan;
@@ -52,14 +52,6 @@ impl Boundary {
 }
 
 /// Each stage's boundary, read from its root module's header and items.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than 70 lines; to be split along its decisions"
-)]
-#[expect(
-    clippy::excessive_nesting,
-    reason = "nested deeper than 6 blocks; to be flattened along its decisions"
-)]
 pub(super) fn boundaries(
     crate_map: &CrateMap,
     stages: &[String],
@@ -75,115 +67,96 @@ pub(super) fn boundaries(
         if !stages.contains(&module) {
             continue;
         }
+        let reader = StageRoot {
+            crate_map,
+            file,
+            module: &module,
+            root,
+        };
+        match reader.declared(declarations) {
+            Ok(declared) => {
+                let (boundary, unjudged) = reader.boundary(declared);
+                unavailable.extend(unjudged);
+                boundaries.insert(module, boundary);
+            }
+            Err(missing) => unavailable.push(missing),
+        }
+    }
+    if unavailable.is_empty() {
+        Ok(boundaries)
+    } else {
+        Err(unavailable)
+    }
+}
+
+/// One stage's root file, being read for its boundary.
+struct StageRoot<'a> {
+    crate_map: &'a CrateMap,
+    file: &'a FileMap,
+    module: &'a str,
+    root: &'a RootTable,
+}
+impl StageRoot<'_> {
+    /// The project's boundary declaration for these exact bytes.
+    fn declared<'d>(
+        &self,
+        declarations: &'d BTreeMap<String, BoundaryDeclaration>,
+    ) -> Result<&'d BoundaryDeclaration, crate::model::Diagnostic> {
+        let (file, module) = (self.file, self.module);
+        let maybe = declarations.get(module);
+        if let Some(declared) = maybe.filter(|declared| {
+            declared.file == file.rel
+                && declared.content_fingerprint
+                    == crate::discovery::fingerprint(file.source.text().as_bytes())
+        }) {
+            return Ok(declared);
+        }
+        let (code, message) = if maybe.is_some() {
+            (
+                crate::model::DiagnosticCode::BoundaryDeclarationMismatch,
+                format!("project boundary declaration for {module} does not match captured source"),
+            )
+        } else {
+            (
+                crate::model::DiagnosticCode::BoundaryDeclarationUnavailable,
+                format!("project boundary declaration unavailable for {module}"),
+            )
+        };
+        Err(crate::model::Diagnostic {
+            package: Some(self.crate_map.name.clone()),
+            file: file.rel.clone(),
+            line: None,
+            code,
+            message,
+        })
+    }
+    /// The boundary the root states and exports, and its paths that could
+    /// not be judged.
+    fn boundary(
+        &self,
+        declared: &BoundaryDeclaration,
+    ) -> (Boundary, Vec<crate::model::Diagnostic>) {
+        let file = self.file;
         let mut boundary = Boundary {
             file: file.rel.clone(),
             ..Boundary::default()
-        };
-        let declared = match declarations.get(&module) {
-            Some(declared)
-                if declared.file == file.rel
-                    && declared.content_fingerprint
-                        == crate::discovery::fingerprint(file.source.text().as_bytes()) =>
-            {
-                declared
-            }
-            maybe => {
-                let (code, message) = if maybe.is_some() {
-                    (
-                        crate::model::DiagnosticCode::BoundaryDeclarationMismatch,
-                        format!(
-                            "project boundary declaration for {module} does not match captured source"
-                        ),
-                    )
-                } else {
-                    (
-                        crate::model::DiagnosticCode::BoundaryDeclarationUnavailable,
-                        format!("project boundary declaration unavailable for {module}"),
-                    )
-                };
-                unavailable.push(crate::model::Diagnostic {
-                    package: Some(crate_map.name.clone()),
-                    file: file.rel.clone(),
-                    line: None,
-                    code,
-                    message,
-                });
-                continue;
-            }
         };
         boundary
             .citation_problems
             .clone_from(&declared.citation_problems);
         boundary.listed.clone_from(&declared.listed);
         let mut exports: Vec<(String, usize)> = Vec::new();
+        let mut unjudged = Vec::new();
         for item in file.production_items().filter(|item| item.top_level) {
             match item.kind {
                 ItemKind::Mod | ItemKind::Impl | ItemKind::MacroRules => {}
                 ItemKind::PubUse => {
-                    let Some(import) = file.source.import_for(item) else {
-                        continue;
-                    };
-                    let Ok(bindings) = &import.bindings else {
-                        continue;
-                    };
-                    for binding in bindings {
-                        if binding.local_name == "*" {
-                            boundary.wildcards.push(item.line);
-                            continue;
-                        }
-                        exports.push((binding.local_name.clone(), item.line));
-                        if boundary.listed.contains(&binding.local_name)
-                            && let Err(why) =
-                                listed_home(&mut boundary, &module, binding, item.line, root)
-                        {
-                            unavailable.push(crate::model::Diagnostic {
-                                code: crate::model::DiagnosticCode::BoundaryUnjudged,
-                                package: Some(crate_map.name.clone()),
-                                file: file.rel.clone(),
-                                line: Some(item.line),
-                                message: format!(
-                                    "listed boundary path {} is unjudged: {why}",
-                                    binding.source_path
-                                ),
-                            });
-                        }
-                    }
+                    self.re_export(item, &mut boundary, &mut exports, &mut unjudged);
                 }
                 _ if item.visibility != Visibility::Private => {
                     exports.push((item.name.clone(), item.line));
-                    // A listed alias of another stage's item is that item.
                     if item.kind == ItemKind::TypeAlias && boundary.listed.contains(&item.name) {
-                        for path in inline_paths(&item.declaration_block, &BTreeSet::new()) {
-                            let targets = match read_path(
-                                &[module.as_str()],
-                                path,
-                                PathForm::Inline,
-                                root,
-                                &BTreeSet::new(),
-                            ) {
-                                Ok(targets) => targets,
-                                Err(why) => {
-                                    unavailable.push(crate::model::Diagnostic {
-                                        code: crate::model::DiagnosticCode::BoundaryUnjudged,
-                                        package: Some(crate_map.name.clone()),
-                                        file: file.rel.clone(),
-                                        line: Some(item.line),
-                                        message: format!(
-                                            "listed boundary path {path} is unjudged: {why}"
-                                        ),
-                                    });
-                                    continue;
-                                }
-                            };
-                            boundary.foreign.extend(
-                                targets
-                                    .into_iter()
-                                    .filter(|target| target[0] != module)
-                                    .map(|target| {
-                                        (item.line, item.name.clone(), target.join("::"))
-                                    }),
-                            );
-                        }
+                        self.listed_alias(item, &mut boundary, &mut unjudged);
                     }
                 }
                 _ => {}
@@ -207,12 +180,80 @@ pub(super) fn boundaries(
             }
             boundary.exported.insert(name);
         }
-        boundaries.insert(module, boundary);
+        (boundary, unjudged)
     }
-    if unavailable.is_empty() {
-        Ok(boundaries)
-    } else {
-        Err(unavailable)
+    /// A `pub use`: each binding is an export (a glob is a wildcard), and
+    /// a listed one records its home.
+    fn re_export(
+        &self,
+        item: &crate::source::Item,
+        boundary: &mut Boundary,
+        exports: &mut Vec<(String, usize)>,
+        unjudged: &mut Vec<crate::model::Diagnostic>,
+    ) {
+        let Some(Ok(bindings)) = self
+            .file
+            .source
+            .import_for(item)
+            .map(|import| &import.bindings)
+        else {
+            return;
+        };
+        for binding in bindings {
+            if binding.local_name == "*" {
+                boundary.wildcards.push(item.line);
+                continue;
+            }
+            exports.push((binding.local_name.clone(), item.line));
+            if boundary.listed.contains(&binding.local_name)
+                && let Err(why) = listed_home(boundary, self.module, binding, item.line, self.root)
+            {
+                unjudged.push(self.unjudged(
+                    item.line,
+                    format!(
+                        "listed boundary path {} is unjudged: {why}",
+                        binding.source_path
+                    ),
+                ));
+            }
+        }
+    }
+    /// A listed alias of another stage's item is that item: foreign.
+    fn listed_alias(
+        &self,
+        item: &crate::source::Item,
+        boundary: &mut Boundary,
+        unjudged: &mut Vec<crate::model::Diagnostic>,
+    ) {
+        for path in inline_paths(&item.declaration_block, &BTreeSet::new()) {
+            match read_path(
+                &[self.module],
+                path,
+                PathForm::Inline,
+                self.root,
+                &BTreeSet::new(),
+            ) {
+                Ok(targets) => boundary.foreign.extend(
+                    targets
+                        .into_iter()
+                        .filter(|target| target[0] != self.module)
+                        .map(|target| (item.line, item.name.clone(), target.join("::"))),
+                ),
+                Err(why) => unjudged.push(self.unjudged(
+                    item.line,
+                    format!("listed boundary path {path} is unjudged: {why}"),
+                )),
+            }
+        }
+    }
+    fn unjudged(&self, line: usize, message: String) -> crate::model::Diagnostic {
+        crate::model::Diagnostic {
+            code: crate::model::DiagnosticCode::BoundaryUnjudged,
+            package: Some(self.crate_map.name.clone()),
+            file: self.file.rel.clone(),
+            line: Some(line),
+            message,
+        }
     }
 }
 
