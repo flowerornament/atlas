@@ -229,6 +229,10 @@ example.
 These limits apply to every command:
 
 - **Macros are not expanded.** A macro call appears as one opaque step.
+  An initializer-free `#[distributed_slice]` or `#[linkme::distributed_slice]`
+  static with a written slice type is retained as a written declaration. Atlas
+  does not resolve the attribute's origin, expand it, or infer linked members
+  or the generated type.
 - **`cfg` options are not evaluated.** When code has alternatives for different
   features or platforms, Atlas keeps all of them side by side.
 - **Types are not inferred.** Atlas knows a type only where the code writes it.

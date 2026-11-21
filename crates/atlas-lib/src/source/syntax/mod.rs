@@ -1,6 +1,7 @@
 //! Canonical written-Rust structure. Parse once to portable facts, retaining original spans.
 //! Macro payloads are opaque; this performs neither expansion nor type/name resolution.
 pub(crate) mod attributes;
+mod distributed_slice;
 pub(crate) mod fragments;
 pub(crate) mod imports;
 mod walk;

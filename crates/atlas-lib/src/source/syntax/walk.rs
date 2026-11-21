@@ -1,5 +1,5 @@
 //! Walk item syntax and retain only owned source facts; never walk inside macro tokens.
-use super::{Facts, attributes, fragments, imports};
+use super::{Facts, attributes, distributed_slice, fragments, imports};
 use crate::source::{
     Import, Item, ItemKind, RustSourceProjection, SyntaxError, TestRegions, Visibility,
 };
@@ -459,7 +459,20 @@ impl<'ast> Visit<'ast> for Walk<'_> {
                     Some(n.brace_token.span.open().byte_range().end),
                 );
             }
-            syn::Item::Verbatim(tokens) => self.unsupported(tokens.span(), "verbatim item"),
+            syn::Item::Verbatim(tokens) => {
+                if let Some(item) = distributed_slice::parse(tokens.clone()) {
+                    self.record(
+                        ItemKind::Static,
+                        item.name.to_string(),
+                        tokens.span(),
+                        &item.attrs,
+                        &item.vis,
+                        None,
+                    );
+                } else {
+                    self.unsupported(tokens.span(), "verbatim item");
+                }
+            }
             _ => self.unsupported(item.span(), "unknown syn item"),
         }
         self.scopes.push(match item {

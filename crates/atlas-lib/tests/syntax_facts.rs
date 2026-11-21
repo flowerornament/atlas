@@ -6,7 +6,7 @@ use atlas_lib::{
     discovery::snapshot_workspace,
     population::{TestSelection, VisibilitySelection},
     queries::navigation::Navigation,
-    source::{ItemKind, Source, SyntaxError},
+    source::{ItemKind, Source, SyntaxError, Visibility},
 };
 use std::path::Path;
 use support::Fixture;
@@ -15,6 +15,98 @@ fn fixture(files: &[(&str, &str)]) -> Fixture {
     let mut input = vec![("Cargo.toml", MANIFEST)];
     input.extend_from_slice(files);
     Fixture::new(&input)
+}
+
+#[test]
+fn written_distributed_slice_declarations_keep_their_source_facts() {
+    let text = "use linkme::distributed_slice;\n#[distributed_slice]\n/// Registry docs.\npub static ENTRIES: [Entry];\n#[linkme::distributed_slice]\npub(crate) static OTHER: [fn()];\nstruct Entry;\n";
+    let source = Source::of(Path::new("src/lib.rs"), text.into()).unwrap();
+    let entries = source
+        .outline()
+        .iter()
+        .find(|item| item.name == "ENTRIES")
+        .unwrap();
+    assert_eq!(entries.kind, ItemKind::Static);
+    assert_eq!(entries.visibility, Visibility::Pub);
+    assert!(entries.has_attribute("distributed_slice"));
+    assert_eq!(entries.line, 4);
+    assert_eq!(entries.doc.as_deref(), Some("Registry docs."));
+    assert_eq!(
+        entries.declaration_block.as_ref(),
+        "pub static ENTRIES: [Entry];"
+    );
+    assert_eq!(
+        &source.text()[entries.syntax_span.clone()],
+        "pub static ENTRIES: [Entry];"
+    );
+    let other = source
+        .outline()
+        .iter()
+        .find(|item| item.name == "OTHER")
+        .unwrap();
+    assert_eq!(other.kind, ItemKind::Static);
+    assert_eq!(other.visibility, Visibility::PubCrate);
+    assert!(other.has_attribute("linkme::distributed_slice"));
+    assert_eq!(other.line, 6);
+    assert_eq!(
+        other.declaration_block.as_ref(),
+        "pub(crate) static OTHER: [fn()];"
+    );
+
+    let fixture = fixture(&[("src/lib.rs", text)]);
+    let snapshot = snapshot_workspace(fixture.path()).unwrap();
+    assert!(snapshot.syntax_error("src/lib.rs").is_none());
+    assert!(
+        snapshot.graph().files[0]
+            .declarations
+            .iter()
+            .any(|d| d.name == "ENTRIES")
+    );
+    Analysis::new(&snapshot).unwrap().representations().unwrap();
+}
+
+#[test]
+fn unrelated_verbatim_items_remain_unsupported() {
+    for text in [
+        "static ENTRIES: [u8];",
+        "#[other] static ENTRIES: [u8];",
+        "#[other::distributed_slice] static ENTRIES: [u8];",
+        "#[distributed_slice(OTHER)] static ENTRIES: [u8];",
+        "#[distributed_slice] static ENTRIES: [u8; 2];",
+        "#[distributed_slice] static mut ENTRIES: [u8];",
+    ] {
+        assert!(
+            matches!(
+                Source::of(Path::new("src/lib.rs"), text.into()),
+                Err(SyntaxError::Unsupported { .. })
+            ),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn distributed_slice_cfg_remains_test_only() {
+    let fixture = fixture(&[(
+        "src/lib.rs",
+        "#[cfg(test)]\n#[distributed_slice]\nstatic TEST_ENTRIES: [u8];\nfn production() {}\n",
+    )]);
+    let snapshot = snapshot_workspace(fixture.path()).unwrap();
+    let declarations = &snapshot.graph().files[0].declarations;
+    assert!(
+        declarations
+            .iter()
+            .find(|d| d.name == "TEST_ENTRIES")
+            .unwrap()
+            .test_only
+    );
+    assert!(
+        !declarations
+            .iter()
+            .find(|d| d.name == "production")
+            .unwrap()
+            .test_only
+    );
 }
 
 #[test]
