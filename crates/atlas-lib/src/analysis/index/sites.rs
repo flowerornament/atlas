@@ -11,7 +11,7 @@
 //! as comma-separated expressions (form `macro-argument`, a syntax
 //! assumption); otherwise each `a::b` it spells is a `macro-text` site,
 //! which a reader may see but cannot trust. Expansions are not seen.
-use super::Index;
+use super::{Index, resolve::path_root};
 use crate::{
     analysis::sources::Sources, population::SyntaxSelection, source::Source, workflow::facts,
 };
@@ -139,7 +139,7 @@ impl Index {
         imports: &BTreeMap<String, Vec<Vec<String>>>,
         path: &[String],
     ) -> bool {
-        let Some(first) = path.first().filter(|first| !keyword(first)) else {
+        let Some(first) = path.first().filter(|first| !path_root(first)) else {
             return false;
         };
         let mut alias = scope.to_vec();
@@ -155,7 +155,7 @@ impl Index {
         imports: &BTreeMap<String, Vec<Vec<String>>>,
         path: &[String],
     ) -> Vec<Vec<String>> {
-        let Some(first) = path.first() else {
+        let Some(first) = path.first().filter(|first| !path_root(first)) else {
             return Vec::new();
         };
         let mut out = Vec::new();
@@ -184,10 +184,6 @@ struct Reading {
     targets: Vec<Option<Vec<String>>>,
     through: Option<Vec<String>>,
     candidates: Vec<Vec<String>>,
-}
-
-fn keyword(segment: &str) -> bool {
-    matches!(segment, "crate" | "self" | "super" | "Self")
 }
 
 struct Reader<'a> {
@@ -352,7 +348,7 @@ impl<'ast> Visit<'ast> for Reader<'_> {
         }
     }
     fn visit_path(&mut self, path: &'ast syn::Path) {
-        let written: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+        let written = crate::analysis::workflow::facts::path_segments(path);
         self.record(path.span(), SiteForm::Path, &written);
         visit::visit_path(self, path);
     }

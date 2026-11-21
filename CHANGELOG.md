@@ -6,6 +6,14 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Two call and path readings Rust resolves differently now follow Rust: a
+ name a glob import brings in shadows a workspace crate of that name
+ (`use crate::adapters::*; json::parse()` calls `adapters::json`), and a
+ path with a leading `::` names a crate, never a module in scope
+ (`::json::parse()` calls the crate even beside a local `mod json`). Both
+ used to resolve to the other item; callers, flow, facts and
+ `allowed_readers` sites read the same way.
+
 - A glob over the crate root (`use crate::*`, or `use super::*` reaching
  it) is read through each root name it brings in, where the name is used,
  in stage readings and seams test coupling alike, instead of making the

@@ -3,32 +3,24 @@
 //! unsupported calls stay summarized; no Rust type inference.
 use super::{Function, Index, Summary, SummaryKind, Target};
 use crate::{
-    analysis::workflow::{Binding, Call},
+    analysis::workflow::{Binding, Call, facts},
     architecture::Kind,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound;
-use syn::Type;
 
 pub(super) fn path(text: &str) -> Option<Vec<String>> {
     let path = syn::parse_str::<syn::Path>(text).ok()?;
-    Some(path.segments.iter().map(|s| s.ident.to_string()).collect())
+    Some(facts::path_segments(&path))
 }
 pub(super) fn ty(text: &str) -> Option<Vec<String>> {
-    fn inner(ty: &Type) -> Option<Vec<String>> {
-        match ty {
-            Type::Reference(r) => inner(&r.elem),
-            Type::Path(p) if p.qself.is_none() => Some(
-                p.path
-                    .segments
-                    .iter()
-                    .map(|s| s.ident.to_string())
-                    .collect(),
-            ),
-            _ => None,
-        }
-    }
-    inner(&syn::parse_str(text).ok()?)
+    facts::type_path(&syn::parse_str(text).ok()?)
+}
+/// Whether a path's first segment is a root, which no import, glob or
+/// block-local item can bind: a path keyword, or the empty segment of a
+/// leading `::`.
+pub(super) fn path_root(segment: &str) -> bool {
+    matches!(segment, "" | "crate" | "self" | "super" | "Self")
 }
 impl Index {
     pub(crate) fn scopes(&self, file: &str, module: &[String]) -> Vec<Vec<String>> {
@@ -62,7 +54,8 @@ impl Index {
     }
     /// What the module's globs of workspace modules bind a path's first
     /// name to. Unbound when no glob applies: the module declares the name,
-    /// no workspace glob binds it, or it is a path keyword or a crate.
+    /// no workspace glob binds it, or it is a path root. A glob binds before
+    /// the extern prelude, so a name it binds shadows a crate of that name.
     /// Ambiguous when globs bind it to different items (or through an
     /// ambiguous import or re-export), which is never picked.
     ///
@@ -81,10 +74,7 @@ impl Index {
         let (Some(first), Some(globs)) = (p.first(), imports.get("*")) else {
             return Glob::Unbound;
         };
-        if matches!(first.as_str(), "crate" | "self" | "super" | "Self")
-            || self.crates.contains(first)
-            || self.declares_name(scope, first)
-        {
+        if path_root(first) || self.declares_name(scope, first) {
             return Glob::Unbound;
         }
         let mut found = BTreeSet::new();
@@ -518,6 +508,11 @@ pub(super) fn normalize(
     crates: &BTreeSet<String>,
 ) -> Vec<String> {
     let mut path = path.to_vec();
+    // A leading `::`: the path is rooted at the crate it names.
+    if path.first().is_some_and(String::is_empty) {
+        path.remove(0);
+        return path;
+    }
     if path.first().is_some_and(|name| crates.contains(name)) {
         return path;
     }
@@ -541,6 +536,5 @@ pub(super) fn normalize(
 /// name, or through a body-local glob unless the segment is a path keyword.
 fn shadowed(local_names: &[String], first: &str) -> bool {
     local_names.iter().any(|name| name == first)
-        || (local_names.iter().any(|name| name == "*")
-            && !matches!(first, "crate" | "self" | "super" | "Self"))
+        || (local_names.iter().any(|name| name == "*") && !path_root(first))
 }

@@ -93,15 +93,19 @@ pub(super) fn modules(
     out.push(names);
 }
 /// A type's path as written, without generic arguments, through references.
-fn type_path(ty: &syn::Type) -> Option<Vec<String>> {
+/// A path's segment names, as the index reads them. A leading `::` is kept
+/// as an empty first segment, as a `use` binding's source path splits: the
+/// segment after it names a crate, never a module in scope.
+pub(crate) fn path_segments(path: &syn::Path) -> Vec<String> {
+    let root = path.leading_colon.map(|_| String::new());
+    root.into_iter()
+        .chain(path.segments.iter().map(|s| s.ident.to_string()))
+        .collect()
+}
+/// A type's path segments, through references and parentheses.
+pub(crate) fn type_path(ty: &syn::Type) -> Option<Vec<String>> {
     match ty {
-        syn::Type::Path(p) if p.qself.is_none() => Some(
-            p.path
-                .segments
-                .iter()
-                .map(|s| s.ident.to_string())
-                .collect(),
-        ),
+        syn::Type::Path(p) if p.qself.is_none() => Some(path_segments(&p.path)),
         syn::Type::Reference(r) => type_path(&r.elem),
         syn::Type::Paren(p) => type_path(&p.elem),
         _ => None,

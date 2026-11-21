@@ -21,7 +21,7 @@ type Addresses = BTreeMap<Vec<String>, Vec<String>>;
 use crate::source_text::text;
 
 fn resolve(r: &Record, p: &syn::Path, index: &Index, addresses: &Addresses) -> Option<String> {
-    let parts: Vec<_> = p.segments.iter().map(|s| s.ident.to_string()).collect();
+    let parts = crate::analysis::workflow::facts::path_segments(p);
     if parts
         .first()
         .is_some_and(|name| r.parameters.contains(name))
