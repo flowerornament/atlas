@@ -7,6 +7,7 @@ use atlas_lib::{
     population::VisibilitySelection,
     queries::navigation::{self, Navigation},
 };
+use cargo_atlas::suggestion::PROGRAM;
 use clap::Args;
 use std::{fmt::Write as _, path::PathBuf};
 
@@ -96,7 +97,7 @@ fn census(report: &navigation::Census, rows: Rows) -> Result<String> {
         return module(report, false, false, rows);
     };
     let mut text = format!(
-        "cargo atlas census — {} · {} subjects; native source-tree lines\n",
+        "{PROGRAM} census — {} · {} subjects; native source-tree lines\n",
         report.scope,
         report.population.label()
     );
@@ -122,7 +123,7 @@ fn tally(text: &mut String, key: &str, tally: navigation::Tally) -> Result<()> {
 }
 fn name(report: &navigation::Name, rows: Rows) -> Result<String> {
     let mut text = format!(
-        "cargo atlas name — {} · {} {} in population {}, {} hidden; ~{} textual references\n",
+        "{PROGRAM} name — {} · {} {} in population {}, {} hidden; ~{} textual references\n",
         report.query,
         report.matches.len(),
         if report.matches.len() == 1 {
@@ -178,7 +179,7 @@ fn name(report: &navigation::Name, rows: Rows) -> Result<String> {
 }
 fn module(report: &navigation::Module, items: bool, graph: bool, rows: Rows) -> Result<String> {
     let mut text = format!(
-        "cargo atlas module — {} · {} subjects\n",
+        "{PROGRAM} module — {} · {} subjects\n",
         report.path,
         report.population.label()
     );

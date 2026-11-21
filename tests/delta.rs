@@ -316,7 +316,10 @@ fn a_policy_missing_at_the_baseline_names_the_baseline() {
         error.contains(&format!(
             "the policy .config/architecture.toml is not in the baseline {base} ({})",
             &base[..12]
-        )) && error.contains("run `cargo atlas policy` instead"),
+        )) && error.contains(&format!(
+            "run `cargo atlas policy --policy .config/architecture.toml --root {}` instead",
+            fixture.path().display()
+        )),
         "{error}"
     );
 }

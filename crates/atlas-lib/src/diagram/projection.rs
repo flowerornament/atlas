@@ -14,7 +14,11 @@ pub fn project(
     query: &Query,
 ) -> Result<Diagram> {
     if matches!(query.view, View::Workflow | View::Program) {
-        return Err("use cargo atlas flow for source workflow analysis".into());
+        return Err(format!(
+            "use {} for source workflow analysis",
+            crate::suggestion::Command::new("flow")
+        )
+        .into());
     }
     if architecture.is_some_and(|a| a.modules.is_empty()) {
         return Err(

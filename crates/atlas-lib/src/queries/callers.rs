@@ -30,6 +30,7 @@ use crate::{
     analysis::semantic::{Agreement, Named, Reading, Semantic},
     model::{Declaration, SourceGraph},
     representations::{Facts, Function, UnknownCall},
+    suggestion::{Command, shown},
 };
 use serde::Serialize;
 use std::{
@@ -264,9 +265,11 @@ fn select<'a>(
         }
     };
     if matches.is_empty() {
-        return Err(
-            format!("no function matches {selector:?}; try cargo atlas name {selector}").into(),
-        );
+        return Err(format!(
+            "no function matches {selector:?}; try {}",
+            Command::new("name").arg(selector)
+        )
+        .into());
     }
     Ok(matches)
 }
@@ -1251,8 +1254,11 @@ fn heading<'a>(
             .map_or(first.path.as_str(), |(dir, _)| dir);
         let _ = writeln!(
             out,
-            "  to name one: Type::method or module::name (cargo atlas {question} {}), FILE:LINE ({}:{}), or --in PATH (--in {dir})",
-            first.name, first.path, first.line
+            "  to name one: Type::method or module::name ({}), FILE:LINE ({}:{}), or --in PATH (--in {})",
+            Command::new(question).arg(first.name.as_str()),
+            shown(&first.path),
+            first.line,
+            shown(dir),
         );
     }
     out.push('\n');

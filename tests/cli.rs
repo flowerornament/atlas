@@ -825,3 +825,38 @@ fn refusals_end_with_a_runnable_command_built_from_real_names() {
         "{flow}"
     );
 }
+
+/// A command Atlas prints reads the project this run read, however it was
+/// named (`--root` or a positional ROOT), and runs as printed from where
+/// the run was.
+#[test]
+fn a_printed_command_reads_the_project_this_run_read() {
+    let f = fixture();
+    let root = f.path().to_str().expect("path");
+    for args in [vec!["flow", "--root", root], vec!["flow", root]] {
+        let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .current_dir("/")
+            .args(&args)
+            .output()
+            .expect("flow");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let printed = stderr
+            .split("; run: cargo atlas ")
+            .nth(1)
+            .unwrap_or_else(|| panic!("{args:?} prints a command: {stderr}"))
+            .trim();
+        assert!(printed.contains(&format!("--root {root}")), "{printed}");
+        let rerun = Command::new("sh")
+            .current_dir("/")
+            .arg("-c")
+            .arg(format!("\"$0\" {printed}"))
+            .arg(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .output()
+            .expect("the printed command");
+        assert!(
+            rerun.status.success(),
+            "{printed}: {}",
+            String::from_utf8_lossy(&rerun.stderr)
+        );
+    }
+}

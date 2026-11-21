@@ -87,7 +87,7 @@ pub(crate) struct Options {
 /// defines.
 pub(crate) fn after_help() -> String {
     format!(
-        "Answers: any question the facts can answer, written as rules over named fields: join, recurse, negate and count.\nExample: cargo atlas query '?- file_calls{{from: A, to: B, calls: N}}, under(A, \"src\") order by N desc limit 10.'\nThe prelude (--prelude) restates commands as relations: {}. Fields are those of `cargo atlas facts --schema`.\nHonesty: a rule that drops a candidate's basis, or negates calls without reading unknown_call, is refused unless you --accept that check; the acceptance is printed with the answer. Rows are observations: an empty answer is not proof of absence.\nExit 0 whenever the program ran, whatever the rows. Recipes: cargo atlas help agent. The language: cargo atlas help --topic query.",
+        "Answers: any question the facts can answer, written as rules over named fields: join, recurse, negate and count.\nExample: cargo atlas query '?- file_calls{{from: A, to: B, calls: N}}, under(A, \"src\") order by N desc limit 10.'\nThe prelude (--prelude) restates commands as relations: {}. Fields are those of `facts --schema`.\nHonesty: a rule that drops a candidate's basis, or negates calls without reading unknown_call, is refused unless you --accept that check; the acceptance is printed with the answer. Rows are observations: an empty answer is not proof of absence.\nExit 0 whenever the program ran, whatever the rows. Recipes: cargo atlas help agent. The language: cargo atlas help --topic query.",
         prelude_sections()
             .iter()
             .map(|(section, names)| format!("{} ({section})", names.join(", ")))
@@ -127,10 +127,12 @@ fn program_text(options: &Options) -> Result<String> {
         }
         (None, Some(path)) => std::fs::read_to_string(path)
             .map_err(|e| format!("cannot read {}: {e}", path.display()).into()),
-        (None, None) => Err(
-            "give a program, such as `cargo atlas query '?- file_calls{from: A, to: B, calls: N}.'`, or -f FILE"
-                .into(),
-        ),
+        (None, None) => Err(format!(
+            "give a program, such as `{}`, or -f FILE",
+            cargo_atlas::suggestion::Command::new("query")
+                .arg("?- file_calls{from: A, to: B, calls: N}.")
+        )
+        .into()),
     }
 }
 
@@ -379,7 +381,11 @@ fn read_export(
     options: &Options,
 ) -> Result<Reading> {
     if options.tests.asked() {
-        return Err("--with-tests captures now; a saved export has the population it was exported with (cargo atlas facts --with-tests)".into());
+        return Err(format!(
+            "--with-tests captures now; a saved export has the population it was exported with ({})",
+            cargo_atlas::suggestion::Command::new("facts").arg("--with-tests")
+        )
+        .into());
     }
     let text = std::fs::read_to_string(path)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))?;

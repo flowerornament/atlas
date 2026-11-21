@@ -92,18 +92,20 @@ rule = [
 # because analysis builds the diagram model (`Diagram`, `Coverage`).
 [[stage_order]]
 crate = "atlas-lib"
-stages = ["architecture", "source", "diagram", "analysis", "relations", "queries", "query", "checks", "revision", "guide"]
+stages = ["suggestion", "architecture", "source", "diagram", "analysis", "relations", "queries", "query", "checks", "revision", "guide"]
 
 # Exactly the earlier stages each stage reads today. A new read between
 # stages needs a line here.
+# `suggestion` builds every command printed for someone to run: a stage
+# that prints one (a refusal's hint, a list's tail) reads it.
 [stage_reads.atlas-lib]
 source = { reads = ["architecture"] }
-diagram = { reads = ["architecture", "source"] }
+diagram = { reads = ["suggestion", "architecture", "source"] }
 analysis = { reads = ["architecture", "source", "diagram"] }
 relations = { reads = ["source", "analysis"] }
-queries = { reads = ["architecture", "source", "analysis", "relations"] }
-query = { reads = ["architecture", "relations"] }
-checks = { reads = ["architecture", "source", "analysis", "queries"] }
+queries = { reads = ["suggestion", "architecture", "source", "analysis", "relations"] }
+query = { reads = ["suggestion", "architecture", "relations"] }
+checks = { reads = ["suggestion", "architecture", "source", "analysis", "queries"] }
 revision = { reads = ["architecture", "source"] }
 
 # cargo-atlas's modules in the order they read each other, as measured:

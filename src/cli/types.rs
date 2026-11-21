@@ -45,10 +45,14 @@ pub(crate) fn run(
     };
     if query_path.is_none() && names.is_empty() {
         let example = most_mentioned_type(metadata).map_or_else(String::new, |name| {
-            format!("; run: cargo atlas types {name}")
+            format!(
+                "; run: {}",
+                cargo_atlas::suggestion::Command::new("types").arg(name)
+            )
         });
         return Err(format!(
-            "name the types (cargo atlas types NAME[,NAME]) or give --query FILE; use overview for source-declared defaults{example}"
+            "name the types ({}) or give --query FILE; use overview for source-declared defaults{example}",
+            cargo_atlas::suggestion::Command::new("types").placeholder("NAME[,NAME]")
         )
         .into());
     }
@@ -175,8 +179,9 @@ fn selector(
             file: Some(one.file.clone()),
         }),
         [] => Err(format!(
-            "no type matches {word:?}{}; cargo atlas name {name} lists what is declared with that name",
-            within.map_or_else(String::new, |path| format!(" in {path}"))
+            "no type matches {word:?}{}; {} lists what is declared with that name",
+            within.map_or_else(String::new, |path| format!(" in {path}")),
+            cargo_atlas::suggestion::Command::new("name").arg(name)
         )
         .into()),
         several => {
@@ -202,8 +207,10 @@ fn respelled(word: &str, with: &str) -> String {
         if let Some(part) = parts.iter_mut().find(|part| **part == word) {
             *part = with;
             *arg = parts.join(",");
-            return crate::cli::output::rows::command(&words);
+            return crate::cli::output::rows::rerun(&words);
         }
     }
-    format!("cargo atlas types {with}")
+    cargo_atlas::suggestion::Command::new("types")
+        .arg(with)
+        .to_string()
 }

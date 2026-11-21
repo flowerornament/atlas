@@ -23,6 +23,7 @@ use crate::{
     relations::code,
     representations::{Facts, Function},
     source::discovery::target_key,
+    suggestion::Command,
 };
 use serde::Serialize;
 use std::{
@@ -900,38 +901,16 @@ fn mentioned_command(section: &Section) -> Option<NextCommand> {
     }
 }
 
-/// Render arguments after `cargo atlas`, quoting any that a shell would split.
-pub fn command_line(args: &[String]) -> String {
-    let mut line = String::from("cargo atlas");
-    for arg in args {
-        line.push(' ');
-        if !arg.is_empty()
-            && arg
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || "-_./:=@,+".contains(c))
-            || arg.starts_with('<')
-        {
-            line.push_str(arg);
-        } else {
-            let _ = write!(line, "'{}'", arg.replace('\'', r"'\''"));
-        }
-    }
-    line
-}
-
 impl Orientation {
-    /// One page of text. `suffix` is appended to every printed command, such
-    /// as the `--root` the caller used, so each command runs as printed.
-    pub fn text(&self, suffix: &[String]) -> String {
-        let render = |args: &[String]| {
-            let mut all = args.to_vec();
-            all.extend(suffix.iter().cloned());
-            command_line(&all)
-        };
+    /// One page of text. Each printed command is rendered by
+    /// [`crate::suggestion`], so it carries the run's project.
+    pub fn text(&self) -> String {
+        let render = |args: &[String]| Command::from_words(args).to_string();
         let mut out = String::new();
         let _ = writeln!(
             out,
-            "cargo atlas orient: {}, {} package{}, {} source files ({} test-only, {} @generated, {} outside any target's module tree)",
+            "{} orient: {}, {} package{}, {} source files ({} test-only, {} @generated, {} outside any target's module tree)",
+            crate::suggestion::PROGRAM,
             self.scope,
             self.packages.len(),
             if self.packages.len() == 1 { "" } else { "s" },
@@ -1137,18 +1116,5 @@ mod tests {
             "fn f() {}\nlet s = \"@generated\";\n"
         ));
         assert!(!has_generated_marker("\n\n\n\n\n// @generated\n"));
-    }
-
-    #[test]
-    fn commands_quote_what_a_shell_would_split() {
-        let args = |a: &[&str]| a.iter().map(|&s| s.to_owned()).collect::<Vec<_>>();
-        assert_eq!(
-            command_line(&args(&["module", "src/a b"])),
-            "cargo atlas module 'src/a b'"
-        );
-        assert_eq!(
-            command_line(&args(&["flow", "--path", "<bin root>"])),
-            "cargo atlas flow --path <bin root>"
-        );
     }
 }

@@ -3,7 +3,8 @@
 //! Application views select observations and renderers present them without reading source.
 pub(crate) use atlas_lib::source_index;
 pub use atlas_lib::{
-    analysis, architecture, diagram, discovery, model, queries, relationships, revision, workflow,
+    analysis, architecture, diagram, discovery, model, queries, relationships, revision,
+    suggestion, workflow,
 };
 pub mod adapter;
 mod process;

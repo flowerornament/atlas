@@ -135,7 +135,13 @@ fn anchors(
     }
     let Some(profile) = profile else {
         let example = entry_function(metadata).map_or_else(String::new, |(path, function)| {
-            format!("; run: cargo atlas flow --path {path} --function {function}")
+            format!(
+                "; run: {}",
+                cargo_atlas::suggestion::Command::new("flow")
+                    .arg("--path")
+                    .path(path)
+                    .args(["--function", function.as_str()])
+            )
         });
         return Err(
             format!("flow needs --architecture or both --path and --function{example}").into(),

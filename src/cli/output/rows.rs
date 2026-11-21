@@ -1,6 +1,7 @@
 //! Bounded text (spec §3.6): each list in text shows at most N rows, and a
 //! list that left rows out ends with one tail line naming a command that shows
 //! the rest. JSON is never bounded, and neither is text with `--all`.
+use cargo_atlas::suggestion::Command;
 use clap::Args;
 
 /// How many rows each text list shows.
@@ -44,10 +45,9 @@ pub(crate) fn this_run() -> Vec<String> {
     }
     words
 }
-/// `cargo atlas WORDS`, each word quoted as a shell reads it back.
-pub(crate) fn command(words: &[String]) -> String {
-    let words: Vec<String> = words.iter().map(|word| quoted(word)).collect();
-    format!("cargo atlas {}", words.join(" "))
+/// This run's own `words`, edited, as a printed command.
+pub(crate) fn rerun(words: &[String]) -> String {
+    Command::rerun(words).to_string()
 }
 /// This run's command line with `--rows N` dropped and `--all` added.
 pub(crate) fn rerun_all() -> String {
@@ -62,45 +62,16 @@ pub(crate) fn rerun_all() -> String {
         }
     }
     kept.push("--all".to_owned());
-    command(&kept)
+    rerun(&kept)
 }
-/// `word` as a shell reads it back: as is when it is plain, otherwise in
-/// single quotes (a query program has spaces, quotes and braces).
-fn quoted(word: &str) -> String {
-    // `~` is plain inside a word (`HEAD~1`); only a leading one expands.
-    let plain = !word.is_empty()
-        && !word.starts_with('~')
-        && word
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "_-./:@=,+%^~".contains(c));
-    if plain {
-        word.to_owned()
-    } else {
-        format!("'{}'", word.replace('\'', "'\\''"))
-    }
-}
-/// `cargo atlas COMMAND SUBJECT [FLAGS] --all`, keeping this run's
-/// `--root`: the narrower command a nested list's tail names.
+/// `cargo atlas COMMAND SUBJECT [FLAGS] --all`: the narrower command a
+/// nested list's tail names, reading this run's project.
 pub(crate) fn narrower(question: &str, subject: &str, flags: &[&str]) -> String {
-    let run = this_run();
-    let root = run
-        .iter()
-        .position(|word| word == "--root")
-        .and_then(|at| run.get(at + 1).cloned())
-        .or_else(|| {
-            run.iter()
-                .find_map(|word| word.strip_prefix("--root=").map(str::to_owned))
-        });
-    let mut words: Vec<String> = [question, subject]
-        .into_iter()
-        .chain(flags.iter().copied())
-        .map(str::to_owned)
-        .collect();
-    if let Some(root) = root {
-        words.extend(["--root".to_owned(), root]);
-    }
-    words.push("--all".to_owned());
-    command(&words)
+    Command::new(question)
+        .arg(subject)
+        .args(flags.iter().copied())
+        .arg("--all")
+        .to_string()
 }
 /// Print up to `limit` of `rows` with `line`, then the tail if any were left
 /// out.

@@ -61,7 +61,10 @@ pub(super) fn json(
             "sha256": sha256,
             "raises": report.raises,
         },
-        "command": format!("cargo atlas delta {} --candidate {}", report.basis.baseline, report.basis.candidate),
+        "command": cargo_atlas::suggestion::Command::new("delta")
+            .arg(report.basis.baseline.as_str())
+            .args(["--candidate", report.basis.candidate.as_str()])
+            .to_string(),
         "size": size,
         "shape": shape,
         "coupling": coupling,
@@ -86,7 +89,8 @@ pub(super) fn display(
     let before = &report.basis.baseline;
     let after = &report.basis.candidate;
     let mut out = format!(
-        "cargo atlas delta {} -> {} · {elapsed}ms",
+        "{} delta {} -> {} · {elapsed}ms",
+        cargo_atlas::suggestion::PROGRAM,
         &before[..12.min(before.len())],
         &after[..12.min(after.len())]
     );

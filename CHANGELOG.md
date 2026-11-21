@@ -6,6 +6,21 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- Every command Atlas prints for someone to run (a refusal's hint, a
+ list's tail, `orient`'s next lines, a check's "lists them") reads the
+ project this run read, however it was named (`--root PATH` or a
+ positional ROOT), and runs as printed. Several hints dropped the project
+ (`flow`'s and `types`' "run:" lines, `dependencies`' "to draw one"), a
+ tail dropped a positional ROOT, and `dependencies`' "(each edge's count)"
+ named the calls edges of the whole workspace whatever `--relation` and
+ scope were read; it now keeps both.
+- atlas-lib: `suggestion::Command` builds every printed command and is the
+ one rendering of it, with `suggestion::PROGRAM`, `quoted` and `shown`.
+ **Breaking (library):** `queries::orient::command_line` is gone (render
+ `suggestion::Command::from_words`), and `Orientation::text` takes no
+ suffix: a program states its project once with
+ `suggestion::set_project`.
+
 - A helper program (the renderer, an adapter or an indexer) that stops
  reading its request no longer holds Atlas past its time limit: a failed
  request write used to end the deadline and then wait, unbounded, for a

@@ -280,7 +280,10 @@ impl Names<'_> {
             let at = out.rfind(&format!("\n{}", self.basis)).unwrap_or(out.len());
             out.insert_str(
                 at,
-                &format!("\nfor calls, cargo atlas callers {}\n", self.query),
+                &format!(
+                    "\nfor calls, {}\n",
+                    crate::suggestion::Command::new("callers").arg(self.query.as_str())
+                ),
             );
         }
         out

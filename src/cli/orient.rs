@@ -3,7 +3,6 @@
 use super::json;
 use cargo_atlas::{Result, discovery, queries::orient};
 use clap::Args;
-use std::path::Path;
 
 #[derive(Args)]
 pub(crate) struct Options {
@@ -22,11 +21,8 @@ pub(crate) struct Options {
     indexer: crate::cli::semantic::IndexerArgs,
 }
 
-/// `root` is the project directory as the caller gave it, so printed commands
-/// carry the same `--root` and run as shown.
 pub(crate) fn run(
     metadata: &cargo_metadata::Metadata,
-    root: &Path,
     options: &Options,
     cache: &crate::cli::semantic::IndexCache,
 ) -> Result<()> {
@@ -54,12 +50,7 @@ pub(crate) fn run(
     if options.output.json() {
         print!("{}", json(&report)?);
     } else {
-        let suffix = if root == Path::new(".") {
-            Vec::new()
-        } else {
-            vec!["--root".to_owned(), root.display().to_string()]
-        };
-        print!("{}", report.text(&suffix));
+        print!("{}", report.text());
     }
     Ok(())
 }

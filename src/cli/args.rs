@@ -82,7 +82,7 @@ pub(super) fn this_command_with(from: &str, to: &[&str]) -> Option<String> {
     let mut words = super::output::rows::this_run();
     let at = words.iter().position(|word| word == from)?;
     words.splice(at..=at, to.iter().map(|word| (*word).to_owned()));
-    Some(super::output::rows::command(&words))
+    Some(super::output::rows::rerun(&words))
 }
 #[derive(Subcommand)]
 pub(super) enum Command {

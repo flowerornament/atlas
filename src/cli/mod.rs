@@ -55,6 +55,13 @@ pub(crate) fn run() -> Result<()> {
     let selected_root = cli.selected_root(&mut notices);
     notices.print();
     let selected_root = selected_root?;
+    // Every command Atlas prints for this run reads the project it read.
+    if selected_root != Path::new(".") {
+        cargo_atlas::suggestion::set_project(vec![
+            "--root".to_owned(),
+            selected_root.display().to_string(),
+        ]);
+    }
     if let Some(options) = options {
         output::form::agree(options)?;
     }
@@ -69,7 +76,7 @@ pub(crate) fn run() -> Result<()> {
         .exec()?;
     let root = metadata.workspace_root.as_std_path().canonicalize()?;
     let cache = cache::open(cli.no_cache, &root)?;
-    let result = dispatch(cli.command, &root, &metadata, &selected_root, &cache);
+    let result = dispatch(cli.command, &root, &metadata, &cache);
     cache.finish(result.map_err(with_scope_hint))
 }
 
@@ -78,7 +85,6 @@ fn dispatch(
     command: Command,
     root: &Path,
     metadata: &cargo_metadata::Metadata,
-    selected_root: &Path,
     cache: &cache::Session,
 ) -> Result<()> {
     match command {
@@ -109,9 +115,7 @@ fn dispatch(
         }
         Command::Program(options) => program::run(root, metadata, &options),
         Command::Map(options) => map::run(root, metadata, &options),
-        Command::Orient(options) => {
-            orient::run(metadata, selected_root, &options, &cache.semantic())
-        }
+        Command::Orient(options) => orient::run(metadata, &options, &cache.semantic()),
         Command::Dump(args) => navigation::run_dump(root, metadata, &args, &cache.semantic()),
         Command::Facts(options) => facts::run(metadata, &options, &cache.semantic()),
         Command::Query(options) => query::run(metadata, &options, &cache.semantic()),

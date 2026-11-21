@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use super::super::StageReport;
 use super::{SeamReading, UnownedRead};
 use crate::checks::policy;
+use crate::suggestion::Command;
 
 /// One population of one writers row, as recorded by the candidate.
 #[derive(Clone, Copy)]
@@ -80,9 +81,10 @@ impl SeamReading {
                 };
                 if items.len() > row.items {
                     refusals.push(format!(
-                        "stage seam `{name}`: {reader} reads {} items of {read} past its boundary, above the row's {}; read {read} through its boundary, or retire a read (`cargo atlas seams {name}` lists them)",
+                        "stage seam `{name}`: {reader} reads {} items of {read} past its boundary, above the row's {}; read {read} through its boundary, or retire a read (`{}` lists them)",
                         items.len(),
                         row.items,
+                        Command::new("seams").arg(name.as_str()),
                     ));
                 }
                 let Some(base) = base.filter(|base| base.present.contains(reader)) else {
@@ -286,7 +288,10 @@ impl SeamReading {
                     })
                     .collect();
                 let shown = if fresh.is_empty() {
-                    format!("`cargo atlas seams {name} --items` lists them")
+                    format!(
+                        "`{}` lists them",
+                        Command::new("seams").arg(name.as_str()).arg("--items")
+                    )
                 } else {
                     format!("new: {}", fresh.join(", "))
                 };
@@ -469,8 +474,9 @@ impl SeamReading {
                 .map_or(0, |row| row.pairs);
             if pairs.len() > held {
                 refusals.push(format!(
-                    "test coupling `{name}`: {owner}'s tests name {} (test file, item) pairs inside other stages, above the recorded {held}; test through the stages' boundary types, or retire a coupled test (`cargo atlas seams {name} --items` lists them)",
+                    "test coupling `{name}`: {owner}'s tests name {} (test file, item) pairs inside other stages, above the recorded {held}; test through the stages' boundary types, or retire a coupled test (`{}` lists them)",
                     pairs.len(),
+                    Command::new("seams").arg(name.as_str()).arg("--items"),
                 ));
             }
             let Some(base) = base.filter(|base| base.present.contains(owner)) else {

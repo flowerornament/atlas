@@ -255,7 +255,8 @@ impl Scope {
             },
             Ok(None) if package.is_some() => Ok(Chosen::Package(word.to_owned())),
             Ok(None) => Err(format!(
-                "no path, file name or package {word:?} in this project; cargo atlas orient lists them"
+                "no path, file name or package {word:?} in this project; {} lists them",
+                cargo_atlas::suggestion::Command::new("orient")
             )
             .into()),
             Err(error) => Err(error),
@@ -506,8 +507,11 @@ fn chosen_path(
     path: &str,
 ) -> Result<String> {
     path_or_basename(graph, metadata, path)?.ok_or_else(|| {
-        format!("no path or file name {path:?} in this project; cargo atlas orient lists them")
-            .into()
+        format!(
+            "no path or file name {path:?} in this project; {} lists them",
+            cargo_atlas::suggestion::Command::new("orient")
+        )
+        .into()
     })
 }
 /// The package's directory, relative to the workspace root ("" for the root).

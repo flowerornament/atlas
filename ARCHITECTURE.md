@@ -140,11 +140,13 @@ on atlas-lib and no other workspace package.**
   uses, refuses) and by `cargo atlas delta`.
 
 **2. No top-level module of atlas-lib reads a module later in this order:
-`architecture`, `source`, `diagram`, `analysis`, `relations`, `queries`,
-`query`, `checks`, `revision`, `guide`.**
+`suggestion`, `architecture`, `source`, `diagram`, `analysis`, `relations`,
+`queries`, `query`, `checks`, `revision`, `guide`.**
 This is the order the code has, measured with `cargo atlas stages`, not an
-ideal one. `diagram` comes before `analysis` because analysis builds the
-diagram model (`Diagram`, `Coverage`).
+ideal one. `suggestion` comes first because it reads nothing and every stage
+that prints a command for someone to run builds it there. `diagram` comes
+before `analysis` because analysis builds the diagram model (`Diagram`,
+`Coverage`).
 - *Broken by:* a `use` or path in one module that names a later one, or a new
   top-level module missing from the order.
 - *Checked by:* `[[stage_order]]` in the policy, judged by `cargo atlas stages`

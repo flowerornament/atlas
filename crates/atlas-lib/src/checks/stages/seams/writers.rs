@@ -58,7 +58,10 @@ pub(in crate::checks) fn writers_shape(
     for (ty, row) in &seams.writers {
         if row.sites.is_some() {
             violations.push(format!(
-                "stage writers `{crate_name}`: the writers row for `{ty}` writes `sites`, which counts test and production together; write `test_sites` and `production_sites` (`{{ \"<owner>\" = n }}`, `{{}}` for none) as `cargo atlas seams {crate_name} --items` lists them"
+                "stage writers `{crate_name}`: the writers row for `{ty}` writes `sites`, which counts test and production together; write `test_sites` and `production_sites` (`{{ \"<owner>\" = n }}`, `{{}}` for none) as `{}` lists them",
+                crate::suggestion::Command::new("seams")
+                    .arg(crate_name)
+                    .arg("--items")
             ));
         }
         for (recorded, field) in [

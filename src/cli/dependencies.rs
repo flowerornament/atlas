@@ -1,12 +1,13 @@
 //! Qualified file relationships with exact source witnesses.
 use crate::cli::output::artifact as artifact_output;
+use cargo_atlas::suggestion::Command;
 use cargo_atlas::{
     Result,
     dependencies::{self, Relation},
     discovery,
     render::View,
 };
-use clap::Args;
+use clap::{Args, ValueEnum as _};
 use std::fmt::Write as _;
 use std::path::Path;
 /// The evidence document, serialized from borrows rather than copied into a
@@ -39,7 +40,10 @@ pub(crate) fn run(
     options.evidence.check(
         "dependencies",
         "qualified relations",
-        "for lexical file mentions use cargo atlas map --level files",
+        &format!(
+            "for lexical file mentions use {}",
+            Command::new("map").args(["--level", "files"])
+        ),
         "dump --json and flow accept --scip FILE",
     )?;
     let snapshot = discovery::snapshot_metadata(metadata)?;
@@ -107,9 +111,9 @@ fn narrowing_hint(metadata: &cargo_metadata::Metadata, graph: &cargo_atlas::mode
         .max_by_key(|(files, _)| *files);
     if let Some((_, src)) = largest {
         eprintln!(
-            "atlas: drew all {} packages; to draw one: cargo atlas dependencies {}",
+            "atlas: drew all {} packages; to draw one: {}",
             packages.len(),
-            src.display()
+            Command::new("dependencies").arg(src.display().to_string())
         );
     }
 }
@@ -155,12 +159,22 @@ fn ranked(
             } else {
                 format!(", under(A, \"{scope}\"), under(B, \"{scope}\")")
             };
-            crate::cli::output::rows::command(&[
-                "query".to_owned(),
-                format!("?- file_calls{{from: A, to: B, calls: N}}{within} order by N desc."),
-            ])
+            Command::new("query")
+                .arg(format!(
+                    "?- file_calls{{from: A, to: B, calls: N}}{within} order by N desc."
+                ))
+                .to_string()
         } else {
-            "cargo atlas dependencies --as json (each edge's count)".to_owned()
+            // The JSON's edges, each with its count, for this relation and scope.
+            let relation = relation
+                .to_possible_value()
+                .map(|value| value.get_name().to_owned())
+                .unwrap_or_default();
+            let mut command = Command::new("dependencies").args(["--relation", &relation]);
+            if !scope.is_empty() {
+                command = command.args(["--in", scope]);
+            }
+            format!("{} (each edge's count)", command.args(["--as", "json"]))
         };
         let _ = writeln!(block, "  … {} more; {rest}", order.len() - SHOWN);
     }

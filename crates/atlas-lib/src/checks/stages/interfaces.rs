@@ -214,8 +214,9 @@ fn row_violations(
         && !stages.is_empty()
     {
         violations.push(format!(
-            "stage interface `{crate_name}`: {reader} names its debt bare; write each as a row, `{} = {{ items = N, owner = \"<bead>\" }}`, counting the distinct items `cargo atlas seams` lists",
-            stages[0]
+            "stage interface `{crate_name}`: {reader} names its debt bare; write each as a row, `{} = {{ items = N, owner = \"<bead>\" }}`, counting the distinct items `{}` lists",
+            stages[0],
+            crate::suggestion::Command::new("seams")
         ));
     }
     if let Some(floor) = floor {

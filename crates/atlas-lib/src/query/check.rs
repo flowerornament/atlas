@@ -9,6 +9,7 @@ use super::{
     syntax::{Atom, Builtin, ClauseKind, Const, Field, HeadTerm, Literal, Op, Program, Term},
 };
 use crate::relations::{Family, schema};
+use crate::suggestion::Command;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 pub(crate) use schema::Kind;
@@ -510,8 +511,10 @@ impl<'p> Catalog<'p> {
                 ErrorKind::Schema,
                 at,
                 format!(
-                    "no relation `{name}`; closest: {}. `cargo atlas facts --schema` lists the stored relations and `cargo atlas query --prelude` the prelude's",
-                    list(known.into_iter())
+                    "no relation `{name}`; closest: {}. `{}` lists the stored relations and `{}` the prelude's",
+                    list(known.into_iter()),
+                    Command::new("facts").arg("--schema"),
+                    Command::new("query").arg("--prelude"),
                 ),
             ));
         };

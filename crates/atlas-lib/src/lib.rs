@@ -63,6 +63,7 @@ pub mod diagram;
 pub mod query;
 pub mod relations;
 pub mod revision;
+pub mod suggestion;
 
 /// The library guide: snapshots, qualified analysis, navigation, relations,
 /// queries, comparing versions and architecture checks, with examples.

@@ -41,6 +41,20 @@ pub(crate) enum Direction {
     Callers,
     Callees,
 }
+/// Whether the semantic index is asked for, once the evidence flags agree.
+fn asks_semantic(options: &Options, command: &str, selector: &str) -> Result<bool> {
+    options.evidence.semantic(
+        command,
+        "resolved calls",
+        &format!(
+            "for lexical co-mentions use {}",
+            cargo_atlas::suggestion::Command::new("name")
+                .arg(selector)
+                .arg("--relations")
+        ),
+        options.scip.is_some() || options.indexer.semantic,
+    )
+}
 pub(crate) fn run(
     metadata: &cargo_metadata::Metadata,
     options: &Options,
@@ -52,12 +66,7 @@ pub(crate) fn run(
         Direction::Callers => "callers",
         Direction::Callees => "callees",
     };
-    let semantic = options.evidence.semantic(
-        command,
-        "resolved calls",
-        &format!("for lexical co-mentions use cargo atlas name {selector} --relations"),
-        options.scip.is_some() || options.indexer.semantic,
-    )?;
+    let semantic = asks_semantic(options, command, selector)?;
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let graph = snapshot.graph();
     let analysis =
