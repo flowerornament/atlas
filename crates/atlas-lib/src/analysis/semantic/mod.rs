@@ -255,7 +255,22 @@ pub struct Reading {
 /// One supplied SCIP index, checked and prepared for lookup.
 pub struct SemanticIndex {
     provenance: Provenance,
-    tables: Result<Tables, String>,
+    tables: Result<Tables, Unusable>,
+}
+
+/// Why an index gives no reading: it is not valid SCIP, does not describe
+/// a workspace Atlas can read, or could not be obtained.
+#[derive(Debug, Clone)]
+struct Unusable(String);
+impl From<String> for Unusable {
+    fn from(reason: String) -> Self {
+        Self(reason)
+    }
+}
+impl From<&str> for Unusable {
+    fn from(reason: &str) -> Self {
+        Self(reason.to_owned())
+    }
 }
 
 /// A reference occurrence's start: path, zero-based line and column.
@@ -297,7 +312,7 @@ impl SemanticIndex {
     pub fn read(bytes: &[u8]) -> Self {
         let mut provenance = Provenance::supplied(crate::source::hex(&Sha256::digest(bytes)));
         let tables = wire::parse(bytes)
-            .map_err(|error| format!("the index is not valid SCIP: {error}"))
+            .map_err(|error| Unusable(format!("the index is not valid SCIP: {error}")))
             .and_then(|index| {
                 provenance.producer.clone_from(&index.tool);
                 provenance.producer_version.clone_from(&index.version);
@@ -319,7 +334,7 @@ impl SemanticIndex {
     pub fn unavailable_because(reason: String) -> Self {
         Self {
             provenance: Provenance::supplied(String::new()),
-            tables: Err(reason),
+            tables: Err(Unusable(reason)),
         }
     }
     pub fn provenance(&self) -> &Provenance {
@@ -327,7 +342,7 @@ impl SemanticIndex {
     }
     /// Why no reading can be made from this index.
     pub fn unavailable(&self) -> Option<&str> {
-        self.tables.as_ref().err().map(String::as_str)
+        self.tables.as_ref().err().map(|reason| reason.0.as_str())
     }
 
     /// Read calls without a qualified comparison. `text` gives each file's
@@ -408,7 +423,7 @@ impl SemanticIndex {
         let tables = match &self.tables {
             Ok(tables) => tables,
             Err(reason) => {
-                reading.unavailable = Some(reason.clone());
+                reading.unavailable = Some(reason.0.clone());
                 return reading;
             }
         };
@@ -491,7 +506,7 @@ fn compare(target: Option<&crate::analysis::index::Function>, semantic: &Semanti
 }
 
 impl Tables {
-    fn new(index: &wire::Index) -> Result<Self, String> {
+    fn new(index: &wire::Index) -> Result<Self, Unusable> {
         if index.documents.is_empty() {
             return Err("the index has no documents".into());
         }
@@ -520,17 +535,18 @@ impl Tables {
         Ok(tables)
     }
     /// Each document once, in UTF-8 positions: its symbols' kinds and text.
-    fn read_documents(&mut self, index: &wire::Index) -> Result<(), String> {
+    fn read_documents(&mut self, index: &wire::Index) -> Result<(), Unusable> {
         let tables = self;
         for document in &index.documents {
             if !tables.documents.insert(document.relative_path.clone()) {
-                return Err(format!("document {} appears twice", document.relative_path));
+                return Err(format!("document {} appears twice", document.relative_path).into());
             }
             if document.position_encoding != wire::UTF8_FROM_LINE_START {
                 return Err(format!(
                     "document {} uses position encoding {}; Atlas reads only UTF-8 code units from line start (1)",
                     document.relative_path, document.position_encoding
-                ));
+                )
+                .into());
             }
             for symbol in &document.symbols {
                 tables.kinds.insert(symbol.symbol.clone(), symbol.kind);

@@ -62,7 +62,7 @@ authority = [
 
 # Packages whose production code never uses String as an error type
 # (ARCHITECTURE.md rule 31). atlas-lib joins once its last sites are typed.
-typed_errors = ["cargo-atlas"]
+typed_errors = ["atlas-lib", "cargo-atlas"]
 
 [population]
 core = ["atlas-lib", "cargo-atlas"]

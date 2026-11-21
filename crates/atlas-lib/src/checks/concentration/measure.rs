@@ -135,7 +135,7 @@ impl Measure {
                     package: Some(crate_map.name.clone()),
                     file: file.rel.clone(),
                     line: None,
-                    message: why,
+                    message: why.0,
                 }),
             }
         }
@@ -298,6 +298,9 @@ fn declared_modules(file: &FileMap, module: Option<&str>) -> Vec<String> {
     paths
 }
 
+/// A re-export whose syntax the alias census could not read, and where.
+struct Unmeasured(String);
+
 /// The re-exports of one production file that alias an item: renames
 /// anywhere, and at a crate root the module relays, shadows and internal
 /// `use` bindings. The `macro_rules` export idiom (`pub(crate) use name;`
@@ -308,7 +311,7 @@ fn aliases(
     root: bool,
     modules: &BTreeSet<&str>,
     top_modules: &BTreeSet<&str>,
-) -> Result<Vec<Alias>, String> {
+) -> Result<Vec<Alias>, Unmeasured> {
     let macros: BTreeSet<_> = file
         .items(TestSelection::OutsideTestModules)
         .filter(|item| item.kind == ItemKind::MacroRules)
@@ -319,15 +322,17 @@ fn aliases(
         .items(TestSelection::OutsideTestModules)
         .filter(|item| item.kind == ItemKind::PubUse)
     {
-        let import = file
-            .source
-            .import_for(item)
-            .ok_or_else(|| format!("captured import unavailable at {}:{}", file.rel, item.line))?;
+        let import = file.source.import_for(item).ok_or_else(|| {
+            Unmeasured(format!(
+                "captured import unavailable at {}:{}",
+                file.rel, item.line
+            ))
+        })?;
         let bindings = import.bindings.as_ref().map_err(|why| {
-            format!(
+            Unmeasured(format!(
                 "required alias syntax unavailable at {}:{}: {why}",
                 file.rel, item.line
-            )
+            ))
         })?;
         let at_root = root && item.top_level;
         let restricted = item.visibility != Visibility::Pub;

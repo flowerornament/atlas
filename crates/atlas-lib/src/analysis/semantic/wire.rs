@@ -42,7 +42,26 @@ pub(super) const DEFINITION: u64 = 1;
 /// `PositionEncoding.UTF8CodeUnitOffsetFromLineStart`.
 pub(super) const UTF8_FROM_LINE_START: u64 = 1;
 
-type Read<T> = Result<T, String>;
+/// Bytes that are not a SCIP index Atlas can decode, and where.
+#[derive(Debug)]
+pub(super) struct Malformed(String);
+impl From<String> for Malformed {
+    fn from(reason: String) -> Self {
+        Self(reason)
+    }
+}
+impl From<&str> for Malformed {
+    fn from(reason: &str) -> Self {
+        Self(reason.to_owned())
+    }
+}
+impl std::fmt::Display for Malformed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+type Read<T> = Result<T, Malformed>;
 
 struct Reader<'a> {
     bytes: &'a [u8],
@@ -68,7 +87,7 @@ impl<'a> Reader<'a> {
                 return Ok(value);
             }
         }
-        Err(format!("varint longer than 64 bits at byte {}", self.at))
+        Err(format!("varint longer than 64 bits at byte {}", self.at).into())
     }
     fn slice(&mut self) -> Read<&'a [u8]> {
         let len = usize::try_from(self.varint()?).map_err(|_| "field length overflows")?;
@@ -82,7 +101,8 @@ impl<'a> Reader<'a> {
         Ok(out)
     }
     fn string(&mut self) -> Read<String> {
-        String::from_utf8(self.slice()?.to_vec()).map_err(|e| format!("string is not UTF-8: {e}"))
+        String::from_utf8(self.slice()?.to_vec())
+            .map_err(|e| format!("string is not UTF-8: {e}").into())
     }
     fn advance(&mut self, n: usize) -> Read<()> {
         self.at = self
@@ -98,7 +118,7 @@ impl<'a> Reader<'a> {
             1 => self.advance(8),
             2 => self.slice().map(drop),
             5 => self.advance(4),
-            other => Err(format!("unsupported wire type {other}")),
+            other => Err(format!("unsupported wire type {other}").into()),
         }
     }
     /// Visit each field of this message with the reader at its value. A
@@ -248,12 +268,14 @@ fn occurrence(bytes: &[u8]) -> Read<Occurrence> {
     })?;
     let range: Vec<u32> = range
         .into_iter()
-        .map(|v| u32::try_from(v).map_err(|_| format!("occurrence position {v} out of range")))
+        .map(|v| {
+            u32::try_from(v).map_err(|_| Malformed(format!("occurrence position {v} out of range")))
+        })
         .collect::<Read<_>>()?;
     o.range = match range[..] {
         [line, start, end] => [line, start, line, end],
         [start_line, start, end_line, end] => [start_line, start, end_line, end],
-        _ => return Err(format!("occurrence range has {} elements", range.len())),
+        _ => return Err(format!("occurrence range has {} elements", range.len()).into()),
     };
     Ok(o)
 }
@@ -355,13 +377,13 @@ mod tests {
 
     #[test]
     fn malformed_input_refuses_with_its_reason() {
-        let error = parse(&[0x0f]).unwrap_err();
+        let error = parse(&[0x0f]).unwrap_err().to_string();
         assert!(error.contains("wire type 7"), "{error}");
-        let error = parse(&[0x00]).unwrap_err();
+        let error = parse(&[0x00]).unwrap_err().to_string();
         assert!(error.contains("field number 0"), "{error}");
         let mut long = vec![0x10];
         long.extend([0xff; 11]);
-        assert!(parse(&long).unwrap_err().contains("varint"));
+        assert!(parse(&long).unwrap_err().to_string().contains("varint"));
         let mut bad_range = Vec::new();
         let mut occurrence = Vec::new();
         bytes(1, &[1, 2], &mut occurrence);
@@ -369,6 +391,11 @@ mod tests {
         bytes(1, b"a.rs", &mut document);
         bytes(2, &occurrence, &mut document);
         bytes(2, &document, &mut bad_range);
-        assert!(parse(&bad_range).unwrap_err().contains("2 elements"));
+        assert!(
+            parse(&bad_range)
+                .unwrap_err()
+                .to_string()
+                .contains("2 elements")
+        );
     }
 }

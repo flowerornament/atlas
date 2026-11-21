@@ -306,7 +306,7 @@ pub(super) fn validate(authority: &AuthorityRule) -> crate::Result<()> {
     }
     let mut granted = std::collections::BTreeSet::new();
     for row in &authority.allowed_in {
-        validate_row(authority, row, &names, &mut granted).or_else(fail)?;
+        validate_row(authority, row, &names, &mut granted)?;
     }
     Ok(())
 }
@@ -315,11 +315,14 @@ fn validate_row<'a>(
     row: &'a Allowance,
     names: &std::collections::BTreeSet<&str>,
     granted: &mut std::collections::BTreeSet<(&'a str, &'a str, &'a str, &'a str)>,
-) -> Result<(), String> {
-    let at = format!("allowed_in `{}::{}`", row.file, row.item);
+) -> crate::Result<()> {
+    let at = format!(
+        "policy: authority `{}`: allowed_in `{}::{}`",
+        authority.fact, row.file, row.item
+    );
     crate::architecture::relative_path(&row.file).map_err(|error| format!("{at}: {error}"))?;
     if row.item.trim().is_empty() || row.reason.trim().is_empty() || row.counts.is_empty() {
-        return Err(format!("{at} needs an item, a reason and counts"));
+        return Err(format!("{at} needs an item, a reason and counts").into());
     }
     let observed = |spelling: &str| {
         spelling.split_once(':').is_some_and(|(class, _)| {
@@ -331,16 +334,16 @@ fn validate_row<'a>(
     };
     for (relative, counts) in &row.counts {
         if counts.is_empty() {
-            return Err(format!("{at} gives no spelling under `{relative}`"));
+            return Err(format!("{at} gives no spelling under `{relative}`").into());
         }
         for (spelling, bound) in counts {
             if *bound == 0 {
-                return Err(format!("{at} bounds `{spelling}` at 0; delete it instead"));
+                return Err(format!("{at} bounds `{spelling}` at 0; delete it instead").into());
             }
             if !names.contains(spelling.as_str()) && !observed(spelling) {
                 return Err(format!(
                     "{at} names `{spelling}`, which is neither a forbid_new_pattern name nor `class:text` of a forbid_new_observed class"
-                ));
+                ).into());
             }
             if !granted.insert((
                 row.file.as_str(),
@@ -348,7 +351,7 @@ fn validate_row<'a>(
                 relative.as_str(),
                 spelling.as_str(),
             )) {
-                return Err(format!("{at} grants `{relative}` `{spelling}` twice"));
+                return Err(format!("{at} grants `{relative}` `{spelling}` twice").into());
             }
         }
     }

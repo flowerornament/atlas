@@ -6,6 +6,12 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- atlas-lib has no production `Result<_, String>`: the last twelve sites in
+ `analysis/` and `checks/` carry typed causes (a SCIP index that is
+ malformed or unusable, a source that does not parse, a home that names no
+ one module, a spelling that cannot be counted, an alias the census cannot
+ read), and Atlas's own policy lists both packages in `typed_errors`. No
+ public signature or message changes.
 - docs/checks.md gains "Your first delta" (commit the policy, citation
  markers, `header_uncited`, hints) and "Recording what is broken today" (a
  table of where each kind of rule records today's breaks); `delta --help`

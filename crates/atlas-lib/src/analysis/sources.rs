@@ -4,10 +4,21 @@ use super::workflow;
 use crate::{Result, source::model::SourceGraph};
 use std::{cell::OnceCell, collections::BTreeMap, path::Path, sync::Arc};
 
+/// A captured source that does not parse as Rust, with the parser's reason;
+/// kept, so every later read of the file fails the same way.
+#[derive(Debug, Clone)]
+pub(super) struct Unparsed(String);
+impl std::fmt::Display for Unparsed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+impl std::error::Error for Unparsed {}
+
 /// One retained physical source; syntax is lazy and workflow facts are shared across indexes.
 pub(super) struct CachedSource {
     source: Arc<crate::source::Source>,
-    ast: OnceCell<std::result::Result<syn::File, String>>,
+    ast: OnceCell<std::result::Result<syn::File, Unparsed>>,
     workflow: OnceCell<workflow::ParsedFile>,
 }
 impl CachedSource {
@@ -17,9 +28,9 @@ impl CachedSource {
     pub(super) fn source(&self) -> &crate::source::Source {
         &self.source
     }
-    fn parse(&self, path: &str) -> std::result::Result<syn::File, String> {
+    fn parse(&self, path: &str) -> std::result::Result<syn::File, Unparsed> {
         crate::source::parse_file(self.source.text())
-            .map_err(|error| format!("parse source {path}: {error}"))
+            .map_err(|error| Unparsed(format!("parse source {path}: {error}")))
     }
     pub(super) fn ast(&self, path: &str) -> Result<&syn::File> {
         self.ast

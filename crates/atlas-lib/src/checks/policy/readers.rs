@@ -58,7 +58,7 @@ pub(super) fn judge(
         let home = match resolve_home(&authority.home, &reading) {
             Ok(home) => home,
             Err(reason) => {
-                report.missing(field, reason);
+                report.missing(field, reason.to_string());
                 continue;
             }
         };
@@ -80,8 +80,31 @@ pub(super) fn judge(
     Ok(())
 }
 
+/// Why a home names no one production module.
+enum HomeUnresolved {
+    NotMounted { file: String },
+    MountedAsSeveral { file: String, modules: usize },
+    NoModuleRoot { home: String },
+    MountedBothWays { file: String, home: String },
+}
+impl std::fmt::Display for HomeUnresolved {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotMounted { file } => write!(f, "`{file}` is not mounted in production code"),
+            Self::MountedAsSeveral { file, modules } => {
+                write!(f, "`{file}` is mounted as {modules} modules; a home is one")
+            }
+            Self::NoModuleRoot { home } => write!(f, "no production module is rooted at `{home}`"),
+            Self::MountedBothWays { file, home } => write!(
+                f,
+                "`{file}` is mounted both inside and outside the home `{home}`; mount it once"
+            ),
+        }
+    }
+}
+
 /// A home's module path and own files, or why it has none.
-fn resolve_home(home: &str, reading: &PathReading) -> Result<Home, String> {
+fn resolve_home(home: &str, reading: &PathReading) -> Result<Home, HomeUnresolved> {
     if let Some((file, item)) = home.split_once("::") {
         let mut path = one_scope(file, reading)?;
         path.push(item.to_owned());
@@ -100,9 +123,10 @@ fn resolve_home(home: &str, reading: &PathReading) -> Result<Home, String> {
                 files.insert(file.clone());
             }
             (false, true) => {
-                return Err(format!(
-                    "`{file}` is mounted both inside and outside the home `{home}`; mount it once"
-                ));
+                return Err(HomeUnresolved::MountedBothWays {
+                    file: file.clone(),
+                    home: home.to_owned(),
+                });
             }
             _ => {}
         }
@@ -111,7 +135,7 @@ fn resolve_home(home: &str, reading: &PathReading) -> Result<Home, String> {
 }
 /// The file of a module home: the file itself, or a directory's module
 /// root (`dir/mod.rs` or `dir.rs`).
-fn module_file(home: &str, reading: &PathReading) -> Result<String, String> {
+fn module_file(home: &str, reading: &PathReading) -> Result<String, HomeUnresolved> {
     if std::path::Path::new(home)
         .extension()
         .is_some_and(|ext| ext == "rs")
@@ -122,19 +146,23 @@ fn module_file(home: &str, reading: &PathReading) -> Result<String, String> {
     [format!("{directory}/mod.rs"), format!("{directory}.rs")]
         .into_iter()
         .find(|file| reading.scopes.contains_key(file))
-        .ok_or_else(|| format!("no production module is rooted at `{home}`"))
+        .ok_or_else(|| HomeUnresolved::NoModuleRoot {
+            home: home.to_owned(),
+        })
 }
 /// The one production module path of `file`.
-fn one_scope(file: &str, reading: &PathReading) -> Result<Vec<String>, String> {
+fn one_scope(file: &str, reading: &PathReading) -> Result<Vec<String>, HomeUnresolved> {
     let mut scopes: Vec<&Vec<String>> = reading.scopes.get(file).into_iter().flatten().collect();
     scopes.dedup();
     match scopes.as_slice() {
         [one] => Ok((*one).clone()),
-        [] => Err(format!("`{file}` is not mounted in production code")),
-        many => Err(format!(
-            "`{file}` is mounted as {} modules; a home is one",
-            many.len()
-        )),
+        [] => Err(HomeUnresolved::NotMounted {
+            file: file.to_owned(),
+        }),
+        many => Err(HomeUnresolved::MountedAsSeveral {
+            file: file.to_owned(),
+            modules: many.len(),
+        }),
     }
 }
 

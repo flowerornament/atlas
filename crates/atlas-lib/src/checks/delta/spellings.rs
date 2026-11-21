@@ -136,7 +136,10 @@ fn side_census(
             }
             Err(reason) => {
                 complete = false;
-                out.unavailable.push(MissingInput { field, reason });
+                out.unavailable.push(MissingInput {
+                    field,
+                    reason: reason.to_string(),
+                });
             }
         }
     }
@@ -160,6 +163,37 @@ fn key_of(name: &str, observed: bool, occurrence: &Occurrence) -> String {
     }
 }
 
+/// Why a side's occurrences of one spelling cannot be counted.
+enum Unobserved {
+    /// The observer said why it could not observe.
+    Reported(String),
+    /// Nothing was supplied: by the wrapper for a class, by Atlas for a
+    /// pattern.
+    Unsupplied { observed: bool },
+    /// The files read are not this side's production files.
+    OtherBasis,
+    /// An occurrence's text is not the captured bytes at its range.
+    Escaped { file: String, line: usize },
+}
+impl std::fmt::Display for Unobserved {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Reported(reason) => f.write_str(reason),
+            Self::Unsupplied { observed: true } => {
+                f.write_str("the wrapper did not observe this class")
+            }
+            Self::Unsupplied { observed: false } => f.write_str("the pattern was not observed"),
+            Self::OtherBasis => {
+                f.write_str("observation basis differs from the captured population")
+            }
+            Self::Escaped { file, line } => write!(
+                f,
+                "observations escaped the captured population at {file}:{line}"
+            ),
+        }
+    }
+}
+
 /// A side's occurrences, checked against its capture: the files read are
 /// its production files, each occurrence lies in them, and its text is
 /// the bytes there.
@@ -167,15 +201,16 @@ fn read_state(
     snapshot: &Snapshot,
     state: Option<&SpellingState>,
     observed: bool,
-) -> Result<Vec<Occurrence>, String> {
+) -> Result<Vec<Occurrence>, Unobserved> {
     let (sources, occurrences) = match state {
         Some(SpellingState::Read {
             sources,
             occurrences,
         }) => (sources, occurrences),
-        Some(SpellingState::Unavailable(reason)) => return Err(reason.clone()),
-        None if observed => return Err("the wrapper did not observe this class".into()),
-        None => return Err("the pattern was not observed".into()),
+        Some(SpellingState::Unavailable(reason)) => {
+            return Err(Unobserved::Reported(reason.clone()));
+        }
+        None => return Err(Unobserved::Unsupplied { observed }),
     };
     let production: BTreeMap<&str, &str> = snapshot
         .graph()
@@ -189,17 +224,17 @@ fn read_state(
         .map(|(f, p)| (f.as_str(), p.as_str()))
         .collect();
     if basis != production {
-        return Err("observation basis differs from the captured population".into());
+        return Err(Unobserved::OtherBasis);
     }
     for occurrence in occurrences {
         let text = snapshot
             .source(&occurrence.file)
             .and_then(|text| text.get(occurrence.start..occurrence.end));
         if text != Some(occurrence.text.as_str()) {
-            return Err(format!(
-                "observations escaped the captured population at {}:{}",
-                occurrence.file, occurrence.line
-            ));
+            return Err(Unobserved::Escaped {
+                file: occurrence.file.clone(),
+                line: occurrence.line,
+            });
         }
     }
     Ok(occurrences.clone())
