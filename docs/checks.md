@@ -208,6 +208,7 @@ unknown fields, so a typo is an error rather than a silently ignored rule.
 | `[population] core` | The workspace packages that the size and surface rules cover. A package leaves `core` only with `amended_by = { bead = "<reference>", covers = ["population"] }` in `[population]`, cited in the change's description, as a loosening of `[concentration]` is. |
 | `[size] core_token_lines` | The most lines containing code allowed across all `core` packages. |
 | `[size] crate` | The most lines containing code allowed in each package. |
+| `[size] approve_growth` | Instead of `core_token_lines` and `crate` (writing both is refused): no stored limits. `delta` reports each `core` package's lines of code before and after the change, and each package that grew as a raise for the project to approve, from its earlier size (a new package raises its whole size). Shrinking needs nothing. |
 | `[surface]` | The most public declarations allowed in each package. |
 | `[crate_graph]` | Which workspace packages may depend on which (see below). |
 | `[concentration]` | Limits on file size and module naming (see below). |
@@ -335,10 +336,6 @@ arrive in later builds of 0.21, so until then a policy that writes one is
 reported `UNAVAILABLE`, naming the field: never a complete `PASS` that
 skipped a rule you wrote.
 
-- `[size] approve_growth = true`: no stored ceilings. Write it instead of
-  `core_token_lines` and `crate` (both together are refused). Each package's
-  size before and after a change is reported, and growth is for the project
-  to approve.
 - `[concentration] function_lines` and `function_nesting`: the longest a
   function body may be, in lines of code, and how deep it may nest (the
   measures of Clippy's `too_many_lines` and `excessive_nesting`).

@@ -138,6 +138,38 @@ pub(super) fn population_changes(
     refusals
 }
 
+/// `[size] approve_growth`: no stored ceiling. Every core crate's size
+/// before (`None` when the base has no such crate) and after, and a raise
+/// for each that grew, for the host to approve; a crate with no baseline
+/// raises its whole size. Shrinking needs nothing.
+pub(super) fn size_growth(
+    policy: &Policy,
+    before: &BTreeMap<String, usize>,
+    after: &BTreeMap<String, usize>,
+) -> (Vec<super::SizeChange>, Vec<Raise>) {
+    let mut changes = Vec::new();
+    let mut raises = Vec::new();
+    for name in &policy.population.core {
+        let old = before.get(name).copied();
+        let new = after.get(name).copied().unwrap_or(0);
+        if old.is_none_or(|old| new > old) && new > 0 {
+            raises.push(Raise {
+                subject: format!("size.crate.{name}"),
+                before: old,
+                after: new,
+                measured: new,
+                owner: None,
+            });
+        }
+        changes.push(super::SizeChange {
+            crate_name: name.clone(),
+            before: old,
+            after: new,
+        });
+    }
+    (changes, raises)
+}
+
 pub(super) fn ceiling_violations(
     policy: &Policy,
     size: &BTreeMap<String, usize>,

@@ -6,6 +6,11 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `[size] approve_growth = true` is judged: no stored ceilings; `delta`
+ reports every core crate's token lines before and after
+ (`Report::size_changes`), and each crate that grew as a `Raise` from its
+ base size (`before = None` for a crate the base lacks) for the host to
+ approve. Shrinking is free.
 - Crate graph: an allowed package the rule's package does not depend on is
  refused (UNUSED ALLOWANCE), and so is a vendored package that depends on a
  workspace member (VENDORED EDGE). `cargo atlas policy` now judges the

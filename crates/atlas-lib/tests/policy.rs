@@ -532,7 +532,6 @@ fn every_extension_field_parses_and_is_unavailable_until_judged() {
         .map(|m| m.field.as_str())
         .collect();
     for field in [
-        "size.approve_growth",
         "concentration.function_lines",
         "concentration.function_nesting",
         "concentration.generated",

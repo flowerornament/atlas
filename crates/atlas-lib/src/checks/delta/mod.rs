@@ -71,13 +71,30 @@ pub struct SeamDelta {
     pub unlisted: Vec<String>,
     pub floor_added: Vec<String>,
 }
+/// One core crate's size across the change, with `[size] approve_growth`:
+/// token lines in the base (none when the base has no such crate) and in
+/// the candidate.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct SizeChange {
+    #[serde(rename = "crate")]
+    pub crate_name: String,
+    pub before: Option<usize>,
+    pub after: usize,
+}
 #[derive(Serialize)]
 #[non_exhaustive]
 pub struct Report {
     pub basis: Basis,
     pub measurements: Option<Measurements>,
     pub policy: policy::Report,
+    /// Each raise for the host to admit: a ceiling raised, or with
+    /// `approve_growth`, a core crate that grew.
     pub raises: Vec<Raise>,
+    /// With `approve_growth`: every core crate's size before and after,
+    /// grown or not, so the host can check what it approves.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub size_changes: Vec<SizeChange>,
     pub coupling_violations: Vec<String>,
     pub seams: Vec<SeamDelta>,
     pub concentration: Option<concentration::Summary>,
@@ -120,6 +137,7 @@ pub fn check(
             .collect(),
         policy: policy_reading,
         raises: Vec::new(),
+        size_changes: Vec::new(),
         coupling_violations: Vec::new(),
         seams: Vec::new(),
         concentration: None,
@@ -154,6 +172,17 @@ pub fn check(
                 .extend(ceilings::ceiling_violations(policy, &size, &surface));
             let (raises, refusals) = ceilings::ceiling_changes(published, policy, &size, &surface);
             out.raises = raises;
+            if policy.size.approve_growth {
+                let before = measured
+                    .before
+                    .crates
+                    .iter()
+                    .map(|(name, count)| (name.clone(), count.token_lines))
+                    .collect();
+                let (changes, raises) = ceilings::size_growth(policy, &before, &size);
+                out.size_changes = changes;
+                out.raises.extend(raises);
+            }
             out.violations.extend(refusals);
             let members = measured.after.crates.keys().cloned().collect();
             out.coupling_violations = policy

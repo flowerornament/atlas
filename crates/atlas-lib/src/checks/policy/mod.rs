@@ -666,9 +666,6 @@ impl Policy {
     /// unavailable, never a complete PASS.
     pub fn unjudged(&self) -> Vec<String> {
         let mut out = Vec::new();
-        if self.size.approve_growth {
-            out.push("size.approve_growth".to_owned());
-        }
         if let Some(policy) = &self.concentration {
             for (written, field) in [
                 (policy.function_lines.is_some(), "function_lines"),

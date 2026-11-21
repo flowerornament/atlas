@@ -349,3 +349,39 @@ fn leaving_the_core_needs_a_cited_amendment() {
         "{refused:?}"
     );
 }
+
+/// `approve_growth`: every core crate's size before and after is reported,
+/// and each that grew is a raise for the host to approve, from its base
+/// size (none for a crate the base lacks, which raises its whole size).
+#[test]
+fn approved_growth_reports_every_core_crate_and_raises_the_grown() {
+    let mut policy = fixture_policy();
+    policy.population.core = vec!["core".into(), "fresh".into(), "lean".into()];
+    policy.size.approve_growth = true;
+    let before = BTreeMap::from([("core".into(), 10), ("lean".into(), 8)]);
+    let after = BTreeMap::from([("core".into(), 12), ("fresh".into(), 5), ("lean".into(), 6)]);
+    let (changes, raises) = super::ceilings::size_growth(&policy, &before, &after);
+    let changes: Vec<_> = changes
+        .iter()
+        .map(|change| (change.crate_name.as_str(), change.before, change.after))
+        .collect();
+    assert_eq!(
+        changes,
+        [
+            ("core", Some(10), 12),
+            ("fresh", None, 5),
+            ("lean", Some(8), 6)
+        ]
+    );
+    let raises: Vec<_> = raises
+        .iter()
+        .map(|raise| (raise.subject.as_str(), raise.before, raise.after))
+        .collect();
+    assert_eq!(
+        raises,
+        [
+            ("size.crate.core", Some(10), 12),
+            ("size.crate.fresh", None, 5)
+        ]
+    );
+}
