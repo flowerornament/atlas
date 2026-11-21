@@ -6,6 +6,10 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `cargo atlas delta` with a policy absent at the baseline says so, naming
+ the baseline, instead of reporting a missing file: it reads the policy
+ from both commits, and the first commit of a policy is checked with
+ `cargo atlas policy`.
 - `cargo atlas policy` and `delta` print the policy's hints in text too
  (`hint:` and `hint      ` lines, such as a reader row that can be lowered),
  not only in JSON, so a row above its measure no longer looks unchecked.

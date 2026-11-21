@@ -296,3 +296,22 @@ fn delta_prints_the_policy_hints_in_text() {
         "{text}"
     );
 }
+
+#[test]
+fn a_policy_missing_at_the_baseline_names_the_baseline() {
+    let fixture = Fixture::new(&[("src/lib.rs", "//! fixture: meaning\npub struct Home;\n")]);
+    git(&fixture, &["init", "-q"]);
+    let base = commit(&fixture);
+    fixture.write(".config/architecture.toml", POLICY);
+    let candidate = commit(&fixture);
+    let output = run(&fixture, &base, &candidate, true);
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        error.contains(&format!(
+            "the policy .config/architecture.toml is not in the baseline {base} ({})",
+            &base[..12]
+        )) && error.contains("run `cargo atlas policy` instead"),
+        "{error}"
+    );
+}

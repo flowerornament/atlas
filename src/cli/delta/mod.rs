@@ -46,6 +46,15 @@ pub(crate) fn run(
     let store = GitStore::discover(root)?;
     let (before, published_bytes, baseline_id) = {
         let baseline = store.revision(options.revision.reference())?;
+        if !baseline.path().join(&options.policy).exists() {
+            return Err(format!(
+                "the policy {} is not in the baseline {} ({}): delta reads the policy from both commits and holds the change to the baseline's; commit the policy, then compare against a commit that has it (for the first commit of a policy there is no baseline to compare, so run `cargo atlas policy` instead)",
+                options.policy,
+                options.revision.reference(),
+                &baseline.commit_id()[..12.min(baseline.commit_id().len())],
+            )
+            .into());
+        }
         (
             discovery::snapshot_workspace(baseline.path())?,
             baseline.file(&options.policy)?,
