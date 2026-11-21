@@ -6,6 +6,11 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `--semantic` holds the index to the source the command read: a captured
+ file whose bytes differ, before indexing (a cached index included) or
+ after, refuses. A change between the capture and the indexer's first
+ digest used to be accepted, so the index described other bytes than the
+ qualified reading it was compared with.
 - A call inside a test-gated statement of a production function
  (`#[cfg(test)] { ... }`, a gated `let`) is test code by its own site: a
  production reading (`callers`, `facts`, `query` by default) no longer

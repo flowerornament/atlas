@@ -407,7 +407,7 @@ pub(super) fn run_dump(
             args.scip.as_deref(),
             &args.indexer,
             cache,
-            || super::output::graph_sources(metadata, snapshot.graph()).collect(),
+            || super::output::graph_captures(metadata, snapshot.graph()).collect(),
         )?
         .ok_or("no semantic index was asked for")?;
         let semantic = atlas_lib::analysis::Analysis::new(&snapshot)?.semantic(&index)?;

@@ -45,7 +45,7 @@ pub(crate) fn run(
         options.scip.as_deref(),
         &options.indexer,
         cache,
-        || crate::cli::output::graph_sources(metadata, graph).collect(),
+        || crate::cli::output::graph_captures(metadata, graph).collect(),
     )?;
     let report = match &index {
         Some((index, _)) => orient::semantic_orient(&snapshot, chosen.query(), rows, index)?,

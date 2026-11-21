@@ -66,7 +66,9 @@ to four minutes and over 6 GB of memory; a small crate takes seconds. Atlas buil
 build directories, and stops the indexer (and everything it started) after
 `--semantic-timeout` seconds (default 1800). It digests your manifests,
 configuration, build scripts and sources before and after the run and
-refuses an index made while any of them changed. It also refuses, before
+refuses an index made while any of them changed, and it refuses one (made or
+cached) whenever a source differs from the bytes the command read, since the
+index would describe other code than the answer it is compared with. It also refuses, before
 running anything, when rust-analyzer is not installed (`ATLAS_RUST_ANALYZER`
 names it if it is not `rust-analyzer` on `PATH`) or the toolchain has no
 `rust-src`. The index is kept in the user cache directory, keyed by those

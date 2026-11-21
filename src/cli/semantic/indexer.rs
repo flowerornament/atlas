@@ -86,13 +86,16 @@ pub(in crate::cli) struct Indexing {
     inputs: usize,
 }
 
-/// Produce (or reuse) an index of the workspace at `root`. `sources` are the
-/// captured source files, which are digested with the manifests,
-/// configuration and build scripts.
+/// Produce (or reuse) an index of the workspace at `root`. `captured` are
+/// the source files the command read, each with the fingerprint of the
+/// bytes it read; they are digested with the manifests, configuration and
+/// build scripts. A captured file whose live bytes differ, before indexing
+/// (so a cached index too) or after, refuses: the index would describe
+/// other source than the reading it is compared with.
 pub(in crate::cli) fn index(
     root: &Path,
     metadata: &cargo_metadata::Metadata,
-    sources: Vec<PathBuf>,
+    captured: &[(PathBuf, String)],
     args: &IndexerArgs,
     cache: &IndexCache,
 ) -> Result<(SemanticIndex, Indexing)> {
@@ -102,7 +105,11 @@ pub(in crate::cli) fn index(
     let indexer = version(&program)?;
     let toolchain = toolchain(root)?;
     rust_src(root)?;
-    let paths = inputs(metadata, sources);
+    unchanged_since_capture(root, captured, "before indexing")?;
+    let paths = inputs(
+        metadata,
+        captured.iter().map(|(path, _)| path.clone()).collect(),
+    );
     let before = digest(&paths);
     let identity = identity(&before, &indexer, &toolchain, root)?;
     let target = metadata
@@ -141,6 +148,7 @@ pub(in crate::cli) fn index(
         args.semantic_timeout,
     )?);
     let after = digest(&paths);
+    unchanged_since_capture(root, captured, "while rust-analyzer ran")?;
     if let Some(path) = changed(&before, &after) {
         return Err(format!(
             "semantic evidence unavailable: {} changed while rust-analyzer ran (a build script or another program wrote it); Atlas does not use an index of inputs that moved. Run again once the workspace is still",
@@ -161,6 +169,24 @@ pub(in crate::cli) fn index(
         },
     };
     Ok((index, indexing))
+}
+
+/// Refuse when a captured source's live bytes are not the bytes the
+/// command read.
+fn unchanged_since_capture(root: &Path, captured: &[(PathBuf, String)], when: &str) -> Result<()> {
+    for (path, fingerprint) in captured {
+        let live = fs::read(path)
+            .ok()
+            .map(|bytes| cargo_atlas::discovery::fingerprint(&bytes));
+        if live.as_deref() != Some(fingerprint.as_str()) {
+            return Err(format!(
+                "semantic evidence unavailable: {} changed after Atlas read it ({when}); an index of it would describe other source than the reading it is compared with. Run again once the workspace is still",
+                path.strip_prefix(root).unwrap_or(path).display()
+            )
+            .into());
+        }
+    }
+    Ok(())
 }
 
 /// Run `rust-analyzer scip` into `file`, building under `target`, and return

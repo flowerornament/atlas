@@ -358,6 +358,22 @@ pub(super) fn graph_sources<'a>(
         .iter()
         .map(|file| metadata.workspace_root.join(&file.path).into_std_path_buf())
 }
+/// Source files with the fingerprint of the bytes a command read.
+pub(super) type Captured = Vec<(PathBuf, String)>;
+/// Each captured source file with the fingerprint of the bytes the capture
+/// read, so a step that reads the live tree later (the indexer) can tell
+/// that a file changed since.
+pub(super) fn graph_captures<'a>(
+    metadata: &'a cargo_metadata::Metadata,
+    graph: &'a cargo_atlas::model::SourceGraph,
+) -> impl Iterator<Item = (PathBuf, String)> + 'a {
+    graph.files.iter().map(|file| {
+        (
+            metadata.workspace_root.join(&file.path).into_std_path_buf(),
+            file.content_fingerprint.clone(),
+        )
+    })
+}
 /// The manifests and configuration every command protects, plus `sources`
 /// and `extra`.
 pub(super) fn protected_paths(

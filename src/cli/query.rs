@@ -200,7 +200,7 @@ fn capture(
         options.scip.as_deref(),
         &options.indexer,
         cache,
-        || super::output::graph_sources(metadata, graph).collect(),
+        || super::output::graph_captures(metadata, graph).collect(),
     )?
     .ok_or("no semantic index was asked for")?;
     relations.with_semantic(&analysis.semantic(&index)?, facts)

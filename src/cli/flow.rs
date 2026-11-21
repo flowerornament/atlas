@@ -1,7 +1,7 @@
 //! Source-body control and bounded expansion; raw workflow evidence stays distinct from presentation.
 use super::{
     json,
-    output::{self, Backend, RenderOptions, graph_sources, protected_paths, render},
+    output::{self, Backend, RenderOptions, protected_paths, render},
     profile::architecture,
 };
 use cargo_atlas::{
@@ -92,7 +92,7 @@ pub(super) fn run(
         &query,
         protected_paths(
             metadata,
-            sources.iter().cloned(),
+            sources.iter().map(|(path, _)| path.clone()),
             options
                 .architecture
                 .iter()
@@ -164,7 +164,7 @@ fn read_flows(
     metadata: &cargo_metadata::Metadata,
     options: &Options,
     anchors: &[WorkflowAnchor],
-) -> Result<(NamedFlows, Diagram, Vec<PathBuf>)> {
+) -> Result<(NamedFlows, Diagram, output::Captured)> {
     if options.depth > 0 {
         let path = options
             .path
@@ -175,7 +175,7 @@ fn read_flows(
             .as_deref()
             .ok_or("--depth needs --function")?;
         let snapshot = discovery::snapshot_metadata(metadata)?;
-        let sources: Vec<_> = graph_sources(metadata, snapshot.graph()).collect();
+        let sources: Vec<_> = super::output::graph_captures(metadata, snapshot.graph()).collect();
         let analysis = atlas_lib::analysis::Analysis::new(&snapshot)?;
         let (flow, diagram) =
             analysis.expanded_with_detail(path, function, options.depth, options.detail)?;
@@ -192,6 +192,17 @@ fn read_flows(
         .map(|(a, f)| (a.name.clone(), f))
         .collect();
     let diagram = workflow_diagram(&flows, options.detail)?;
+    // The anchors read their files directly: what they read is what is on
+    // disk now, fingerprinted for the indexer to hold the tree to.
+    let sources = sources
+        .into_iter()
+        .map(|path| {
+            let fingerprint = std::fs::read(&path)
+                .map(|bytes| discovery::fingerprint(&bytes))
+                .unwrap_or_default();
+            (path, fingerprint)
+        })
+        .collect();
     Ok((flows, diagram, sources))
 }
 
@@ -202,7 +213,7 @@ fn semantic_evidence(
     metadata: &cargo_metadata::Metadata,
     options: &Options,
     cache: &super::semantic::IndexCache,
-    sources: Vec<PathBuf>,
+    sources: output::Captured,
     flows: &[(String, workflow::Workflow)],
 ) -> Result<Option<(&'static str, String)>> {
     super::semantic::obtain(

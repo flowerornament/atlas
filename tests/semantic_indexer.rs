@@ -18,11 +18,14 @@ const FIXTURE: &str = concat!(
     "/crates/atlas-lib/tests/fixtures/semantic"
 );
 
-/// The fake answers `--version`, then for `scip` logs its target directory,
-/// acts out `FAKE_MODE` and copies the committed index to `--output`.
+/// The fake answers `--version` (in `probe` mode it first edits the
+/// project, between Atlas's capture and the indexing), then for `scip` logs
+/// its target directory, acts out `FAKE_MODE` and copies the committed
+/// index to `--output`.
 const FAKE: &str = r#"#!/bin/sh
 if [ "$1" = "--version" ]; then
   if [ "$FAKE_MODE" = "proxy" ]; then echo "error: infinite recursion detected" >&2; exit 1; fi
+  if [ "$FAKE_MODE" = "probe" ]; then echo "// written after the capture" >> "$FAKE_ROOT/src/lib.rs"; fi
   echo "rust-analyzer 0.0.0-fake"; exit 0
 fi
 root="$2"; out="$4"
@@ -72,6 +75,7 @@ impl Setup {
             .env("ATLAS_CACHE", "on")
             .env("ATLAS_CACHE_DIR", tools.join("cache"))
             .env("FAKE_MODE", mode)
+            .env("FAKE_ROOT", self.project.path())
             .env("FAKE_LOG", tools.join("log"))
             .env("FAKE_PID", tools.join("pid"))
             .env("FAKE_INDEX", format!("{FIXTURE}/index.scip"))
@@ -242,9 +246,33 @@ fn a_failed_run_or_inputs_that_moved_are_refused_and_never_cached() {
     );
     refused(
         &s.run("touch", &["dump", "--json", "--semantic"]),
-        "src/lib.rs changed while rust-analyzer ran",
+        "src/lib.rs changed after Atlas read it (while rust-analyzer ran)",
     );
     assert!(!s.tools.path().join("cache/semantic").exists());
+}
+
+/// Source that changes after the command read it, before the indexer runs,
+/// is refused, and so is a stored index of the unchanged inputs: the index
+/// would describe other bytes than the reading it is compared with (codex
+/// finding 12).
+#[test]
+fn source_changed_after_the_capture_is_refused_before_indexing_and_on_reuse() {
+    let s = setup();
+    let original = fs::read_to_string(s.project.path().join("src/lib.rs")).expect("source");
+    refused(
+        &s.run("probe", &["dump", "--json", "--semantic"]),
+        "src/lib.rs changed after Atlas read it (before indexing)",
+    );
+    assert!(s.runs().is_empty(), "the indexer must not run");
+    fs::write(s.project.path().join("src/lib.rs"), &original).expect("restore");
+    assert_eq!(
+        json(&s.run("", &["dump", "--json", "--semantic"]))["semantic_indexing"]["cache"],
+        "stored"
+    );
+    refused(
+        &s.run("probe", &["dump", "--json", "--semantic"]),
+        "src/lib.rs changed after Atlas read it (before indexing)",
+    );
 }
 
 #[test]

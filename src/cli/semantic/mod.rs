@@ -22,10 +22,10 @@ pub(super) fn obtain(
     scip: Option<&Path>,
     indexer: &IndexerArgs,
     cache: &IndexCache,
-    sources: impl FnOnce() -> Vec<PathBuf>,
+    captured: impl FnOnce() -> Vec<(PathBuf, String)>,
 ) -> Result<Option<(SemanticIndex, Option<Indexing>)>> {
     if indexer.semantic {
-        let (index, indexing) = indexer::index(root, metadata, sources(), indexer, cache)?;
+        let (index, indexing) = indexer::index(root, metadata, &captured(), indexer, cache)?;
         Ok(Some((index, Some(indexing))))
     } else {
         Ok(scip.map(|file| (index(root, file), None)))
