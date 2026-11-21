@@ -188,15 +188,16 @@ mod tests {
 
     #[test]
     fn a_stalled_child_is_stopped_at_the_deadline() {
+        // The child is the sleeper itself, with no shell: a shell's own
+        // child could still be running at the deadline on a loaded host and
+        // rightly be reported holding the pipe.
+        let mut sleeper = Command::new("sleep");
+        sleeper.arg("30");
         let started = Instant::now();
-        let error = exchange(
-            shell("cat >/dev/null; exec sleep 30"),
-            b"request",
-            limits(1),
-        )
-        .err()
-        .expect("a stalled child is refused")
-        .to_string();
+        let error = exchange(sleeper, b"request", limits(1))
+            .err()
+            .expect("a stalled child is refused")
+            .to_string();
         assert!(
             error.contains("did not finish within 1 s and was stopped"),
             "{error}"
