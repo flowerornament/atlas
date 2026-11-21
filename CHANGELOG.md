@@ -4,7 +4,7 @@ Atlas has two packages: `cargo-atlas` (the `cargo atlas` command and its
 library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 `atlas-core`. Versions below name the package they apply to.
 
-## Unreleased
+## cargo-atlas 0.19.1 / atlas-lib 0.9.1
 
 - The Atlas Agent Skill ships with the binary: `cargo atlas help skill`
  prints `skills/atlas/SKILL.md` exactly (listed in `help topics`), and the

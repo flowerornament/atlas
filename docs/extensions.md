@@ -127,7 +127,7 @@ own repository as a small binary crate that depends on an exact
 
 ```toml
 [dependencies]
-cargo-atlas = "=0.19.0"
+cargo-atlas = "=0.19.1"
 ```
 
 Useful pieces of the `Request`:
