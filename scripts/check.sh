@@ -6,6 +6,9 @@
 # it names the step that failed and its exit status: cargo's 101 alone does
 # not say whether formatting, Clippy, a test or rustdoc refused.
 #
+# Each step's elapsed seconds are logged after it, and the last line sums
+# them, so every change to the gate can be measured.
+#
 # The self-check step checks Atlas against its own architecture policy with
 # the binary the test step just built (scripts/self-check.sh).
 set -euo pipefail
@@ -26,15 +29,21 @@ steps=(
   "doc|RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked"
   "npm|npm test"
 )
+timings=()
 for step in "${steps[@]}"; do
   name="${step%%|*}"
   command="${step#*|}"
   echo "check: $name: $command" | tee -a "$log"
+  started=$SECONDS
   status=0
   bash -c "$command" 2>&1 | tee -a "$log" || status=$?
+  elapsed=$((SECONDS - started))
+  timings+=("$name ${elapsed}s")
+  echo "check: $name took ${elapsed}s" | tee -a "$log"
   if [ "$status" -ne 0 ]; then
-    echo "check: FAILED at $name (exit $status); full output: $root/$log" | tee -a "$log" >&2
+    echo "check: FAILED at $name (exit $status) after ${SECONDS}s; full output: $root/$log" | tee -a "$log" >&2
     exit "$status"
   fi
 done
-echo "check: passed; output: $root/$log" | tee -a "$log"
+summary="$(IFS=,; echo "${timings[*]}")"
+echo "check: passed in ${SECONDS}s (${summary//,/, }); output: $root/$log" | tee -a "$log"
