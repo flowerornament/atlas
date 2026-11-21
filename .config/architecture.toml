@@ -1,0 +1,195 @@
+# Atlas's own architecture policy. Atlas checks itself with it:
+#
+#   cargo atlas policy --policy .config/architecture.toml
+#
+# `just check` runs that command with the binary it has just built. The rules
+# are explained in docs/checks.md, and ARCHITECTURE.md says which rule each
+# section holds. Every number below was measured on the tree when this file
+# was written; a number marked as a ratchet may only go down.
+#
+# What runs where: `policy` checks this file's shape, the crate graph's
+# workspace members, and each authority row (home and forbidden items).
+# The size, surface, crate graph edges, stage order and concentration
+# numbers are measured by `delta` and `stages`, which compare the code with
+# them; see CONTRIBUTING.md for running them by hand.
+schema = 1
+provenance = "authored"
+
+# One home for each fact ARCHITECTURE.md gives a single owner. `forbid_item`
+# names, per directory, a declaration that would be a second home. Rules that
+# only a syntax pattern can express (a second `syn::parse_file` call, a second
+# backslash-to-slash conversion) are left to review: `forbid_pattern` needs
+# ast-grep, and the gate does not require it.
+authority = [
+  { fact = "the structural Rust grammar", home = "crates/atlas-lib/src/source/syntax/mod.rs::parse_file", forbid_item = [
+    "crates/atlas-lib/src/analysis::parse_file",
+    "crates/atlas-lib/src/queries::parse_file",
+    "crates/atlas-lib/src/checks::parse_file",
+    "crates/atlas-lib/src/query::parse_file",
+    "crates/atlas-lib/src/relations::parse_file",
+    "crates/atlas-lib/src/revision::parse_file",
+    "crates/atlas-lib/src/diagram::parse_file",
+    "crates/atlas-lib/src/architecture.rs::parse_file",
+    "src::parse_file",
+  ] },
+  { fact = "the source path key", home = "crates/atlas-lib/src/source/discovery/mod.rs::path_key", forbid_item = [
+    "crates/atlas-lib/src/analysis::path_key",
+    "crates/atlas-lib/src/queries::path_key",
+    "crates/atlas-lib/src/checks::path_key",
+    "crates/atlas-lib/src/revision::path_key",
+    "crates/atlas-lib/src/query::path_key",
+    "crates/atlas-lib/src/relations::path_key",
+    "crates/atlas-lib/src/diagram::path_key",
+    "crates/atlas-lib/src/architecture.rs::path_key",
+    "src::path_key",
+  ] },
+  { fact = "the captured workspace", home = "crates/atlas-lib/src/source/discovery/mod.rs::Snapshot" },
+  { fact = "the qualified analysis", home = "crates/atlas-lib/src/analysis/mod.rs::Analysis", forbid_item = [
+    "crates/atlas-lib/src/queries::Analysis",
+    "crates/atlas-lib/src/checks::Analysis",
+    "src::Analysis",
+  ] },
+  { fact = "the qualified index", home = "crates/atlas-lib/src/analysis/index/mod.rs::Index" },
+  { fact = "the syntax-facts cache", home = "crates/atlas-lib/src/source/facts_cache/mod.rs::FactsCache" },
+  { fact = "the relations schema", home = "crates/atlas-lib/src/relations/schema.rs::RELATIONS" },
+  { fact = "every colour", home = "src/render/theme.rs::Palette", forbid_item = [
+    "src/views::Palette",
+    "src/cli::Palette",
+  ] },
+  { fact = "child process exchange", home = "src/process.rs::exchange" },
+  { fact = "output collision policy", home = "src/cli/output/files.rs::preflight" },
+]
+
+[population]
+core = ["atlas-lib", "cargo-atlas"]
+
+# Lines that contain code, per package. Measured; growth needs a policy edit
+# that says what it buys.
+[size]
+core_token_lines = 37231
+crate = { atlas-lib = 26730, cargo-atlas = 10501 }
+
+# Public declarations, per package. Measured; same rule as size.
+[surface]
+atlas-lib = 624
+cargo-atlas = 135
+
+# The library depends on no workspace package; the command line depends on
+# the library only.
+[crate_graph]
+rule = [
+  { name = "atlas-lib", allowed = [], law = "the library depends on no other workspace package" },
+  { name = "cargo-atlas", allowed = ["atlas-lib"], law = "the command line is built on the library and nothing else in the workspace" },
+]
+
+# atlas-lib's top-level modules in the order they read each other, as
+# measured (`cargo atlas stages`): no module reads a later one. This is the
+# order the code has, not an ideal one. `diagram` sits before `analysis`
+# because analysis builds the diagram model (`Diagram`, `Coverage`).
+# cargo-atlas has no stage order: `views` and `render` read each other.
+[[stage_order]]
+crate = "atlas-lib"
+stages = ["architecture", "source", "diagram", "analysis", "relations", "queries", "query", "checks", "revision", "guide"]
+
+# Exactly the earlier stages each stage reads today. A new read between
+# stages needs a line here.
+[stage_reads.atlas-lib]
+source = { reads = ["architecture"] }
+diagram = { reads = ["architecture", "source"] }
+analysis = { reads = ["architecture", "source", "diagram"] }
+relations = { reads = ["source", "analysis"] }
+queries = { reads = ["architecture", "source", "analysis", "relations"] }
+query = { reads = ["architecture", "relations"] }
+checks = { reads = ["architecture", "source", "analysis", "queries"] }
+revision = { reads = ["architecture", "source"] }
+
+[concentration]
+population = ["atlas-lib", "cargo-atlas"]
+# An entry file declares child modules; keep it a readable table of contents.
+entry_lines = 300
+file_lines = 600
+conventional_names = ["tests"]
+# Ratchets: files above the limits, at their measured body lines.
+entry = [
+  { path = "crates/atlas-lib/src/analysis/semantic/mod.rs", lines = 609 },
+  { path = "crates/atlas-lib/src/analysis/workflow/mod.rs", lines = 417 },
+  { path = "crates/atlas-lib/src/checks/delta/mod.rs", lines = 340 },
+  { path = "crates/atlas-lib/src/checks/policy/mod.rs", lines = 612 },
+  { path = "crates/atlas-lib/src/queries/mod.rs", lines = 391 },
+  { path = "crates/atlas-lib/src/relations/mod.rs", lines = 751 },
+  { path = "crates/atlas-lib/src/source/discovery/mod.rs", lines = 867 },
+  { path = "crates/atlas-lib/src/source/facts_cache/mod.rs", lines = 380 },
+  { path = "src/cli/output/mod.rs", lines = 347 },
+]
+file = [
+  { path = "crates/atlas-lib/src/analysis/semantic/mod.rs", lines = 609 },
+  { path = "crates/atlas-lib/src/checks/policy/mod.rs", lines = 612 },
+  { path = "crates/atlas-lib/src/queries/callers.rs", lines = 1203 },
+  { path = "crates/atlas-lib/src/queries/orient.rs", lines = 835 },
+  { path = "crates/atlas-lib/src/query/check.rs", lines = 1122 },
+  { path = "crates/atlas-lib/src/query/eval.rs", lines = 745 },
+  { path = "crates/atlas-lib/src/query/syntax.rs", lines = 670 },
+  { path = "crates/atlas-lib/src/relations/mod.rs", lines = 751 },
+  { path = "crates/atlas-lib/src/source/discovery/mod.rs", lines = 867 },
+]
+# Module names with more than one home. A facet is one idea seen from
+# several places; a collision is two ideas under one name, owed a rename.
+name = [
+  { name = "ascii", ruling = "facet", why = "ASCII rendering, for all views and for the types view", homes = ["cargo-atlas::render::ascii", "cargo-atlas::render::types::ascii"] },
+  { name = "callers", ruling = "facet", why = "the callers question: the library's answer and the command", homes = ["atlas-lib::queries::callers", "cargo-atlas::cli::callers"] },
+  { name = "comparison", ruling = "facet", why = "the compare command, its view and its renderer", homes = ["cargo-atlas::cli::comparison", "cargo-atlas::render::comparison", "cargo-atlas::views::comparison"] },
+  { name = "delta", ruling = "facet", why = "the delta check and its command", homes = ["atlas-lib::checks::delta", "cargo-atlas::cli::delta"] },
+  { name = "dependencies", ruling = "facet", why = "the dependencies command and its view", homes = ["cargo-atlas::cli::dependencies", "cargo-atlas::views::dependencies"] },
+  { name = "documentation", ruling = "facet", why = "the documentation audit and its command", homes = ["atlas-lib::queries::documentation", "cargo-atlas::cli::documentation"] },
+  { name = "facts", ruling = "collision", why = "a function body's calls and bindings, and the command that exports relation tables", homes = ["atlas-lib::analysis::workflow::facts", "cargo-atlas::cli::facts"] },
+  { name = "measure", ruling = "facet", why = "the measurement units of each check", homes = ["atlas-lib::checks::concentration::measure", "atlas-lib::checks::delta::measure"] },
+  { name = "navigation", ruling = "facet", why = "the navigation queries and their command", homes = ["atlas-lib::queries::navigation", "cargo-atlas::cli::navigation"] },
+  { name = "orient", ruling = "facet", why = "the orient report and its command", homes = ["atlas-lib::queries::orient", "cargo-atlas::cli::orient"] },
+  { name = "overview", ruling = "facet", why = "the overview command, its view and its renderer", homes = ["cargo-atlas::cli::overview", "cargo-atlas::render::overview", "cargo-atlas::views::overview"] },
+  { name = "policy", ruling = "facet", why = "the policy check and its command", homes = ["atlas-lib::checks::policy", "cargo-atlas::cli::policy"] },
+  { name = "process", ruling = "facet", why = "a bounded child process exchange, and each protocol's use of it", homes = ["cargo-atlas::adapter::process", "cargo-atlas::process", "cargo-atlas::render::pele::process"] },
+  { name = "program", ruling = "facet", why = "the program command and its view", homes = ["cargo-atlas::cli::program", "cargo-atlas::views::program"] },
+  { name = "projection", ruling = "facet", why = "selecting observations into a diagram model, at each level that does it", homes = ["atlas-lib::analysis::workflow::projection", "atlas-lib::diagram::projection", "cargo-atlas::views::program::projection"] },
+  { name = "query", ruling = "facet", why = "the Datalog evaluator and its command", homes = ["atlas-lib::query", "cargo-atlas::cli::query"] },
+  { name = "ratchets", ruling = "facet", why = "the no-growth laws of each check", homes = ["atlas-lib::checks::concentration::ratchets", "atlas-lib::checks::stages::seams::ratchets"] },
+  { name = "relations", ruling = "collision", why = "a declaration's lexical relationships for `name --relations`, and the flat relation tables", homes = ["atlas-lib::queries::navigation::relations", "atlas-lib::relations"] },
+  { name = "review", ruling = "facet", why = "the review queries and their command", homes = ["atlas-lib::queries::review", "cargo-atlas::cli::review"] },
+  { name = "semantic", ruling = "facet", why = "the SCIP reading and the command option that produces the index", homes = ["atlas-lib::analysis::semantic", "cargo-atlas::cli::semantic"] },
+  { name = "stages", ruling = "facet", why = "the stage check and its command", homes = ["atlas-lib::checks::stages", "cargo-atlas::cli::stages"] },
+  { name = "syntax", ruling = "collision", why = "the Datalog program's syntax, and the structural Rust grammar", homes = ["atlas-lib::query::syntax", "atlas-lib::source::syntax"] },
+  { name = "types", ruling = "facet", why = "written type representations: the library facts, the command, its view and its renderer", homes = ["atlas-lib::analysis::representations::types", "cargo-atlas::cli::types", "cargo-atlas::render::types", "cargo-atlas::views::types"] },
+  { name = "wire", ruling = "facet", why = "a private serialized form read by its parent module", homes = ["atlas-lib::analysis::semantic::wire", "atlas-lib::source::facts_cache::wire"] },
+]
+# The public compatibility paths at each crate root (ARCHITECTURE.md:
+# "explicit compatibility reexports"). Rows may only be removed.
+alias = [
+  { module = "atlas-lib", kind = "module_relay", binding = "discovery", source = "source::discovery" },
+  { module = "atlas-lib", kind = "module_relay", binding = "documentation", source = "queries::documentation" },
+  { module = "atlas-lib", kind = "module_relay", binding = "model", source = "source::model" },
+  { module = "atlas-lib", kind = "module_relay", binding = "population", source = "source::population" },
+  { module = "atlas-lib", kind = "module_relay", binding = "relationships", source = "source::relationships" },
+  { module = "atlas-lib", kind = "module_relay", binding = "representations", source = "analysis::representations" },
+  { module = "atlas-lib", kind = "module_relay", binding = "review", source = "queries::review" },
+  { module = "atlas-lib", kind = "module_relay", binding = "scan", source = "source::scan" },
+  { module = "atlas-lib", kind = "root_restricted", binding = "scan", source = "source::scan" },
+  { module = "atlas-lib", kind = "module_relay", binding = "source_index", source = "analysis::index" },
+  { module = "atlas-lib", kind = "rename", binding = "source_index", source = "analysis::index" },
+  { module = "atlas-lib", kind = "module_relay", binding = "source_text", source = "source::text" },
+  { module = "atlas-lib", kind = "rename", binding = "source_text", source = "source::text" },
+  { module = "atlas-lib", kind = "root_restricted", binding = "source_text", source = "source::text" },
+  { module = "atlas-lib", kind = "module_relay", binding = "workflow", source = "analysis::workflow" },
+  { module = "atlas-lib", kind = "module_relay", binding = "workspace", source = "source::workspace" },
+  { module = "atlas-lib", kind = "root_restricted", binding = "workspace", source = "source::workspace" },
+  { module = "cargo-atlas", kind = "module_relay", binding = "comparison", source = "views::comparison" },
+  { module = "cargo-atlas", kind = "module_relay", binding = "dependencies", source = "views::dependencies" },
+  { module = "cargo-atlas", kind = "module_relay", binding = "overview", source = "views::overview" },
+  { module = "cargo-atlas", kind = "module_relay", binding = "program", source = "views::program" },
+  { module = "cargo-atlas", kind = "module_relay", binding = "representations", source = "views::types" },
+  { module = "cargo-atlas", kind = "rename", binding = "representations", source = "views::types" },
+  { module = "cargo-atlas", kind = "root_restricted", binding = "source_index", source = "atlas_lib::source_index" },
+  { module = "cargo-atlas", kind = "module_relay", binding = "types", source = "views::types" },
+]
+# Ratchet: folder roots whose //! header cites no document, counted with
+# `--citation-markers ARCHITECTURE.md,docs/`. Atlas has no citation
+# convention yet, so today none cites.
+header_uncited = { atlas-lib = 24, cargo-atlas = 13 }

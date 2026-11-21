@@ -21,6 +21,7 @@ jobs:
           cargo test --workspace --locked
           cargo clippy -p atlas-lib --no-default-features --all-targets --locked -- -D warnings
           cargo test -p atlas-lib --no-default-features --locked
+          scripts/self-check.sh
           RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
           node --test renderer/*.test.mjs
       - name: Installed executable outside its checkout

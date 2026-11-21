@@ -5,6 +5,9 @@
 # never overwritten, and points target/gate.log at the newest one. On failure
 # it names the step that failed and its exit status: cargo's 101 alone does
 # not say whether formatting, Clippy, a test or rustdoc refused.
+#
+# The self-check step checks Atlas against its own architecture policy with
+# the binary the test step just built (scripts/self-check.sh).
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,6 +22,7 @@ steps=(
   "test|cargo test --workspace --locked"
   "clippy (no default features)|cargo clippy -p atlas-lib --no-default-features --all-targets --locked -- -D warnings"
   "test (no default features)|cargo test -p atlas-lib --no-default-features --locked"
+  "self-check|scripts/self-check.sh"
   "doc|RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked"
   "npm|npm test"
 )
