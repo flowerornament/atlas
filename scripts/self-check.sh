@@ -6,8 +6,9 @@
 # `policy` checks the policy file and each authority row, and exits with an
 # error for REFUSE or UNAVAILABLE. `stages` is a report that always exits
 # successfully when it finds a violation, so this script fails unless its
-# whole output is the one summary line it prints when every read between
-# atlas-lib's top-level modules follows the declared order and stage_reads.
+# whole output, for each package, is the one summary line it prints when
+# every read between its top-level modules follows the declared order and
+# stage_reads.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,9 +19,11 @@ atlas() { cargo run --locked --quiet -- atlas "$@"; }
 atlas policy --policy "$policy"
 
 clean="1 selected packages; no complete project policy verdict"
-report="$(atlas stages --policy "$policy" --scope atlas-lib)"
-printf '%s\n' "$report"
-if [ "$report" != "$clean" ]; then
-  echo "self-check: stages reported the reads above; fix them or amend the stage order in $policy and ARCHITECTURE.md together" >&2
-  exit 1
-fi
+for package in atlas-lib cargo-atlas; do
+  report="$(atlas stages --policy "$policy" --scope "$package")"
+  printf '%s: %s\n' "$package" "$report"
+  if [ "$report" != "$clean" ]; then
+    echo "self-check: stages reported the reads above in $package; fix them or amend the stage order in $policy and ARCHITECTURE.md together" >&2
+    exit 1
+  fi
+done

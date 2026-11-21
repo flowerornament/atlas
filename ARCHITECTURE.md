@@ -158,14 +158,15 @@ diagram model (`Diagram`, `Coverage`).
   `cargo atlas stages` in `just check` and by `cargo atlas delta`. Adding a
   read means adding it to the row, in review.
 
-**4. In cargo-atlas, commands own their options and orchestration under
-`src/cli/`, views select observations, and renderers present a view without
-reading source.**
-- *Broken by:* a renderer that reads files or captures source; a view that
-  calls a renderer. Today four sites in `views/` call `render/`
-  (`views/comparison.rs`, `views/overview.rs`, `views/types/mod.rs`), so
-  `views` and `render` read each other and cargo-atlas has no stage order.
-- *Checked by:* review.
+**4. In cargo-atlas, no top-level module reads a module later in this order:
+`process`, `views`, `adapter`, `render`, `cli`; each reads only the earlier
+modules its `stage_reads` row lists.**
+Commands own their options and orchestration under `src/cli/`, views select
+observations, and renderers present a view: a view never calls a renderer.
+- *Broken by:* a view naming `crate::render`, or any read against the order
+  or missing from its row.
+- *Checked by:* `[[stage_order]]` and `[stage_reads.cargo-atlas]` in the
+  policy, judged by `cargo atlas stages` in `just check`.
 
 ### Source capture and evidence
 
@@ -380,6 +381,10 @@ Today cargo-atlas meets it; atlas-lib does not yet (its `relations` reader, the
 - *Broken by:* a production `Result<_, String>` in a package the policy lists.
 - *Checked by:* `typed_errors` in the policy (cargo-atlas), run by
   `cargo atlas policy` in `just check`; atlas-lib: review, until it is listed.
+
+**32. Renderers present a view without reading source.**
+- *Broken by:* a renderer in `src/render/` that reads files or captures source.
+- *Checked by:* review.
 
 ## Trace an overview
 

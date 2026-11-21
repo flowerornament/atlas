@@ -50,14 +50,15 @@ runs two of these checks with the binary it has just built, through
 ```sh
 cargo run --locked --quiet -- atlas policy --policy .config/architecture.toml
 cargo run --locked --quiet -- atlas stages --policy .config/architecture.toml --scope atlas-lib
+cargo run --locked --quiet -- atlas stages --policy .config/architecture.toml --scope cargo-atlas
 ```
 
 `policy` prints `policy inputs: PASS` when the policy file is valid, the
 dependencies between workspace packages are exactly the ones `[crate_graph]`
 allows, and every authority row holds: each fact's home item exists exactly
 once, and no forbidden second home is declared. `stages` prints one line for each read
-between atlas-lib's top-level modules that goes against their order or that
-the module's `stage_reads` row does not list (ARCHITECTURE.md rules 2 and 3),
+between a package's top-level modules that goes against their order or that
+the module's `stage_reads` row does not list (ARCHITECTURE.md rules 2 to 4),
 then a summary line; the script fails if anything comes before the summary.
 Either way, the fix is in the code, or, if the rule itself changed, in the
 policy and in ARCHITECTURE.md together.

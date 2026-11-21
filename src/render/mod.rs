@@ -2,10 +2,10 @@
 //! Model families retain their own meanings; rendering never reopens source.
 mod ascii;
 pub(crate) mod comparison;
-pub(crate) mod overview;
+pub mod overview;
 pub(crate) mod pele;
 mod theme;
-pub(crate) mod types;
+pub mod types;
 use crate::{Result, diagram::Diagram};
 pub use ascii::Ascii;
 pub use pele::{Pele, mermaid};

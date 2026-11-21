@@ -73,7 +73,10 @@ fn alias_is_selectable_in_public_contracts_producers_preparation_and_comparison(
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(types::ascii(&view, Panel::Contracts).contains("type Forms = Vec<Form>"));
+    assert!(
+        cargo_atlas::render::types::ascii(&view, Panel::Contracts)
+            .contains("type Forms = Vec<Form>")
+    );
     let (_, after) = facts(&SOURCE.replace("Vec<Form>", "Option<Form>"));
     let comparison =
         comparison::compare(&before, &after, Some(&q), ("before".into(), "after".into())).unwrap();
@@ -125,7 +128,7 @@ fn preparation_picture_shares_callee_identity_without_merging_callers() {
             + "pub fn prepare_again()->Forms { infer() }\npub fn wrapped()->Vec<Forms>{vec![]}\n"),
     );
     let view = types::project(&facts, &query(&["Forms"])).unwrap();
-    let artifact = types::pele(
+    let artifact = cargo_atlas::render::types::pele(
         &view,
         Panel::Preparation,
         &cargo_atlas::render::Pele {

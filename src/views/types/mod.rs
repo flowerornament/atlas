@@ -3,7 +3,6 @@
 //! Extraction is independent of a saved question. These are written-source facts,
 //! not value identity, complete ownership, runtime order or a duplication verdict.
 mod project;
-pub use crate::render::types::{ascii, pele};
 pub use atlas_lib::representations::{
     Constant, Constructor, Facts, Function, Literal, Reference, ResolvedCall, Role, Type,
     UnknownCall, UnknownType, extract,

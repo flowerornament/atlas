@@ -6,6 +6,14 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- cargo-atlas: views no longer re-export renderers, so a view never calls a
+ renderer and cargo-atlas has a stage order of its own. **Breaking:** the
+ renderers' true paths are public and the view-module paths are gone:
+ `cargo_atlas::types::{ascii, pele}` (and `representations::{ascii, pele}`)
+ are `cargo_atlas::render::types::{ascii, pele}`, and
+ `cargo_atlas::overview::{ascii, pele}` are
+ `cargo_atlas::render::overview::{ascii, pele}`. `types::Panel` and
+ `Comparison::pele` are unchanged.
 - Function measures: every function with a body is measured once in the
  syntax pass, as Clippy's `too_many_lines` (code lines in the body) and
  `excessive_nesting` (deepest block level from the file's root) read it,

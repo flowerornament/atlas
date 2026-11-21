@@ -381,5 +381,3 @@ impl<'a> Figures<'a> {
 fn module_of(architecture: &Architecture, file: &str) -> Option<String> {
     architecture.owner(file).map(|m| m.name.clone())
 }
-
-pub use crate::render::overview::{ascii, pele};

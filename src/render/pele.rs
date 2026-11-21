@@ -95,9 +95,9 @@ impl Renderer for Pele {
     fn render_view(&self, view: super::View<'_>) -> Result<Artifact> {
         let artifact = match view {
             super::View::Graph(g) => return self.render(g),
-            super::View::Types(v, p) => crate::types::pele(v, p, self)?,
+            super::View::Types(v, p) => crate::render::types::pele(v, p, self)?,
             super::View::Comparison(c) => c.pele(self)?,
-            super::View::Overview(o) => crate::overview::pele(o, self)?,
+            super::View::Overview(o) => crate::render::overview::pele(o, self)?,
         };
         if !self.html {
             return Ok(artifact);

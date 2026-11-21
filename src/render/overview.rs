@@ -122,7 +122,10 @@ pub fn ascii(overview: &Overview) -> String {
             )
             .expect("formatting into a String cannot fail");
         }
-        text.push_str(&types::ascii(&panel.views, types::Panel::Contracts));
+        text.push_str(&crate::render::types::ascii(
+            &panel.views,
+            types::Panel::Contracts,
+        ));
         if number + 1 < count {
             text.push('\n');
         }

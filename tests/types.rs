@@ -212,9 +212,9 @@ fn unknowns_and_no_preparation_remain_explicit_in_both_backends() {
             .iter()
             .any(|u| u.call.spelling.contains("external"))
     );
-    let ascii = types::ascii(&v, Panel::All);
+    let ascii = cargo_atlas::render::types::ascii(&v, Panel::All);
     assert!(ascii.contains("Unknown observations"));
-    let artifact = types::pele(
+    let artifact = cargo_atlas::render::types::pele(
         &v,
         Panel::All,
         &cargo_atlas::render::Pele {
@@ -228,7 +228,7 @@ fn unknowns_and_no_preparation_remain_explicit_in_both_backends() {
     assert!(svg.contains("viewBox"));
     assert!(svg.contains("Graph"));
     // Bare draws the same panels without the title, notes and headings.
-    let bare = types::pele(
+    let bare = cargo_atlas::render::types::pele(
         &v,
         Panel::All,
         &cargo_atlas::render::Pele {
@@ -273,7 +273,7 @@ fn matrix_renders_nested_borrows_and_contract_titles_keep_all_literal_sites() {
         "checked: &'a Checked, graphs: Vec<&'a Graph> }",
     ) + "\nfn extra()->Graph { let _=Graph {value:1}; Graph {value:2} }";
     let (_f, _, v) = inspect(&source);
-    let artifact = types::pele(
+    let artifact = cargo_atlas::render::types::pele(
         &v,
         Panel::All,
         &cargo_atlas::render::Pele {
@@ -283,7 +283,7 @@ fn matrix_renders_nested_borrows_and_contract_titles_keep_all_literal_sites() {
         },
     )
     .unwrap();
-    let matrix = types::pele(
+    let matrix = cargo_atlas::render::types::pele(
         &v,
         Panel::Retention,
         &cargo_atlas::render::Pele {

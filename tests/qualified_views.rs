@@ -176,7 +176,7 @@ fn inferred()->Graph {Default::default()}
     assert_eq!(admit.failures[0].0.name, "Refused");
     assert_eq!(admit.failures[0].1.wrappers, ["Result[1]", "Box[0]"]);
     let svg = String::from_utf8(
-        types::pele(
+        cargo_atlas::render::types::pele(
             &v,
             types::Panel::All,
             &cargo_atlas::render::Pele {
@@ -399,10 +399,10 @@ fn an_overview_above_one_figure_is_split_into_module_panels_without_dropping_typ
     );
     let json = serde_json::to_value(&v).unwrap();
     assert_eq!(json["split"].as_array().unwrap().len(), 3);
-    let text = overview::ascii(&v);
+    let text = cargo_atlas::render::overview::ascii(&v);
     assert!(text.contains("PANEL 1 OF 2: s0, s1") && text.contains("PANEL 2 OF 2: s2"));
     assert!(expected.iter().all(|name| text.contains(name.as_str())));
-    let svg = overview::pele(
+    let svg = cargo_atlas::render::overview::pele(
         &v,
         &cargo_atlas::render::Pele {
             html: false,
@@ -626,7 +626,7 @@ fn error_type_returners_keep_their_err_position_in_the_producer_view() {
         preparation_functions: vec![],
     };
     let v = types::project(&facts, &query).unwrap();
-    let artifact = types::pele(
+    let artifact = cargo_atlas::render::types::pele(
         &v,
         types::Panel::Producers,
         &cargo_atlas::render::Pele {

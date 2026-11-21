@@ -70,13 +70,13 @@ core = ["atlas-lib", "cargo-atlas"]
 # Lines that contain code, per package. Measured; growth needs a policy edit
 # that says what it buys.
 [size]
-core_token_lines = 38787
-crate = { atlas-lib = 27822, cargo-atlas = 10965 }
+core_token_lines = 38788
+crate = { atlas-lib = 27822, cargo-atlas = 10966 }
 
 # Public declarations, per package. Measured; same rule as size.
 [surface]
 atlas-lib = 627
-cargo-atlas = 134
+cargo-atlas = 132
 
 # The library depends on no workspace package; the command line depends on
 # the library only.
@@ -90,7 +90,6 @@ rule = [
 # measured (`cargo atlas stages`): no module reads a later one. This is the
 # order the code has, not an ideal one. `diagram` sits before `analysis`
 # because analysis builds the diagram model (`Diagram`, `Coverage`).
-# cargo-atlas has no stage order: `views` and `render` read each other.
 [[stage_order]]
 crate = "atlas-lib"
 stages = ["architecture", "source", "diagram", "analysis", "relations", "queries", "query", "checks", "revision", "guide"]
@@ -106,6 +105,17 @@ queries = { reads = ["architecture", "source", "analysis", "relations"] }
 query = { reads = ["architecture", "relations"] }
 checks = { reads = ["architecture", "source", "analysis", "queries"] }
 revision = { reads = ["architecture", "source"] }
+
+# cargo-atlas's modules in the order they read each other, as measured:
+# views select observations, renderers present them, and the command line
+# (the binary's `cli`) uses the library by its crate name.
+[[stage_order]]
+crate = "cargo-atlas"
+stages = ["process", "views", "adapter", "render", "cli"]
+
+[stage_reads.cargo-atlas]
+adapter = { reads = ["process", "views"] }
+render = { reads = ["process", "views"] }
 
 [concentration]
 population = ["atlas-lib", "cargo-atlas"]
