@@ -175,7 +175,8 @@ You only need these if you write an adapter without the `cargo-atlas` crate.
 - Protocol version `2`, interface `project-declarations/v1`. Version 2 added
   each snapshot file's `packages` and the `call` literal kind. The reply echoes
   the request's snapshot ID and names its producer.
-- Size limits: request 16 MiB, reply 2 MiB, diagnostics 64 KiB.
+- Size limits: request 16 MiB, reply 2 MiB, diagnostics 64 KiB. Time limit:
+  60 s for the whole exchange; an adapter past it is stopped and refused.
 - A reply that is malformed, too large, for another snapshot or for another
   protocol version is refused before anything is drawn.
 

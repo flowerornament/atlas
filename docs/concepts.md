@@ -193,7 +193,8 @@ it left out.
   source it read.
 - `--as svg` draws an SVG image, and `--as html` (on `flow`, `map` and
   `program`) an HTML page around it. Drawing needs Node.js 20 or newer; the
-  drawing code is built into Atlas. The 0.18 spellings `--backend` and output
+  drawing code is built into Atlas, and a drawing that takes over 120 s is
+  stopped and refused. The 0.18 spellings `--backend` and output
   `--format` still work until 1.0, with a one-line note on stderr
   (`ATLAS_NOTICES=off` hides it).
 - `--out path` chooses the output file. Relative paths start at the project

@@ -6,6 +6,11 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- The Node renderer and declaration adapters run under a wall-clock limit
+ (120 s for a drawing, 60 s for an adapter exchange): past it the child is
+ stopped and the command refuses, naming the limit, instead of waiting
+ forever on a stalled child. A process the child left holding its output is
+ not waited for, and the refusal says so.
 - A `--semantic` run past its deadline claims that the processes the
  indexer started were stopped only when Atlas confirmed it: it now checks
  each one is gone after the kill, and where the process list cannot be read

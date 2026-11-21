@@ -19,6 +19,7 @@ pub(super) fn exchange(program: &Path, request: &[u8]) -> Result<process::Exchan
         Limits {
             stdout: MAX_REPLY_BYTES,
             stderr: 64 * 1024,
+            time: std::time::Duration::from_secs(60),
         },
     )
     .map_err(|e| format!("adapter transport: {e}").into())

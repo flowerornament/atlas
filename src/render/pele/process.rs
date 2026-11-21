@@ -47,6 +47,9 @@ fn request(source: &str, prefix: &str) -> Result<Vec<u8>> {
     Ok(bytes.0)
 }
 
+/// The longest a render may take before Atlas stops the renderer.
+const RENDER_TIME: std::time::Duration = std::time::Duration::from_secs(120);
+
 pub(super) fn render(source: &str, prefix: &str) -> Result<String> {
     // Serialize within the cap before starting a child. Borrow the inputs;
     // escaped JSON bytes, not source character counts, determine this limit.
@@ -63,6 +66,7 @@ pub(super) fn render(source: &str, prefix: &str) -> Result<String> {
         Limits {
             stdout: MAX_SVG,
             stderr: MAX_DIAGNOSTICS,
+            time: RENDER_TIME,
         },
     )
     .map_err(|e| {
