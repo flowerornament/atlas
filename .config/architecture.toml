@@ -70,12 +70,12 @@ core = ["atlas-lib", "cargo-atlas"]
 # Lines that contain code, per package. Measured; growth needs a policy edit
 # that says what it buys.
 [size]
-core_token_lines = 38788
-crate = { atlas-lib = 27822, cargo-atlas = 10966 }
+core_token_lines = 38828
+crate = { atlas-lib = 27862, cargo-atlas = 10966 }
 
 # Public declarations, per package. Measured; same rule as size.
 [surface]
-atlas-lib = 627
+atlas-lib = 629
 cargo-atlas = 132
 
 # The library depends on no workspace package; the command line depends on
@@ -130,7 +130,7 @@ entry = [
   { path = "crates/atlas-lib/src/checks/delta/mod.rs", lines = 348 },
   { path = "crates/atlas-lib/src/checks/policy/mod.rs", lines = 616 },
   { path = "crates/atlas-lib/src/queries/mod.rs", lines = 400 },
-  { path = "crates/atlas-lib/src/relations/mod.rs", lines = 790 },
+  { path = "crates/atlas-lib/src/relations/mod.rs", lines = 811 },
   { path = "crates/atlas-lib/src/source/discovery/mod.rs", lines = 940 },
   { path = "crates/atlas-lib/src/source/facts_cache/mod.rs", lines = 388 },
   { path = "src/cli/output/mod.rs", lines = 347 },
@@ -145,7 +145,7 @@ file = [
   { path = "crates/atlas-lib/src/query/check.rs", lines = 1188 },
   { path = "crates/atlas-lib/src/query/eval.rs", lines = 778 },
   { path = "crates/atlas-lib/src/query/syntax.rs", lines = 677 },
-  { path = "crates/atlas-lib/src/relations/mod.rs", lines = 790 },
+  { path = "crates/atlas-lib/src/relations/mod.rs", lines = 811 },
   { path = "crates/atlas-lib/src/relations/schema.rs", lines = 602 },
   { path = "crates/atlas-lib/src/source/discovery/mod.rs", lines = 940 },
 ]

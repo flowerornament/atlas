@@ -25,6 +25,32 @@ use std::collections::{BTreeMap, BTreeSet};
 pub mod schema;
 pub use schema::{Family, VERSION};
 
+/// Why an export could not be read back by [`Relations::read`]: its message
+/// says what in the export disagrees with this Atlas's schema, and how to fix
+/// it (usually by exporting again).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadError(String);
+
+impl std::fmt::Display for ReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for ReadError {}
+
+impl From<String> for ReadError {
+    fn from(message: String) -> Self {
+        Self(message)
+    }
+}
+
+impl From<&str> for ReadError {
+    fn from(message: &str) -> Self {
+        Self(message.to_owned())
+    }
+}
+
 /// One value. The column's [`schema::Kind`] says which variant it holds.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(untagged)]
@@ -233,7 +259,7 @@ impl Relations {
     /// relations and give every column of each, with values of the column's
     /// kind; an older export that lacks an appended column is refused, not
     /// filled in.
-    pub fn read(text: &str) -> Result<Self, String> {
+    pub fn read(text: &str) -> Result<Self, ReadError> {
         let trimmed = text.trim_start();
         let first_line = trimmed.lines().next().unwrap_or_default();
         let header: serde_json::Value = serde_json::from_str(first_line)
@@ -250,13 +276,14 @@ impl Relations {
             Self::read_lines(&header, trimmed.lines().skip(1))
         }
     }
-    fn header(header: &serde_json::Value) -> Result<(Vec<Family>, Vec<String>), String> {
+    fn header(header: &serde_json::Value) -> Result<(Vec<Family>, Vec<String>), ReadError> {
         let version = header.get("schema").and_then(serde_json::Value::as_u64);
         if version != Some(u64::from(VERSION)) {
             return Err(format!(
                 "the export has schema {}, and this Atlas reads schema {VERSION}; export it again",
                 version.map_or_else(|| "none".into(), |v| v.to_string())
-            ));
+            )
+            .into());
         }
         let families = header
             .get("families")
@@ -288,7 +315,7 @@ impl Relations {
         relation: &str,
         column: &schema::Column,
         value: &serde_json::Value,
-    ) -> Result<Cell, String> {
+    ) -> Result<Cell, ReadError> {
         let cell = match column.kind {
             schema::Kind::Integer => value.as_u64().map(Cell::Integer),
             schema::Kind::Boolean => value.as_bool().map(Cell::Boolean),
@@ -299,13 +326,14 @@ impl Relations {
                 "`{relation}.{}` should hold {:?} values, found {value}",
                 column.name, column.kind
             )
+            .into()
         })
     }
-    fn known(name: &str) -> Result<&'static schema::Relation, String> {
+    fn known(name: &str) -> Result<&'static schema::Relation, ReadError> {
         schema::relation(name)
-            .ok_or_else(|| format!("the export names an unknown relation `{name}`"))
+            .ok_or_else(|| format!("the export names an unknown relation `{name}`").into())
     }
-    fn read_document(document: &serde_json::Value) -> Result<Self, String> {
+    fn read_document(document: &serde_json::Value) -> Result<Self, ReadError> {
         let (families, limitations) = Self::header(document)?;
         let tables = document
             .get("relations")
@@ -323,7 +351,8 @@ impl Relations {
             if columns != expected {
                 return Err(format!(
                     "`{name}` has columns {columns:?} in the export and {expected:?} in this Atlas; export it again"
-                ));
+                )
+                .into());
             }
             let mut relation = Relation {
                 schema,
@@ -362,7 +391,7 @@ impl Relations {
     fn read_lines<'a>(
         header: &serde_json::Value,
         lines: impl Iterator<Item = &'a str>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, ReadError> {
         let (families, limitations) = Self::header(header)?;
         let mut relations: Vec<Relation> = Vec::new();
         for (n, line) in lines.enumerate().filter(|(_, l)| !l.trim().is_empty()) {

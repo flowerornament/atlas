@@ -7,7 +7,8 @@
 //! carries it. Unknown enum tags decode as a failure, which the cache treats as
 //! a miss.
 use crate::source::{
-    Field, Import, ImportBinding, Item, ItemKind, TestRegions, Visibility, syntax::Facts,
+    Field, Import, ImportBinding, Item, ItemKind, TestRegions, UnreadableImport, Visibility,
+    syntax::Facts,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, ops::Range, path::PathBuf, sync::Arc};
@@ -52,13 +53,17 @@ struct WireField {
     restricted: Option<String>,
 }
 
+/// An unreadable import's message; serialized as the bare string.
+#[derive(Serialize, Deserialize)]
+struct WireUnreadable(String);
+
 #[derive(Serialize, Deserialize)]
 struct WireImport {
     line: usize,
     end_line: usize,
     top_level: bool,
     statement: String,
-    bindings: Result<Vec<WireBinding>, String>,
+    bindings: Result<Vec<WireBinding>, WireUnreadable>,
     bytes: (usize, usize),
     target: String,
 }
@@ -258,7 +263,7 @@ impl WireImport {
             bindings: bindings
                 .as_ref()
                 .map(|bindings| bindings.iter().map(WireBinding::of).collect())
-                .map_err(Clone::clone),
+                .map_err(|why| WireUnreadable(why.to_string())),
             bytes: pair(bytes),
             target: target.to_string(),
         }
@@ -269,12 +274,15 @@ impl WireImport {
             end_line: self.end_line,
             top_level: self.top_level,
             statement: Arc::from(self.statement),
-            bindings: self.bindings.map(|bindings| {
-                bindings
-                    .into_iter()
-                    .map(WireBinding::into_binding)
-                    .collect()
-            }),
+            bindings: self
+                .bindings
+                .map(|bindings| {
+                    bindings
+                        .into_iter()
+                        .map(WireBinding::into_binding)
+                        .collect()
+                })
+                .map_err(|why| UnreadableImport::new(why.0)),
             bytes: range(self.bytes),
             target: Arc::from(self.target),
         }

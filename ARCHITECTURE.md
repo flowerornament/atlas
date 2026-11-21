@@ -376,8 +376,8 @@ limits of its result.**
 
 **31. Production code never uses `String` as an error type, as in
 `Result<T, String>`: an error keeps the typed cause of the step that produced it.**
-Today cargo-atlas meets it; atlas-lib does not yet (its `relations` reader, the
-`source::Import` bindings, and sites in `analysis/` and `checks/`).
+Today cargo-atlas meets it; atlas-lib does not yet (six sites in `analysis/`
+and `checks/`).
 - *Broken by:* a production `Result<_, String>` in a package the policy lists.
 - *Checked by:* `typed_errors` in the policy (cargo-atlas), run by
   `cargo atlas policy` in `just check`; atlas-lib: review, until it is listed.

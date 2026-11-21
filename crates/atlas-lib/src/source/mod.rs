@@ -77,6 +77,25 @@ impl std::fmt::Display for SyntaxError {
 }
 impl std::error::Error for SyntaxError {}
 
+/// Why a use declaration's bindings could not be read; the message names
+/// what the shared grammar could not read. Display prints the message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnreadableImport(String);
+
+impl UnreadableImport {
+    pub(crate) fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
+}
+
+impl std::fmt::Display for UnreadableImport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for UnreadableImport {}
+
 /// One use declaration, normalized once with its exact source witness.
 #[non_exhaustive]
 pub struct Import {
@@ -84,7 +103,7 @@ pub struct Import {
     pub end_line: usize,
     pub top_level: bool,
     pub statement: Arc<str>,
-    pub bindings: Result<Vec<ImportBinding>, String>,
+    pub bindings: Result<Vec<ImportBinding>, UnreadableImport>,
     pub bytes: std::ops::Range<usize>,
     pub target: Arc<str>,
 }

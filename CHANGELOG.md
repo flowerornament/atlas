@@ -6,6 +6,12 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- atlas-lib: two public errors are typed. **Breaking:**
+ `relations::Relations::read` returns `Result<Relations, relations::ReadError>`
+ instead of `Result<Relations, String>`, and `source::Import::bindings` is
+ `Result<Vec<ImportBinding>, source::UnreadableImport>` instead of
+ `Result<Vec<ImportBinding>, String>`. Both print the same message as before
+ (`Display`) and implement `std::error::Error`.
 - cargo-atlas: views no longer re-export renderers, so a view never calls a
  renderer and cargo-atlas has a stage order of its own. **Breaking:** the
  renderers' true paths are public and the view-module paths are gone:
