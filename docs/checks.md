@@ -620,7 +620,9 @@ called a **project wrapper**:
 - `checks::policy::Inputs` for policy observations and authority,
 - `checks::delta::Inputs` for boundary declarations, header citations and
   commit citations,
-- `checks::stages::seams::BoundaryDeclaration` for stage boundaries.
+- `checks::stages::seams::BoundaryDeclaration` for stage boundaries: the
+  items a stage root lists, and the child modules it exposes wholesale,
+  whose public items are boundary items too.
 
 The `cargo atlas` command line cannot supply these, so a rule that needs one
 reports `UNAVAILABLE` there. That is deliberate: Atlas reports the gap

@@ -6,6 +6,14 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- **Library:** `BoundaryDeclaration::new(file, content_fingerprint)` with
+ `with_listed`, `with_listed_modules` and `with_citation_problems`: a wrapper
+ outside atlas-lib can now build the boundary declarations seams and
+ `delta` read (the type is `#[non_exhaustive]` and had no constructor).
+ `BoundaryDeclaration::listed_modules` names child modules a stage exposes
+ wholesale: every public item of each, and of the modules below it, is a
+ boundary item for interior reads, unlisted exports, writers and test
+ coupling.
 - The Node renderer and declaration adapters run under a wall-clock limit
  (120 s for a drawing, 60 s for an adapter exchange): past it the child is
  stopped and the command refuses, naming the limit, instead of waiting

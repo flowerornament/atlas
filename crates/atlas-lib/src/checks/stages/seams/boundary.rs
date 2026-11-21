@@ -12,8 +12,57 @@ pub struct BoundaryDeclaration {
     pub file: String,
     pub content_fingerprint: String,
     pub listed: BTreeSet<String>,
+    /// Child modules of the stage root, as paths below it (`check`,
+    /// `check::rules`), exposed wholesale: every public item declared or
+    /// re-exported at the top of each, and of the modules below it, is a
+    /// boundary item.
+    pub listed_modules: BTreeSet<String>,
     /// Available citation findings, not unavailable authority disguised as no findings.
     pub citation_problems: Vec<String>,
+}
+impl BoundaryDeclaration {
+    /// A declaration for the stage root `file`, whose captured bytes have
+    /// `content_fingerprint` (the snapshot's), listing nothing yet. The
+    /// caller interprets the root's boundary and must bind it to exactly
+    /// these bytes: a stale declaration makes the reading unavailable.
+    #[must_use]
+    pub fn new(file: impl Into<String>, content_fingerprint: impl Into<String>) -> Self {
+        Self {
+            file: file.into(),
+            content_fingerprint: content_fingerprint.into(),
+            listed: BTreeSet::new(),
+            listed_modules: BTreeSet::new(),
+            citation_problems: Vec::new(),
+        }
+    }
+    /// The item names the boundary lists.
+    #[must_use]
+    pub fn with_listed(mut self, names: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.listed.extend(names.into_iter().map(Into::into));
+        self
+    }
+    /// The child modules the boundary exposes wholesale (see
+    /// [`BoundaryDeclaration::listed_modules`]).
+    #[must_use]
+    pub fn with_listed_modules(
+        mut self,
+        modules: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.listed_modules
+            .extend(modules.into_iter().map(Into::into));
+        self
+    }
+    /// What the project found wrong with the boundary's citations; none is
+    /// a finding of none, not authority that was unavailable.
+    #[must_use]
+    pub fn with_citation_problems(
+        mut self,
+        problems: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.citation_problems
+            .extend(problems.into_iter().map(Into::into));
+        self
+    }
 }
 #[derive(Default)]
 pub(super) struct Boundary {
@@ -22,6 +71,8 @@ pub(super) struct Boundary {
     /// For each listed name the root re-exports, the item at its home, so a
     /// child-path read of that same item is a boundary read too.
     pub(super) listed_homes: BTreeSet<(Vec<String>, String)>,
+    /// The public items of each listed module, at their module.
+    pub(super) module_items: BTreeSet<(Vec<String>, String)>,
     /// Root exports the paragraph does not list, at their lines.
     pub(super) unlisted: BTreeMap<String, usize>,
     /// Every name the scanned root declares or re-exports.
@@ -42,12 +93,17 @@ pub(super) struct Boundary {
 impl Boundary {
     /// Whether the item `name`, held by `module`, is a listed boundary item.
     pub(super) fn names(&self, module: &[String], name: &str) -> bool {
+        let at = (module.to_vec(), name.to_owned());
         if module.len() == 1 {
             self.listed.contains(name)
         } else {
-            self.listed_homes
-                .contains(&(module.to_vec(), name.to_owned()))
+            self.listed_homes.contains(&at) || self.module_items.contains(&at)
         }
+    }
+    /// Whether `name` is a boundary item: listed, or a public item of a
+    /// listed module.
+    pub(super) fn lists(&self, name: &str) -> bool {
+        self.listed.contains(name) || self.module_items.iter().any(|(_, item)| item == name)
     }
 }
 
@@ -145,6 +201,7 @@ impl StageRoot<'_> {
             .citation_problems
             .clone_from(&declared.citation_problems);
         boundary.listed.clone_from(&declared.listed);
+        boundary.module_items = self.module_items(&declared.listed_modules);
         let mut exports: Vec<(String, usize)> = Vec::new();
         let mut unjudged = Vec::new();
         for item in file.production_items().filter(|item| item.top_level) {
@@ -175,12 +232,40 @@ impl StageRoot<'_> {
             .map(|item| (item.line, item.name.clone()))
             .collect();
         for (name, line) in exports {
-            if !boundary.listed.contains(&name) {
+            if !boundary.lists(&name) {
                 boundary.unlisted.entry(name.clone()).or_insert(line);
             }
             boundary.exported.insert(name);
         }
         (boundary, unjudged)
+    }
+    /// The public items declared or re-exported at the top of each listed
+    /// module's files and of every module below it, at their module path.
+    fn module_items(&self, listed: &BTreeSet<String>) -> BTreeSet<(Vec<String>, String)> {
+        let roots: Vec<Vec<String>> = listed
+            .iter()
+            .map(|module| {
+                std::iter::once(self.module.to_owned())
+                    .chain(module.split("::").map(str::to_owned))
+                    .collect()
+            })
+            .collect();
+        let mut items = BTreeSet::new();
+        for file in self.crate_map.files.iter().filter(|file| !file.test_file) {
+            let Some(path) = module_path_of(&self.crate_map.src_rel, &file.rel) else {
+                continue;
+            };
+            let path: Vec<String> = path.split("::").map(str::to_owned).collect();
+            if !roots.iter().any(|root| path.starts_with(root)) {
+                continue;
+            }
+            for item in file.production_items().filter(|item| item.top_level) {
+                for name in public_names(file, item) {
+                    items.insert((path.clone(), name));
+                }
+            }
+        }
+        items
     }
     /// A `pub use`: each binding is an export (a glob is a wildcard), and
     /// a listed one records its home.
@@ -285,4 +370,26 @@ fn listed_home(
         }
     }
     Ok(())
+}
+
+/// The public names one top-level item gives its module: a declaration's
+/// own name, or each binding of a `pub use`.
+fn public_names(file: &FileMap, item: &crate::source::Item) -> Vec<String> {
+    match item.kind {
+        ItemKind::Mod | ItemKind::Impl | ItemKind::MacroRules | ItemKind::Use => Vec::new(),
+        ItemKind::PubUse => file
+            .source
+            .import_for(item)
+            .and_then(|import| import.bindings.as_ref().ok())
+            .map(|bindings| {
+                bindings
+                    .iter()
+                    .filter(|binding| binding.local_name != "*")
+                    .map(|binding| binding.local_name.clone())
+                    .collect()
+            })
+            .unwrap_or_default(),
+        _ if item.visibility != Visibility::Private => vec![item.name.clone()],
+        _ => Vec::new(),
+    }
 }

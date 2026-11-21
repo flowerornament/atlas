@@ -215,7 +215,7 @@ impl SeamReading {
                 && !self
                     .boundaries
                     .get(&row.stage)
-                    .is_some_and(|boundary| boundary.listed.contains(ty))
+                    .is_some_and(|boundary| boundary.lists(ty))
             {
                 refusals.push(format!(
                     "stage writers `{name}`: the writers row for `{ty}` names {}, whose //! Boundary paragraph does not list it; list it there or drop the row",

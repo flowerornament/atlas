@@ -72,7 +72,7 @@ fn declarations(map: &CrateMap) -> BTreeMap<String, BoundaryDeclaration> {
                         .join(" ")
                 })
                 .unwrap_or_default();
-            let listed = text
+            let listed: Vec<String> = text
                 .split('`')
                 .skip(1)
                 .step_by(2)
@@ -84,14 +84,11 @@ fn declarations(map: &CrateMap) -> BTreeMap<String, BoundaryDeclaration> {
                 .collect();
             Some((
                 module,
-                BoundaryDeclaration {
-                    file: file.rel.clone(),
-                    content_fingerprint: crate::discovery::fingerprint(
-                        file.source.text().as_bytes(),
-                    ),
-                    listed,
-                    citation_problems: Vec::new(),
-                },
+                BoundaryDeclaration::new(
+                    file.rel.clone(),
+                    crate::discovery::fingerprint(file.source.text().as_bytes()),
+                )
+                .with_listed(listed),
             ))
         })
         .collect()
@@ -160,6 +157,16 @@ fn read_supported(
     seams: &str,
     features: &[&str],
 ) -> Result<(SeamReading, StageReport), Vec<crate::model::Diagnostic>> {
+    read_declared(files, policy, seams, features, |_| {})
+}
+/// As `read_supported`, with the fixture wrapper's declarations adjusted.
+fn read_declared(
+    files: &[(&str, String)],
+    policy: &str,
+    seams: &str,
+    features: &[&str],
+    adjust: impl FnOnce(&mut BTreeMap<String, BoundaryDeclaration>),
+) -> Result<(SeamReading, StageReport), Vec<crate::model::Diagnostic>> {
     let map = supported_map(files, features);
     let mut report = StageReport::of(&map, &order().stages);
     report.interfaces = Some(toml::from_str(policy).expect("fixture rows"));
@@ -170,7 +177,11 @@ fn read_supported(
         &order(),
         &report,
         &seams,
-        &declarations(&map),
+        &{
+            let mut declared = declarations(&map);
+            adjust(&mut declared);
+            declared
+        },
         &RootTable::of(&map, TestSelection::Production),
     )
     .map(|reading| (reading, report))
@@ -1106,4 +1117,32 @@ fn a_test_gated_mount_and_its_children_are_test_code_and_a_twice_mounted_file_co
         ],
         "{populations:#?}"
     );
+}
+
+/// A boundary may expose a child module wholesale: its public items are
+/// boundary items, read freely, while its private ones stay interior.
+#[test]
+fn a_listed_module_exposes_its_public_items() {
+    let (plain, _) = read(&tree(), POLICY, SEAMS);
+    assert!(
+        plain.debt["middle"]["front"].contains_key("interior"),
+        "the fixture reads work's interior"
+    );
+    let (listed, report) = read_declared(&tree(), POLICY, SEAMS, &[], |declared| {
+        let front = declared.remove("front").expect("front's declaration");
+        declared.insert("front".into(), front.with_listed_modules(["work"]));
+    })
+    .expect("a reading");
+    let front = listed
+        .debt
+        .get("middle")
+        .and_then(|reads| reads.get("front"));
+    assert!(
+        front.is_none_or(|items| !items.contains_key("interior")),
+        "{:?}",
+        front.map(|items| items.keys().collect::<Vec<_>>())
+    );
+    // back's read of `work::interior` is free too, so its debt row is slack.
+    let found = listed.refusals(None, &report, &published(POLICY, SEAMS));
+    assert!(!found.iter().any(|r| r.contains("interior")), "{found:#?}");
 }

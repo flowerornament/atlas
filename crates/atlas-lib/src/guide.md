@@ -290,7 +290,13 @@ what only the project knows, such as whether an issue ID cited in the policy
 really exists (`ReferenceResolution`). In the same way, `checks::delta::Inputs`
 carries stage boundary declarations, header citations and commit-message
 citations into `checks::delta::check`, and
-`checks::stages::seams::BoundaryDeclaration` describes one stage's boundary.
+`checks::stages::seams::BoundaryDeclaration` describes one stage's boundary:
+`BoundaryDeclaration::new(root_file, content_fingerprint)` binds it to the
+stage root's captured bytes, `with_listed` names its boundary items,
+`with_listed_modules` names child modules it exposes wholesale (every public
+item of each, and of the modules below it, is a boundary item), and
+`with_citation_problems` reports what the project found wrong with its
+citations.
 Atlas checks these inputs against the snapshot (for example, that a
 declaration's file has not changed) but leaves their meaning to your project.
 
