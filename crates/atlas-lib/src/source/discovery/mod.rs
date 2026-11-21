@@ -228,41 +228,10 @@ fn read_metadata(
     let mut diagnostics = Vec::new();
     let inputs = capture_packages(&packages, &root, captured)?;
     for (package, input) in packages.into_iter().zip(inputs) {
-        let PackageSources {
-            src,
-            selected,
-            diagnostics: package_diagnostics,
-        } = input;
-        diagnostics.extend(package_diagnostics);
-        let entry_points = entry_points(&root, package);
-        let mut loaded: Vec<_> = selected
-            .into_iter()
-            .map(|(rel, _)| Loaded {
-                source: Arc::clone(&captured[&rel]),
-                rel,
-                test_file: false,
-            })
-            .collect();
-        let outside = mounted::outside_mounts(
-            &root,
-            &rel_display(&root, &src),
-            &loaded,
-            captured,
-            &mut diagnostics,
-        )?;
-        add_outside_mounts(
-            &mut loaded,
-            &outside,
-            &package.name,
-            captured,
-            &mut diagnostics,
-        );
+        let (package_files, outside) =
+            read_package(&root, package, input, captured, &mut diagnostics)?;
+        files.extend(package_files);
         source_mounts.insert(package.name.to_string(), outside);
-        let mounts = mark_test_files(&mut loaded, &entry_points, &package.name, &mut diagnostics);
-        for (file_index, file) in loaded.into_iter().enumerate() {
-            let mounts = mounts.get(&file_index).cloned().unwrap_or_default();
-            files.push(source_file(file, &package.name, mounts, &mut diagnostics)?);
-        }
     }
     qualify_shared_declarations(&mut files);
     diagnostics.sort_by(|a, b| {
@@ -286,6 +255,53 @@ fn read_metadata(
         .collect();
     crate::relationships::derive_captured(&mut graph, &sources);
     Ok((graph, source_mounts, source_diagnostics))
+}
+
+/// One package's files, with its outside mounts settled into populations
+/// once its test files are marked.
+fn read_package(
+    root: &Path,
+    package: &cargo_metadata::Package,
+    input: PackageSources,
+    captured: &mut BTreeMap<String, Arc<crate::source::Captured>>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Result<(Vec<SourceFile>, MountedSources)> {
+    let PackageSources {
+        src,
+        selected,
+        diagnostics: package_diagnostics,
+    } = input;
+    diagnostics.extend(package_diagnostics);
+    let entry_points = entry_points(root, package);
+    let mut loaded: Vec<_> = selected
+        .into_iter()
+        .map(|(rel, _)| Loaded {
+            source: Arc::clone(&captured[&rel]),
+            rel,
+            test_file: false,
+        })
+        .collect();
+    let mut outside = mounted::outside_mounts(
+        root,
+        &rel_display(root, &src),
+        &loaded,
+        captured,
+        diagnostics,
+    )?;
+    add_outside_mounts(&mut loaded, &outside, &package.name, captured, diagnostics);
+    let mounts = mark_test_files(&mut loaded, &entry_points, &package.name, diagnostics);
+    let tests: BTreeSet<&str> = loaded
+        .iter()
+        .filter(|file| file.test_file)
+        .map(|file| file.rel.as_str())
+        .collect();
+    mounted::settle_populations(&mut outside, |origin| tests.contains(origin));
+    let mut files = Vec::new();
+    for (file_index, file) in loaded.into_iter().enumerate() {
+        let mounts = mounts.get(&file_index).cloned().unwrap_or_default();
+        files.push(source_file(file, &package.name, mounts, diagnostics)?);
+    }
+    Ok((files, outside))
 }
 
 /// Read every package's files first, so one capture parses all the misses

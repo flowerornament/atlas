@@ -119,7 +119,21 @@ pub fn seams(
     declarations: &BTreeMap<String, BTreeMap<String, stages::seams::BoundaryDeclaration>>,
     key: Option<&str>,
 ) -> crate::Result<SeamReports> {
-    let workspace = Workspace::of(snapshot)?;
+    seams_with_test_support(snapshot, policy, declarations, key, &[])
+}
+/// As `seams`, reading a mount whose gate needs test or only one of
+/// `test_support_features` (the project's declared test-support features)
+/// as test code. With none declared, `cfg(any(test, feature = "x"))` mounts
+/// production code, and a production file mounted from outside `src` makes
+/// the reading unavailable.
+pub fn seams_with_test_support(
+    snapshot: &crate::discovery::Snapshot,
+    policy: &policy::Policy,
+    declarations: &BTreeMap<String, BTreeMap<String, stages::seams::BoundaryDeclaration>>,
+    key: Option<&str>,
+    test_support_features: &[String],
+) -> crate::Result<SeamReports> {
+    let workspace = Workspace::of(snapshot)?.with_test_support(test_support_features);
     let mut stages = StageReports {
         crates: BTreeMap::new(),
         policy_violations: Vec::new(),

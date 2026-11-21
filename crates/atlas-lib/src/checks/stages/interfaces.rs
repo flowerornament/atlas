@@ -168,6 +168,7 @@ pub(in crate::checks) fn interface_policy_violations(
             ));
         }
         violations.extend(super::seams::final_stage_shape(order, declared));
+        violations.extend(super::seams::writers_shape(crate_name, declared));
     }
     for (crate_name, rows) in interfaces.iter().filter(|(name, _)| selected(name)) {
         let Some(order) = order(crate_name) else {

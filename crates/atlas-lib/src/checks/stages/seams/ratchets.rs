@@ -10,6 +10,25 @@ use super::super::StageReport;
 use super::{SeamReading, UnownedRead};
 use crate::checks::policy;
 
+/// One population of one writers row, as recorded by the candidate.
+#[derive(Clone, Copy)]
+struct Population<'a> {
+    test: bool,
+    ty: &'a str,
+    row: &'a policy::Writers,
+    recorded: &'a std::collections::BTreeMap<String, usize>,
+}
+impl Population<'_> {
+    /// The population's name and its field.
+    const fn names(&self) -> (&'static str, &'static str) {
+        if self.test {
+            ("test", "test_sites")
+        } else {
+            ("production", "production_sites")
+        }
+    }
+}
+
 impl SeamReading {
     /// Every breach of the seam ratchets. `base` is the same reading of the
     /// landing's base tree, when the crate has one; `published` is the base's
@@ -175,9 +194,8 @@ impl SeamReading {
         refusals
     }
 
-    /// Writers: a type its stage does not declare (or, outside the floor,
-    /// does not list), calls above an owner's recorded sites, named by the
-    /// calls the base lacks, and recorded sites above the published ones.
+    /// Writers rows: the type declared and listed by its stage, and each
+    /// population's sites exact to the census and only falling.
     fn writer_refusals(
         &self,
         base: Option<&Self>,
@@ -205,13 +223,57 @@ impl SeamReading {
                 ));
             }
             let based = base.and_then(|base| base.writer_census.get(ty));
-            for (owner, calls) in census.into_iter().flat_map(|census| &census.calls) {
-                let held = row.sites.get(owner).copied().unwrap_or(0);
-                if calls.len() <= held {
+            let was = published.and_then(|seams| seams.writers.get(ty));
+            for test in [true, false] {
+                let Some(recorded) = (if test {
+                    &row.test_sites
+                } else {
+                    &row.production_sites
+                }) else {
                     continue;
+                };
+                let population = Population {
+                    test,
+                    ty,
+                    row,
+                    recorded,
+                };
+                if let Some(census) = census {
+                    refusals.extend(self.exact_writer_counts(&population, census, based));
                 }
+                if let Some(was) = was {
+                    refusals.extend(self.published_writer_counts(&population, was, based));
+                }
+            }
+        }
+        refusals
+    }
+    /// A population's recorded sites against its measure: above refuses
+    /// (naming the calls new since the base), below refuses (an owned row
+    /// equals its measure).
+    fn exact_writer_counts(
+        &self,
+        population: &Population<'_>,
+        census: &super::writers::WriterCensus,
+        based: Option<&super::writers::WriterCensus>,
+    ) -> Vec<String> {
+        let name = &self.crate_name;
+        let Population {
+            test,
+            ty,
+            row,
+            recorded,
+        } = *population;
+        let (kind, field) = population.names();
+        let measured = census.population(test);
+        let owners: BTreeSet<&String> = measured.keys().chain(recorded.keys()).collect();
+        let mut refusals = Vec::new();
+        for owner in owners {
+            let calls = measured.get(owner).map_or(&[][..], Vec::as_slice);
+            let (m, r) = (calls.len(), recorded.get(owner).copied().unwrap_or(0));
+            if m > r {
                 let known: BTreeSet<(&str, &str)> = based
-                    .and_then(|based| based.calls.get(owner))
+                    .and_then(|based| based.population(test).get(owner))
                     .into_iter()
                     .flatten()
                     .map(|call| (call.site.file.as_str(), call.code.as_str()))
@@ -229,21 +291,69 @@ impl SeamReading {
                     format!("new: {}", fresh.join(", "))
                 };
                 refusals.push(format!(
-                    "stage writers `{name}`: {owner} builds or changes `{ty}` at {} sites, above the recorded {held} ({shown}); only {} write it: {}",
-                    calls.len(),
+                    "stage writers `{name}`: {owner} builds or changes `{ty}` at {m} {kind} sites, above the recorded {r} ({shown}); only {} write it: {}",
                     row.producers.join(", "),
                     row.reason
                 ));
+            } else if m < r {
+                let write = if m == 0 {
+                    format!("delete `{owner}`")
+                } else {
+                    format!("write {owner} = {m}")
+                };
+                refusals.push(format!(
+                    "stage writers `{name}`: the `{ty}` row's {field} records {r} for {owner}, which has {m}; it is owned by `{}`, and an owned row must equal its measure: {write}",
+                    row.owner
+                ));
             }
-            let was = published.and_then(|seams| seams.writers.get(ty));
-            for (owner, held) in &row.sites {
-                if let Some(was) = was.and_then(|was| was.sites.get(owner))
-                    && held > was
-                {
+        }
+        refusals
+    }
+    /// A population's recorded sites against the published row: a count
+    /// only falls (an owner it did not name recorded 0). Against a row
+    /// published with the combined `sites`, each population is bounded by
+    /// that count and by what the base tree measures in the population.
+    fn published_writer_counts(
+        &self,
+        population: &Population<'_>,
+        was: &policy::Writers,
+        based: Option<&super::writers::WriterCensus>,
+    ) -> Vec<String> {
+        let name = &self.crate_name;
+        let Population {
+            test, ty, recorded, ..
+        } = *population;
+        let (kind, field) = population.names();
+        let published = if test {
+            &was.test_sites
+        } else {
+            &was.production_sites
+        };
+        let mut refusals = Vec::new();
+        for (owner, r) in recorded {
+            if let Some(published) = published {
+                let r0 = published.get(owner).copied().unwrap_or(0);
+                if *r > r0 {
                     refusals.push(format!(
-                        "stage writers `{name}`: {owner}'s recorded `{ty}` writer sites rose from {was} to {held}; the count only goes down"
+                        "stage writers `{name}`: {owner}'s recorded {kind} `{ty}` writer sites rose from {r0} to {r}; the count only goes down, and an owner the published {field} does not name recorded none"
                     ));
                 }
+                continue;
+            }
+            let combined = was
+                .sites
+                .as_ref()
+                .and_then(|sites| sites.get(owner))
+                .copied()
+                .unwrap_or(0);
+            let base = based.map_or(combined, |based| {
+                based.population(test).get(owner).map_or(0, Vec::len)
+            });
+            let bound = combined.min(base);
+            if *r > bound {
+                refusals.push(format!(
+                    "stage writers `{name}`: {owner}'s recorded {kind} `{ty}` writer sites ({r}) exceed {bound}: the published row counted both populations together ({combined}) and the base tree has {base} {kind} sites; a count only goes down"
+                ));
             }
         }
         refusals

@@ -38,7 +38,16 @@ fn snapshot(files: &[(&str, String)]) -> crate::discovery::Snapshot {
     crate::discovery::snapshot_workspace(root).unwrap()
 }
 fn crate_map(files: &[(&str, String)]) -> CrateMap {
-    Workspace::of(&snapshot(files)).unwrap().crates.remove(0)
+    supported_map(files, &[])
+}
+/// The crate, with `features` declared as test support.
+fn supported_map(files: &[(&str, String)], features: &[&str]) -> CrateMap {
+    let features: Vec<String> = features.iter().map(|f| (*f).to_owned()).collect();
+    Workspace::of(&snapshot(files))
+        .unwrap()
+        .with_test_support(&features)
+        .crates
+        .remove(0)
 }
 
 // A fixture wrapper supplies interpreted names. Real project interpretation
@@ -141,23 +150,30 @@ const BACK_ROOT: usize = 5;
 const BACK_TEST_FILE: usize = 6;
 
 fn read(files: &[(&str, String)], policy: &str, seams: &str) -> (SeamReading, StageReport) {
-    let map = crate_map(files);
+    read_supported(files, policy, seams, &[]).expect("a complete seam reading")
+}
+/// The reading with `features` declared as test support, or what made it
+/// unavailable.
+fn read_supported(
+    files: &[(&str, String)],
+    policy: &str,
+    seams: &str,
+    features: &[&str],
+) -> Result<(SeamReading, StageReport), Vec<crate::model::Diagnostic>> {
+    let map = supported_map(files, features);
     let mut report = StageReport::of(&map, &order().stages);
     report.interfaces = Some(toml::from_str(policy).expect("fixture rows"));
     let seams: policy::StageSeams = toml::from_str(seams).expect("fixture seams");
     report.floor.clone_from(&seams.floor);
-    (
-        SeamReading::of(
-            &map,
-            &order(),
-            &report,
-            &seams,
-            &declarations(&map),
-            &RootTable::of(&map, TestSelection::Production),
-        )
-        .unwrap(),
-        report,
+    SeamReading::of(
+        &map,
+        &order(),
+        &report,
+        &seams,
+        &declarations(&map),
+        &RootTable::of(&map, TestSelection::Production),
     )
+    .map(|reading| (reading, report))
 }
 
 fn published(policy: &str, seams: &str) -> policy::PublishedStages {
@@ -409,6 +425,8 @@ methods = ["intern"]
 functions = ["remap"]
 producers = ["front", "middle"]
 owner = "issue-34"
+test_sites = {}
+production_sites = {}
 "#;
 
 #[test]
@@ -432,16 +450,19 @@ fn a_writer_call_outside_the_producers_is_counted_and_held() {
     let (now, report) = read(&files, POLICY, &seams);
     let found = now.refusals(None, &report, &published(POLICY, &seams));
     assert_eq!(found.len(), 1, "{found:#?}");
-    assert!(found[0].contains("back builds or changes `Arena` at 1 sites, above the recorded 0"));
-    let recorded = format!("{seams}sites = {{ back = 1 }}\n");
+    assert!(
+        found[0]
+            .contains("back builds or changes `Arena` at 1 production sites, above the recorded 0")
+    );
+    let recorded = seams.replace("production_sites = {}", "production_sites = { back = 1 }");
     let (now, report) = read(&files, POLICY, &recorded);
     let found = now.refusals(None, &report, &published(POLICY, &recorded));
     assert!(found.is_empty(), "{found:#?}");
-    // A recorded count cannot rise from the published one.
-    let zero = format!("{seams}sites = {{ back = 0 }}\n");
-    let found = now.refusals(None, &report, &published(POLICY, &zero));
+    // A recorded count cannot rise from the published one, and an owner
+    // the published row does not name recorded 0.
+    let found = now.refusals(None, &report, &published(POLICY, &seams));
     assert_eq!(found.len(), 1, "{found:#?}");
-    assert!(found[0].contains("back's recorded `Arena` writer sites rose from 0 to 1"));
+    assert!(found[0].contains("back's recorded production `Arena` writer sites rose from 0 to 1"));
     // A writers row for a type its stage neither declares nor lists is refused.
     let (now, report) = read(&tree(), POLICY, &seams);
     let found = now.refusals(None, &report, &published(POLICY, &seams));
@@ -466,13 +487,27 @@ fn a_mounted_support_file_is_read_as_its_modules_tests() {
         "../tests/support/deeper.rs",
         "use crate::front::check::other;\n".to_owned(),
     ));
-    let (reading, _) = read(&files, POLICY, SEAMS);
+    // Its gate admits production under `strategies`: undeclared, it is a
+    // production mount the stage reading cannot read.
+    let Err(unread) = read_supported(&files, POLICY, SEAMS, &[]) else {
+        panic!("a production mount outside src must make the reading unavailable");
+    };
+    assert_eq!(unread.len(), 2, "{unread:#?}");
+    assert!(unread.iter().all(
+        |d| d.code == crate::model::DiagnosticCode::ProductionMountUnread
+            && d.message.contains("--test-support-features")
+    ));
+    let (reading, _) =
+        read_supported(&files, POLICY, SEAMS, &["strategies"]).expect("declared support");
     let pairs: Vec<&str> = reading.tests["test_support"]
         .keys()
         .map(|(_, item)| item.as_str())
         .collect();
     assert_eq!(pairs, ["front::other", "front::interior"]);
-    let found = refusals(&files, POLICY, SEAMS);
+    let base = read(&tree(), POLICY, SEAMS).0;
+    let (now, report) =
+        read_supported(&files, POLICY, SEAMS, &["strategies"]).expect("declared support");
+    let found = now.refusals(Some(&base), &report, &published(POLICY, SEAMS));
     assert!(
         found
             .iter()
@@ -540,7 +575,7 @@ fn writer_methods_are_derived_from_the_type_and_its_aliases() {
         ["Pool"]
     );
     // The read is not a writer; each other spelling is, through the alias too.
-    let spelled: Vec<&str> = census.calls["back"]
+    let spelled: Vec<&str> = census.production["back"]
         .iter()
         .map(|call| call.site.path.as_str())
         .collect();
@@ -615,12 +650,15 @@ fn a_floor_type_takes_a_writers_row_without_a_listing() {
             .to_owned();
     files[BACK_ROOT].1 =
         format!("{BACK}fn f(g: &mut crate::vocabulary::Graph) {{ g.rewrite(); }}\n");
-    let row = "\n[writers.Graph]\nstage = \"vocabulary\"\nreason = \"one object every later stage reads\"\nproducers = [\"middle\"]\nowner = \"issue-30\"\n";
+    let row = "\n[writers.Graph]\nstage = \"vocabulary\"\nreason = \"one object every later stage reads\"\nproducers = [\"middle\"]\nowner = \"issue-30\"\ntest_sites = {}\nproduction_sites = {}\n";
     let seams = format!("{SEAMS}{row}");
     let (now, report) = read(&files, POLICY, &seams);
     let found = now.refusals(None, &report, &published(POLICY, &seams));
     assert_eq!(found.len(), 1, "{found:#?}");
-    assert!(found[0].contains("back builds or changes `Graph` at 1 sites, above the recorded 0"));
+    assert!(
+        found[0]
+            .contains("back builds or changes `Graph` at 1 production sites, above the recorded 0")
+    );
 }
 
 fn source_policy() -> policy::Policy {
@@ -914,4 +952,158 @@ fn the_composition_cannot_move_while_final_stages_are_published() {
     );
     let unpublished = list_policy("['a','b','c']", "");
     assert!(list_law(&unpublished, &list_policy("['a','c','b']", ""), &[]).is_empty());
+}
+
+/// `front` declaring `Arena` with its `intern` writer, listed in front's
+/// boundary; `back` written by `back_root` and its tests by `back_tests`.
+fn arena_tree(back_root: &str, back_tests: &str) -> Vec<(&'static str, String)> {
+    let header = FRONT_HEADER.replace("`Certified`.", "`Certified`, `Arena`.");
+    let mut files = with(
+        FRONT,
+        &format!("{header}{FRONT_BODY}pub(crate) struct Arena;\n"),
+    );
+    files[3].1.push_str("pub(crate) fn remap() {}\n");
+    files[BACK_ROOT].1 = format!("{BACK}{back_root}");
+    files[6].1 = format!("{BACK_TESTS}{back_tests}");
+    files
+}
+fn writer_refusals(files: &[(&str, String)], candidate: &str, published_row: &str) -> Vec<String> {
+    let (now, report) = read(files, POLICY, &format!("{SEAMS}{candidate}"));
+    now.refusals(
+        None,
+        &report,
+        &published(POLICY, &format!("{SEAMS}{published_row}")),
+    )
+    .into_iter()
+    .filter(|refusal| refusal.starts_with("stage writers"))
+    .collect()
+}
+const TEST_CALL: &str = "fn t(a: &mut u8) {\n    a.intern(1);\n    a.intern(2);\n}\n";
+const PRODUCTION_CALL: &str = "fn f(a: &mut u8) { a.intern(3); }\n";
+
+#[test]
+fn a_production_writer_is_not_hidden_by_a_test_count() {
+    let row = WRITERS.replace("test_sites = {}", "test_sites = { back = 2 }");
+    assert_eq!(
+        writer_refusals(&arena_tree("", TEST_CALL), &row, &row),
+        Vec::<String>::new()
+    );
+    let found = writer_refusals(&arena_tree(PRODUCTION_CALL, TEST_CALL), &row, &row);
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert!(
+        found[0]
+            .contains("back builds or changes `Arena` at 1 production sites, above the recorded 0"),
+        "{found:#?}"
+    );
+}
+
+#[test]
+fn a_production_writer_cannot_replace_a_test_fixture_through_a_new_key() {
+    let published_row = WRITERS.to_owned();
+    let row = WRITERS.replace("production_sites = {}", "production_sites = { back = 1 }");
+    let found = writer_refusals(&arena_tree(PRODUCTION_CALL, ""), &row, &published_row);
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert!(found[0].contains("rose from 0 to 1"), "{found:#?}");
+}
+
+#[test]
+fn an_owned_writer_count_must_equal_its_measure() {
+    let row = WRITERS.replace("test_sites = {}", "test_sites = { back = 3 }");
+    let found = writer_refusals(&arena_tree("", TEST_CALL), &row, &row);
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert!(found[0].contains("test_sites records 3 for back, which has 2; it is owned by `issue-34`, and an owned row must equal its measure: write back = 2"), "{found:#?}");
+    let gone = writer_refusals(&arena_tree("", ""), &row, &row);
+    assert!(gone[0].contains("delete `back`"), "{gone:#?}");
+}
+
+#[test]
+fn a_writers_row_records_both_populations_and_never_the_combined_sites() {
+    let seams: policy::StageSeams = toml::from_str(&format!(
+        "{SEAMS}{}",
+        WRITERS.replace("production_sites = {}\n", "sites = { back = 1 }\n")
+    ))
+    .expect("seams");
+    let found = writers_shape("fix", &seams);
+    assert_eq!(found.len(), 2, "{found:#?}");
+    assert!(found[0].contains("writes `sites`, which counts test and production together; write `test_sites` and `production_sites`"), "{found:#?}");
+    assert!(
+        found[1].contains(
+            "records no `production_sites`; record it per owner, `production_sites = {}` for none"
+        ),
+        "{found:#?}"
+    );
+}
+
+#[test]
+fn a_combined_published_count_bounds_each_population_by_the_base_tree() {
+    let legacy = WRITERS.replace(
+        "test_sites = {}\nproduction_sites = {}\n",
+        "sites = { back = 2 }\n",
+    );
+    let row = WRITERS.replace("production_sites = {}", "production_sites = { back = 1 }");
+    let candidate = arena_tree(PRODUCTION_CALL, "");
+    let (now, report) = read(&candidate, POLICY, &format!("{SEAMS}{row}"));
+    let published_stages = published(POLICY, &format!("{SEAMS}{legacy}"));
+    // The base held two test writers and no production one: the combined 2
+    // cannot fund a production writer.
+    let base_files = arena_tree("", TEST_CALL);
+    let (base, _) = read(&base_files, POLICY, &format!("{SEAMS}{row}"));
+    let found: Vec<String> = now
+        .refusals(Some(&base), &report, &published_stages)
+        .into_iter()
+        .filter(|refusal| refusal.starts_with("stage writers"))
+        .collect();
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert!(found[0].contains("(1) exceed 0: the published row counted both populations together (2) and the base tree has 0 production sites"), "{found:#?}");
+    // A base that held the production writer keeps it.
+    let (base, _) = read(&candidate, POLICY, &format!("{SEAMS}{row}"));
+    let kept: Vec<String> = now
+        .refusals(Some(&base), &report, &published_stages)
+        .into_iter()
+        .filter(|refusal| refusal.starts_with("stage writers"))
+        .collect();
+    assert_eq!(kept, Vec::<String>::new());
+}
+
+#[test]
+fn a_test_gated_mount_and_its_children_are_test_code_and_a_twice_mounted_file_counts_once_per_population()
+ {
+    let mut files = arena_tree("", "");
+    files[BACK_ROOT].1 = format!(
+        "{BACK}#[path = \"../../shared/mod.rs\"]\nmod shared;\n#[cfg(test)]\n#[path = \"../../shared/mod.rs\"]\nmod shared_tests;\n"
+    );
+    files.push((
+        "../shared/mod.rs",
+        format!("{PRODUCTION_CALL}mod deeper;\n"),
+    ));
+    files.push((
+        "../shared/deeper.rs",
+        "fn g(a: &mut u8) { a.intern(4); }\n".to_owned(),
+    ));
+    let map = crate_map(&files);
+    let populations: Vec<(&str, &str, bool)> = map
+        .mounted
+        .iter()
+        .map(|mount| {
+            (
+                mount.module.as_str(),
+                mount.file.rel.as_str(),
+                mount.file.test_file,
+            )
+        })
+        .collect();
+    assert_eq!(
+        populations,
+        [
+            ("back::shared::deeper", "crates/fix/shared/deeper.rs", false),
+            (
+                "back::shared_tests::deeper",
+                "crates/fix/shared/deeper.rs",
+                true
+            ),
+            ("back::shared", "crates/fix/shared/mod.rs", false),
+            ("back::shared_tests", "crates/fix/shared/mod.rs", true),
+        ],
+        "{populations:#?}"
+    );
 }

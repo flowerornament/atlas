@@ -558,8 +558,16 @@ fn every_extension_field_parses_and_is_unavailable_until_judged() {
         !fields.contains(&"stage_seams.fixture.final_stages"),
         "{fields:?}"
     );
-    let field = "stage_seams.fixture.writers.Model.production_sites";
-    assert!(fields.contains(&field), "{field} missing from {fields:?}");
+    // Every field is judged now; the writers row records production only,
+    // and a writers row records both populations.
+    assert!(policy.unjudged().is_empty());
+    assert!(
+        report.violations.iter().any(|v| v.contains(
+            "the writers row for `Model` records no `test_sites`; record it per owner, `test_sites = {}` for none"
+        )),
+        "{:?}",
+        report.violations
+    );
     // Judged fields that name project authority wait for the host to
     // resolve it, like every other owner.
     for (field, written) in [
@@ -670,18 +678,13 @@ fn a_duplicate_stage_order_is_refused() {
 fn an_explicitly_empty_field_is_a_claim_not_an_absence() {
     let empty = EXTENDED.replace("final_stages = [\"check\"]", "final_stages = []");
     let policy = Policy::parse(&empty).expect("parses");
-    assert!(
-        policy
-            .unjudged()
-            .contains(&"stage_seams.fixture.writers.Model.production_sites".to_owned())
-    );
-    // final_stages is judged (by `stages` and `delta`) whether empty or not.
-    assert!(
-        !policy
-            .unjudged()
-            .iter()
-            .any(|field| field.ends_with("final_stages"))
-    );
+    // Each is judged whether empty or not: by `stages` and `delta`, and a
+    // writers row's fields by `policy` too.
+    assert!(policy.unjudged().is_empty());
+    let absent = EXTENDED.replace("production_sites = {} ", "");
+    let policy = Policy::parse(&absent).expect("parses");
+    let model = &policy.stage_seams["fixture"].writers["Model"];
+    assert!(model.production_sites.is_none() && model.test_sites.is_none());
 }
 
 /// Which functions `function_lines` reads: a crate's production source and

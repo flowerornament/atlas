@@ -1,6 +1,10 @@
 //! Native source-tree mounts: separate population, shared captured source bytes.
 use super::{Loaded, has_symlink, module_files, normalize_path, rel_display};
-use crate::{Result, model::Diagnostic, source::Captured};
+use crate::{
+    Result,
+    model::Diagnostic,
+    source::{Captured, syntax::ModuleDeclaration},
+};
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -16,6 +20,19 @@ use std::{
 pub struct FileMount {
     pub path: String,
     pub module: String,
+    /// Whether this mount compiles the file only as test code: a test-gated
+    /// declaration on its chain, or a chain starting in a test file (a test
+    /// or bench target root, or a test-only file in src). One file may be
+    /// mounted once in each population.
+    pub test_only: bool,
+    /// The attributes written on each declaration of the mount chain, as
+    /// written: a caller that declares test-support features reads a gate
+    /// needing test or only those features as test code.
+    pub gates: Vec<String>,
+    /// The file the mount chain starts from, which settles `test_only`
+    /// once the package's test files are marked.
+    #[serde(skip)]
+    pub(super) origin: String,
 }
 
 /// A required mount that could not supply source; candidates remain explicit.
@@ -59,8 +76,50 @@ pub(super) fn outside_mounts(
 }
 
 /// A mount still to follow: the file, its module path, the file declaring
-/// it, and the files on the path that reached it.
-type Pending = (String, String, String, BTreeSet<String>);
+/// it, the files on the path that reached it, the file the chain starts
+/// from, and whether a declaration on the chain is test-gated.
+struct Pending {
+    rel: String,
+    module: String,
+    declaring_file: String,
+    ancestry: BTreeSet<String>,
+    origin: String,
+    gated: bool,
+    gates: Vec<String>,
+}
+impl Pending {
+    /// The first mount of a chain, declared in `declaring` by `declaration`.
+    fn first(
+        rel: String,
+        module: String,
+        declaring: &Loaded,
+        declaration: &ModuleDeclaration,
+    ) -> Self {
+        Self {
+            rel,
+            module,
+            declaring_file: declaring.rel.clone(),
+            ancestry: BTreeSet::from([declaring.rel.clone()]),
+            origin: declaring.rel.clone(),
+            gated: declaration.test_gated,
+            gates: declaring
+                .source
+                .facts()
+                .map(|source| gate(source, declaration))
+                .into_iter()
+                .collect(),
+        }
+    }
+}
+/// The attributes written on the item that declares `declaration`.
+fn gate(source: &crate::source::Source, declaration: &ModuleDeclaration) -> String {
+    source
+        .outline()
+        .iter()
+        .find(|item| item.syntax_span.start == declaration.item)
+        .map(|item| item.attribute_text(source.text()).to_owned())
+        .unwrap_or_default()
+}
 
 /// A target root outside src reads its modules beside it, as a crate root.
 /// Only children that capture are followed.
@@ -81,12 +140,7 @@ fn target_root_children(
             // A module with no file here is reported by mark_test_files.
             for child in module_files(&file.rel, true, declaration) {
                 if capture_optional(root, &child, sources, diagnostics)?.is_some() {
-                    pending.push((
-                        child,
-                        name.clone(),
-                        file.rel.clone(),
-                        BTreeSet::from([file.rel.clone()]),
-                    ));
+                    pending.push(Pending::first(child, name.clone(), file, declaration));
                 }
             }
         }
@@ -113,12 +167,7 @@ fn mounts_leaving_src(src_rel: &str, inside: &str, files: &[Loaded]) -> Vec<Pend
                     let module = parent
                         .as_ref()
                         .map_or_else(|| name.clone(), |parent| format!("{parent}::{name}"));
-                    pending.push((
-                        rel,
-                        module,
-                        file.rel.clone(),
-                        BTreeSet::from([file.rel.clone()]),
-                    ));
+                    pending.push(Pending::first(rel, module, file, declaration));
                 }
             }
         }
@@ -137,7 +186,16 @@ fn follow_mounts(
 ) -> Result<MountedSources> {
     let mut mounts = BTreeSet::new();
     let mut unavailable = Vec::new();
-    while let Some((rel, module, declaring_file, mut ancestry)) = pending.pop() {
+    while let Some(Pending {
+        rel,
+        module,
+        declaring_file,
+        mut ancestry,
+        origin,
+        gated,
+        gates,
+    }) = pending.pop()
+    {
         if !ancestry.insert(rel.clone()) {
             continue;
         }
@@ -152,6 +210,9 @@ fn follow_mounts(
         if !mounts.insert(FileMount {
             path: rel.clone(),
             module: module.clone(),
+            test_only: gated,
+            gates: gates.clone(),
+            origin: origin.clone(),
         }) {
             continue;
         }
@@ -165,12 +226,19 @@ fn follow_mounts(
             for child in &children {
                 if capture_optional(root, child, sources, diagnostics)?.is_some() {
                     found = true;
-                    pending.push((
-                        child.clone(),
-                        format!("{module}::{name}"),
-                        rel.clone(),
-                        ancestry.clone(),
-                    ));
+                    pending.push(Pending {
+                        rel: child.clone(),
+                        module: format!("{module}::{name}"),
+                        declaring_file: rel.clone(),
+                        ancestry: ancestry.clone(),
+                        origin: origin.clone(),
+                        gated: gated || declaration.test_gated,
+                        gates: gates
+                            .iter()
+                            .cloned()
+                            .chain([gate(source, declaration)])
+                            .collect(),
+                    });
                 }
             }
             if !found {
@@ -186,6 +254,19 @@ fn follow_mounts(
         files: mounts.into_iter().collect(),
         unavailable,
     })
+}
+
+/// Settle each mount's population once `test_file(origin)` is known: a
+/// gated chain, or one starting in a test file, is test-only. A file
+/// mounted at one module in both ways keeps one mount per population.
+pub(super) fn settle_populations(mounts: &mut MountedSources, test_file: impl Fn(&str) -> bool) {
+    for mount in &mut mounts.files {
+        mount.test_only = mount.test_only || test_file(&mount.origin);
+    }
+    mounts.files.sort();
+    mounts
+        .files
+        .dedup_by(|a, b| a.path == b.path && a.module == b.module && a.test_only == b.test_only);
 }
 
 pub(super) fn module_candidates(directory: &str, name: &str) -> [String; 2] {

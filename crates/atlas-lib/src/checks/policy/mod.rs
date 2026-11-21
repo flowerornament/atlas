@@ -195,7 +195,8 @@ pub struct StageSeams {
 /// returning the type) plus any `methods` named here; they and the writer
 /// `functions` belong to its `producers`. For a producer the functions are
 /// boundary items; any other stage or test owner calling either is hidden
-/// debt, counted per owner in `sites`, which only falls. `reason` says why the
+/// debt, counted per owner and population in `test_sites` and
+/// `production_sites`, each exact and only falling. `reason` says why the
 /// type is read whole, and `owner` is the bead that narrows it.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -209,14 +210,17 @@ pub struct Writers {
     pub functions: Vec<String>,
     pub producers: Vec<String>,
     pub owner: String,
+    /// Read only from a published policy written before the populations
+    /// were counted apart: both together, per owner. A candidate that
+    /// writes it refuses.
     #[serde(default)]
-    pub sites: BTreeMap<String, usize>,
-    /// Writer call sites outside the producing stage in test code, per
-    /// owner; `sites` counts both populations together. Written empty
-    /// (`{}`), it claims there are none; absent, it claims nothing.
+    pub sites: Option<BTreeMap<String, usize>>,
+    /// Writer call sites outside the producers in test code, per calling
+    /// owner (a stage or test module), exact to the census and only
+    /// falling; `{}` for none. Required.
     #[serde(default)]
     pub test_sites: Option<BTreeMap<String, usize>>,
-    /// The same, in production code.
+    /// The same, in production code. Required.
     #[serde(default)]
     pub production_sites: Option<BTreeMap<String, usize>>,
 }
@@ -734,20 +738,7 @@ impl Policy {
     /// but does not judge yet, by address. A check over such a policy is
     /// unavailable, never a complete PASS.
     pub fn unjudged(&self) -> Vec<String> {
-        let mut out = Vec::new();
-        for (package, seams) in &self.stage_seams {
-            for (name, writers) in &seams.writers {
-                for (written, field) in [
-                    (writers.test_sites.is_some(), "test_sites"),
-                    (writers.production_sites.is_some(), "production_sites"),
-                ] {
-                    if written {
-                        out.push(format!("stage_seams.{package}.writers.{name}.{field}"));
-                    }
-                }
-            }
-        }
-        out
+        Vec::new()
     }
     /// Project authority required by selected item-level seams.
     pub fn seam_references(&self, package: Option<&str>) -> Vec<Reference> {

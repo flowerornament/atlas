@@ -6,6 +6,23 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- **Breaking:** `stage_seams` writers rows count calls apart by
+ population, per calling owner: `test_sites` and `production_sites` are
+ both required, each exact to its measure and only falling (a new owner is
+ held to 0). A candidate row writing the combined `sites` refuses (in
+ `stages`, `delta` and `policy`) with the new spelling; a published row
+ that has it bounds each population by it and by the base tree's measure.
+ `Writers::sites` is an `Option`; `seams::Totals::writer_sites` is
+ `test_writer_sites` and `production_writer_sites`, and the seams JSON's
+ `writers.*.sites` is `test_sites` and `production_sites`.
+- Mounts are classified by population: `FileMount::test_only` (a test-gated
+ chain, or one starting in a test file) and `FileMount::gates`, the
+ attributes on each declaration of the chain. A gate needing test or only
+ a declared test-support feature is test code for seams
+ (`checks::seams_with_test_support`, `cargo atlas seams
+ --test-support-features`, and `delta`'s own flag). A production file
+ mounted from outside `src` leaves the seam reading unavailable
+ (`DiagnosticCode::ProductionMountUnread`). `Policy::unjudged` is now empty.
 - `stage_seams.final_stages` is judged by `stages` and `delta`: no stage
  but the composition (the last stage of `stage_order`) reads a final stage,
  by its `stage_reads` row or by an observed production path (one refusal

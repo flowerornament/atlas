@@ -158,6 +158,7 @@ same codes (`code` on each diagnostic, `reasons[].kind` and
 | `stage-use-unreadable` | Stage `use` syntax that could not be read. |
 | `stage-order-missing` | Stage seams without their required `stage_order`. |
 | `seam-import-unavailable` | Required seam import syntax that could not be read. |
+| `production-mount-unread` | A production file mounted from outside `src`, which the stage reading does not read. |
 | `unclassified` | Read from JSON written before codes existed, or with a code this build does not know. |
 
 ### Unknown-call reason kinds

@@ -9,6 +9,7 @@ use crate::population::TestSelection;
 mod boundary;
 mod finals;
 pub(in crate::checks) use finals::{final_stage_list_refusals, final_stage_shape};
+pub(in crate::checks) use writers::writers_shape;
 mod ratchets;
 mod view;
 pub use view::Totals;
@@ -110,6 +111,10 @@ impl SeamReading {
         declarations: &BTreeMap<String, BoundaryDeclaration>,
         root: &RootTable,
     ) -> Result<Self, Vec<crate::model::Diagnostic>> {
+        let unread = production_mounts(crate_map);
+        if !unread.is_empty() {
+            return Err(unread);
+        }
         let (floor_boundaries, boundaries): (BTreeMap<_, _>, BTreeMap<_, _>) =
             boundaries(crate_map, &order.stages, root, declarations)?
                 .into_iter()
@@ -287,6 +292,26 @@ impl SeamReading {
         }
         unavailable
     }
+}
+
+/// A production file mounted from outside `src`: the stage reading reads
+/// `src` alone, so its reads reach no stage and the reading is incomplete.
+fn production_mounts(crate_map: &CrateMap) -> Vec<crate::model::Diagnostic> {
+    crate_map
+        .mounted
+        .iter()
+        .filter(|mount| !mount.file.test_file)
+        .map(|mount| crate::model::Diagnostic {
+            code: crate::model::DiagnosticCode::ProductionMountUnread,
+            package: Some(crate_map.name.clone()),
+            file: mount.file.rel.clone(),
+            line: None,
+            message: format!(
+                "production file mounted from outside src at `{}`: the stage reading reads src only, so its reads reach no stage; move it under src, gate its mount to test code, or, if its gate names a test-support feature, declare it (--test-support-features)",
+                mount.module
+            ),
+        })
+        .collect()
 }
 
 #[cfg(test)]

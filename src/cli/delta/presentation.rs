@@ -147,7 +147,8 @@ fn seams(report: &delta::Report) -> Vec<Value> {
                 "crate": s.crate_name,
                 "debt_items": s.totals.debt_items,
                 "unlisted_exports": s.totals.unlisted_exports,
-                "writer_sites": s.totals.writer_sites,
+                "test_writer_sites": s.totals.test_writer_sites,
+                "production_writer_sites": s.totals.production_writer_sites,
                 "test_pairs": s.totals.test_pairs,
                 "listed": s.listed,
                 "unlisted": s.unlisted,
@@ -260,11 +261,12 @@ fn write_seams(out: &mut String, report: &delta::Report) -> Result<()> {
     for seam in &report.seams {
         write!(
             out,
-            "\nseams     {} · {} debt items · {} unlisted exports · {} writer sites · {} test pairs",
+            "\nseams     {} · {} debt items · {} unlisted exports · {} test and {} production writer sites · {} test pairs",
             seam.crate_name,
             seam.totals.debt_items,
             seam.totals.unlisted_exports,
-            seam.totals.writer_sites,
+            seam.totals.test_writer_sites,
+            seam.totals.production_writer_sites,
             seam.totals.test_pairs
         )?;
         if !seam.floor_added.is_empty() {

@@ -35,6 +35,9 @@ pub(crate) struct SeamOptions {
     /// Include complete item-level observations in text; JSON already retains them.
     #[arg(long)]
     items: bool,
+    /// Explicit features whose gated modules are the project's test support.
+    #[arg(long, value_delimiter = ',')]
+    test_support_features: Vec<String>,
 }
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -102,6 +105,7 @@ fn read(
     policy: &Policy,
     scope: Option<&str>,
     question: Question,
+    test_support_features: &[String],
 ) -> Result<Reading> {
     match question {
         Question::Stages => {
@@ -116,7 +120,13 @@ fn read(
         Question::Seams => {
             // Standalone has no project interpreter. Absence is explicit;
             // library wrappers supply source-bound declarations directly.
-            let report = checks::seams(snapshot, policy, &BTreeMap::new(), scope)?;
+            let report = checks::seams_with_test_support(
+                snapshot,
+                policy,
+                &BTreeMap::new(),
+                scope,
+                test_support_features,
+            )?;
             let mut violations = stage_violations(&report.stages);
             let published = PublishedStages::default();
             violations.extend(report.crates.iter().flat_map(|(name, reading)| {
@@ -151,7 +161,7 @@ pub(crate) fn run(
     options: &Options,
     question: Question,
 ) -> Result<()> {
-    present(root, metadata, options, question, false)
+    present(root, metadata, options, question, (false, &[]))
 }
 pub(crate) fn seams(
     root: &Path,
@@ -163,7 +173,7 @@ pub(crate) fn seams(
         metadata,
         &options.inputs,
         Question::Seams,
-        options.items,
+        (options.items, &options.test_support_features),
     )
 }
 fn present(
@@ -171,7 +181,7 @@ fn present(
     metadata: &cargo_metadata::Metadata,
     options: &Options,
     question: Question,
-    items: bool,
+    (items, test_support_features): (bool, &[String]),
 ) -> Result<()> {
     let policy_path = root.join(&options.policy).canonicalize()?;
     let text = fs::read_to_string(&policy_path)?;
@@ -182,7 +192,7 @@ fn present(
         Question::Stages => policy.stage_references(scope),
         Question::Seams => policy.seam_references(scope),
     };
-    let reading = read(&snapshot, &policy, scope, question)?;
+    let reading = read(&snapshot, &policy, scope, question, test_support_features)?;
     let unavailable = !references.is_empty() || !reading.unavailable.is_empty();
     let status = if unavailable {
         Status::Unavailable

@@ -8,12 +8,16 @@
 //! otherwise bless, counted by spelling over production, test and mounted
 //! code: `.m(`, `Ty::m(`, `<Ty>::m(`, and the same through each type alias
 //! or `use … as` rename of the type in the crate, and `f(` for functions.
+//! Calls are counted apart by population: a line is test code in a test
+//! file (or a file mounted only for tests) or under a test gate; a file
+//! mounted in both populations counts in each, once per line.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::super::{CrateMap, FileMap, ItemKind, module_path_of};
 use super::Site;
 use crate::checks::policy;
+use crate::population::TestSelection;
 use crate::scan;
 
 /// One call outside the producers: its site (`path` is the spelling) and
@@ -32,8 +36,43 @@ pub(super) struct WriterCensus {
     pub(super) methods: BTreeSet<String>,
     /// Other names the crate gives the type (aliases and renames).
     pub(super) aliases: BTreeSet<String>,
-    /// Per calling owner outside the producers: the calls.
-    pub(super) calls: BTreeMap<String, Vec<WriterCall>>,
+    /// Per calling owner outside the producers: the calls in test code.
+    pub(super) test: BTreeMap<String, Vec<WriterCall>>,
+    /// The same, in production code.
+    pub(super) production: BTreeMap<String, Vec<WriterCall>>,
+}
+impl WriterCensus {
+    /// One population's calls: `test`, else production.
+    pub(super) fn population(&self, test: bool) -> &BTreeMap<String, Vec<WriterCall>> {
+        if test { &self.test } else { &self.production }
+    }
+}
+
+/// The shape of a candidate's writers rows: both populations recorded,
+/// never the combined `sites` a published baseline may still hold.
+pub(in crate::checks) fn writers_shape(
+    crate_name: &str,
+    seams: &policy::StageSeams,
+) -> Vec<String> {
+    let mut violations = Vec::new();
+    for (ty, row) in &seams.writers {
+        if row.sites.is_some() {
+            violations.push(format!(
+                "stage writers `{crate_name}`: the writers row for `{ty}` writes `sites`, which counts test and production together; write `test_sites` and `production_sites` (`{{ \"<owner>\" = n }}`, `{{}}` for none) as `cargo atlas seams {crate_name} --items` lists them"
+            ));
+        }
+        for (recorded, field) in [
+            (&row.test_sites, "test_sites"),
+            (&row.production_sites, "production_sites"),
+        ] {
+            if recorded.is_none() {
+                violations.push(format!(
+                    "stage writers `{crate_name}`: the writers row for `{ty}` records no `{field}`; record it per owner, `{field} = {{}}` for none"
+                ));
+            }
+        }
+    }
+    violations
 }
 
 /// The census of each writers row over a crate.
@@ -107,26 +146,33 @@ fn census_of(ty: &str, row: &policy::Writers, files: &[(String, &FileMap)]) -> W
         })
         .chain(row.functions.iter().map(|function| format!("{function}(")))
         .collect();
-    for (owner, file) in files {
-        if row.producers.contains(owner) {
-            continue;
-        }
+    let mut seen = BTreeSet::new();
+    for (owner, file) in files
+        .iter()
+        .filter(|(owner, _)| !row.producers.contains(owner))
+    {
         for (index, code) in file.source.projection().code_lines().enumerate() {
             let Some(spelling) = spellings.iter().find(|spelling| called(code, spelling)) else {
                 continue;
             };
-            census
-                .calls
-                .entry(owner.clone())
-                .or_default()
-                .push(WriterCall {
-                    site: Site {
-                        file: file.rel.clone(),
-                        line: index + 1,
-                        path: spelling.clone(),
-                    },
-                    code: code.trim().to_owned(),
-                });
+            let line = index + 1;
+            let test = file.test_file || !TestSelection::Production.admits_line(&file.source, line);
+            if !seen.insert((test, file.rel.as_str(), line)) {
+                continue;
+            }
+            let calls = if test {
+                &mut census.test
+            } else {
+                &mut census.production
+            };
+            calls.entry(owner.clone()).or_default().push(WriterCall {
+                site: Site {
+                    file: file.rel.clone(),
+                    line,
+                    path: spelling.clone(),
+                },
+                code: code.trim().to_owned(),
+            });
         }
     }
     census

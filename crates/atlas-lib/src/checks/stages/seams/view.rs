@@ -12,7 +12,10 @@ use super::SeamReading;
 pub struct Totals {
     pub debt_items: usize,
     pub unlisted_exports: usize,
-    pub writer_sites: usize,
+    /// Writer call sites outside the producers, in test code.
+    pub test_writer_sites: usize,
+    /// The same, in production code.
+    pub production_writer_sites: usize,
     pub test_pairs: usize,
 }
 
@@ -57,14 +60,18 @@ impl SeamReading {
                 .values()
                 .map(|boundary| boundary.unlisted.len())
                 .sum(),
-            writer_sites: self
-                .writer_census
-                .values()
-                .flat_map(|census| census.calls.values())
-                .map(Vec::len)
-                .sum(),
+            test_writer_sites: self.writer_sites(true),
+            production_writer_sites: self.writer_sites(false),
             test_pairs: self.tests.values().map(BTreeMap::len).sum(),
         }
+    }
+
+    fn writer_sites(&self, test: bool) -> usize {
+        self.writer_census
+            .values()
+            .flat_map(|census| census.population(test).values())
+            .map(Vec::len)
+            .sum()
     }
 
     pub fn json(&self) -> Value {
@@ -103,14 +110,21 @@ impl SeamReading {
             .writer_census
             .iter()
             .map(|(ty, census)| {
-                let sites: BTreeMap<&String, usize> = census
-                    .calls
-                    .iter()
-                    .map(|(owner, calls)| (owner, calls.len()))
-                    .collect();
+                let sites = |test| -> BTreeMap<&String, usize> {
+                    census
+                        .population(test)
+                        .iter()
+                        .map(|(owner, calls)| (owner, calls.len()))
+                        .collect()
+                };
                 (
                     ty,
-                    json!({ "methods": census.methods, "aliases": census.aliases, "sites": sites }),
+                    json!({
+                        "methods": census.methods,
+                        "aliases": census.aliases,
+                        "test_sites": sites(true),
+                        "production_sites": sites(false),
+                    }),
                 )
             })
             .collect();

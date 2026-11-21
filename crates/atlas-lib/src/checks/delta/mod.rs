@@ -167,8 +167,9 @@ pub fn check(
         return Ok(out);
     }
 
-    let before_workspace = super::Workspace::of(before)?;
-    let after_workspace = super::Workspace::of(after)?;
+    let support = &inputs.concentration.test_support_features;
+    let before_workspace = super::Workspace::of(before)?.with_test_support(support);
+    let after_workspace = super::Workspace::of(after)?.with_test_support(support);
     match paired_measures(before, after, &before_workspace, &after_workspace) {
         Ok(measured) => judge_measures(published, policy, measured, &mut out),
         Err(error) => out.unavailable.push(MissingInput {
@@ -176,25 +177,13 @@ pub fn check(
             reason: error.to_string(),
         }),
     }
-    match stage_judgment(
-        before,
-        after,
-        published,
-        policy,
+    judge_stages(
+        (before, after),
+        (published, policy),
+        (&before_workspace, &after_workspace),
         &inputs.boundaries,
-        &before_workspace,
-        &after_workspace,
-    ) {
-        Ok((violations, unavailable, seams)) => {
-            out.violations.extend(violations);
-            out.unavailable.extend(unavailable);
-            out.seams = seams;
-        }
-        Err(error) => out.unavailable.push(MissingInput {
-            field: "delta.stages".into(),
-            reason: error.to_string(),
-        }),
-    }
+        &mut out,
+    );
     judge_landing(
         (published, policy),
         (before, after),
@@ -203,6 +192,39 @@ pub fn check(
         &mut out,
     );
     Ok(out)
+}
+/// The stage and seam laws over both trees, or why they are unavailable.
+fn judge_stages(
+    (before, after): (&Snapshot, &Snapshot),
+    (published, policy): (&Policy, &Policy),
+    (before_workspace, after_workspace): (&super::Workspace, &super::Workspace),
+    boundaries: &Boundaries,
+    out: &mut Report,
+) {
+    match stage_judgment(
+        before,
+        after,
+        published,
+        policy,
+        boundaries,
+        before_workspace,
+        after_workspace,
+    ) {
+        Ok((violations, unavailable, seams)) => {
+            // The writers' shape is the policy's too: name it once.
+            let fresh: Vec<String> = violations
+                .into_iter()
+                .filter(|violation| !out.violations.contains(violation))
+                .collect();
+            out.violations.extend(fresh);
+            out.unavailable.extend(unavailable);
+            out.seams = seams;
+        }
+        Err(error) => out.unavailable.push(MissingInput {
+            field: "delta.stages".into(),
+            reason: error.to_string(),
+        }),
+    }
 }
 /// The laws over the paired measurements: ceilings and their raises, size
 /// growth for the host to approve, and the crate graph.

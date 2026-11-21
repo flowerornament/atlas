@@ -184,6 +184,9 @@ pub enum DiagnosticCode {
     StageOrderMissing,
     /// Required seam import syntax that could not be read.
     SeamImportUnavailable,
+    /// A production file mounted from outside `src`, which the stage
+    /// reading does not read.
+    ProductionMountUnread,
     /// Read from JSON written before codes existed, or with a code this
     /// build does not know.
     #[default]

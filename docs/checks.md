@@ -454,21 +454,35 @@ header_uncited = { tutorial = 2 }
   drops one, removes the list, or moves the composition, unless
   `amended_by = { bead, covers = ["final_stages"] }` in the crate's
   `stage_seams` names the ruling and the landing's description cites it.
+  Moving the composition changes who may read the final stages, so it is
+  the same decision and the same cited amendment admits it.
+  A `writers` row records the calls outside its producers that build or
+  change its type, per calling owner (a stage or test module) and apart by
+  population: `test_sites = { "<owner>" = n }` and `production_sites`, both
+  required, `{}` for none. Each count must equal what the census measures
+  and may only fall from the published one (an owner the published row
+  does not name had 0), so a production writer cannot hide behind a test
+  count. A row still written with the combined `sites` refuses; a
+  published row that has it bounds each population by that count and by
+  what the base tree measures there. A file mounted from outside `src`
+  counts as test code when its mount is test-gated, or its gate needs test
+  or only a declared test-support feature (`--test-support-features` on
+  `seams` and `delta`); a production file mounted from outside `src`
+  leaves the seam reading unavailable, since the stage reading reads `src`
+  alone.
+
+#### Test code, by check
+
+Each check draws the line between test and production code itself:
+
+| Check | Counts as test code |
+|---|---|
+| `concentration` | test modules, test functions and targets, and module remaps gated to test or a declared test-support feature |
+| `stage_seams` | test files and modules, and mounts gated to test or a declared test-support feature |
+| `allowed_readers`, `forbid_new_*` | test modules and functions only: code gated to a test-support feature is production on purpose, since reaching a home through test support is still coupling to it |
 
 The Rust documentation for `atlas_lib::checks::policy::Policy` describes each
 field in more detail.
-
-### Fields read but not judged yet
-
-These fields are part of the policy format and parse today. Their rules
-arrive in later builds of 0.21, so until then a policy that writes one is
-reported `UNAVAILABLE`, naming the field: never a complete `PASS` that
-skipped a rule you wrote. A field written empty, such as `final_stages = []` or
-`production_sites = {}`, is a claim ("none") and counts as written; only a
-field left out claims nothing.
-
-- In `stage_seams`, per writer: `test_sites` and `production_sites`,
-  writer calls outside the producing stage counted apart by population.
 
 ## Project wrappers
 

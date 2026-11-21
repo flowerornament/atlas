@@ -194,6 +194,11 @@ pub fn validate(
             report.unavailable.push(MissingInput {field:format!("typed_errors.{name}"),reason:"required type syntax or source population unavailable; see typed_errors reading".into()});
         }
     }
+    for (name, seams) in &policy.stage_seams {
+        report
+            .violations
+            .extend(crate::checks::stages::seams::writers_shape(name, seams));
+    }
     let pipelines = crate::checks::stages::judge_pipelines(analysis, &policy.stage_order);
     report.violations.extend(pipelines.violations);
     report.unavailable.extend(pipelines.unavailable);

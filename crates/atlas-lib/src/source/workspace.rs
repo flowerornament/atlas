@@ -21,6 +21,8 @@ pub(crate) struct CrateMap {
 pub(crate) struct ModuleMount {
     pub module: String,
     pub file: FileMap,
+    /// The attributes on each declaration of the mount chain.
+    pub gates: Vec<String>,
 }
 pub(crate) struct FileMap {
     pub rel: String,
@@ -28,6 +30,24 @@ pub(crate) struct FileMap {
     pub test_file: bool,
 }
 impl Workspace {
+    /// Read the mounts a gate needing test or only `features` admits as
+    /// test code (a project's declared test-support features), as
+    /// concentration reads such remaps.
+    #[must_use]
+    pub fn with_test_support(mut self, features: &[String]) -> Self {
+        let features: Vec<&str> = features.iter().map(String::as_str).collect();
+        for mount in self
+            .crates
+            .iter_mut()
+            .flat_map(|package| &mut package.mounted)
+        {
+            mount.file.test_file = mount.file.test_file
+                || mount.gates.iter().any(|gate| {
+                    crate::source::attributes_require_test_or_features(gate, &features)
+                });
+        }
+        self
+    }
     pub fn of(snapshot: &Snapshot) -> crate::Result<Self> {
         let root = snapshot.metadata().workspace_root.as_std_path();
         let mut files = BTreeMap::<_, Vec<_>>::new();
@@ -121,7 +141,8 @@ fn build_files(
     files.sort_by(|a, b| a.rel.cmp(&b.rel));
     Ok(files)
 }
-/// A package's native source-tree mounts with valid facts, each a test file.
+/// A package's native source-tree mounts with valid facts, each a test file
+/// when its mount compiles it only as test code.
 /// A package without a captured mount population refuses.
 fn mounted_files(snapshot: &Snapshot, package: &str) -> crate::Result<Vec<ModuleMount>> {
     let mounts = snapshot
@@ -139,8 +160,9 @@ fn mounted_files(snapshot: &Snapshot, package: &str) -> crate::Result<Vec<Module
                     source: snapshot
                         .retain_source(&mount.path)
                         .ok_or("mount lacks captured source")?,
-                    test_file: true,
+                    test_file: mount.test_only,
                 },
+                gates: mount.gates.clone(),
             })
         })
         .collect()
