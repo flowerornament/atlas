@@ -184,7 +184,7 @@ pub(super) enum Command {
     /// Draw which functions take, return and build selected types.
     #[command(
         alias = "representations",
-        after_help = "Answers: for the selected types, which functions take them, return them and build them, and which types hold them in fields?\nName the types (Tree,Checked) or give a saved question (--query). Choose a view with --panel.\nEvidence: qualified signatures, fields and construction sites; not how values move at run time.\nExample: cargo atlas types --query pipeline.json --panel all --as svg"
+        after_help = "Answers: for the selected types, which functions take them, return them and build them, and which types hold them in fields?\nName the types (Tree,Checked); a name several types share takes module::Name, FILE:Name or --in PATH, and is refused with each one's spelling. Or give a saved question (--query). Choose a view with --panel.\nEvidence: qualified signatures, fields and construction sites; not how values move at run time.\nExample: cargo atlas types --query pipeline.json --panel all --as svg"
     )]
     Types(types::Options),
     /// Show the steps and branches inside one function.

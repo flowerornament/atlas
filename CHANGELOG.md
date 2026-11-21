@@ -6,6 +6,12 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `types` chooses between types that share a name, the way `name` and
+ `callers` do: `module::Name` (the end of its module path), `FILE:Name`, or
+ `--in PATH`. A shared bare name is refused with a runnable spelling for
+ each type (`"Checked" names 2 types; choose one: cargo atlas types
+ src/check.rs:Checked, ...`), where it used to say "qualify its file" and
+ accept no qualified form.
 - **Fix:** calls inside a closure were recorded nowhere, neither resolved nor
  unknown, so `callers` could report "no unresolved call is written as X" for
  a function called only from closures. A closure's body is now part of the

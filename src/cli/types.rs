@@ -19,6 +19,10 @@ pub(crate) struct Options {
     /// Superseded by the bare TYPES; still accepted (repeat or comma separate).
     #[arg(long = "type", value_delimiter = ',')]
     pub(super) types: Vec<String>,
+    /// Keep the types declared under this path or unique file or directory
+    /// name, to choose between types that share a name.
+    #[arg(long = "in", value_name = "PATH", conflicts_with = "query")]
+    in_path: Option<String>,
     #[arg(long, value_enum, default_value = "all")]
     panel: Panel,
     #[command(flatten)]
@@ -34,40 +38,42 @@ pub(crate) fn run(
         .as_ref()
         .map(|p| root.join(p).canonicalize())
         .transpose()?;
+    let names = if options.types.is_empty() {
+        options.words.names()
+    } else {
+        options.types.clone()
+    };
+    if query_path.is_none() && names.is_empty() {
+        let example = most_mentioned_type(metadata).map_or_else(String::new, |name| {
+            format!("; run: cargo atlas types {name}")
+        });
+        return Err(format!(
+            "name the types (cargo atlas types NAME[,NAME]) or give --query FILE; use overview for source-declared defaults{example}"
+        )
+        .into());
+    }
+    let snapshot = discovery::snapshot_metadata(metadata)?;
+    let graph = snapshot.graph();
+    let facts = atlas_lib::analysis::Analysis::new(&snapshot)?.representations()?;
     let query: Query = if let Some(p) = &query_path {
         serde_json::from_str(&fs::read_to_string(p)?)?
     } else {
-        let names = if options.types.is_empty() {
-            options.words.names()
-        } else {
-            options.types.clone()
-        };
-        if names.is_empty() {
-            let example = most_mentioned_type(metadata).map_or_else(String::new, |name| {
-                format!("; run: cargo atlas types {name}")
-            });
-            return Err(format!(
-                "name the types (cargo atlas types NAME[,NAME]) or give --query FILE; use overview for source-declared defaults{example}"
-            )
-            .into());
-        }
+        let within = options
+            .in_path
+            .as_deref()
+            .map(|path| discovery::resolve_scope(graph, Some(path)))
+            .transpose()?;
         Query {
             title: format!("Types: {}", names.join(", ")),
             types: names
                 .iter()
-                .map(|n| types::Selector {
-                    name: n.clone(),
-                    file: None,
-                })
-                .collect(),
+                .map(|word| selector(graph, &facts, word, within.as_deref()))
+                .collect::<Result<_>>()?,
             apis: vec![],
             preparation_files: vec![],
             preparation_functions: vec![],
         }
     };
-    let snapshot = discovery::snapshot_metadata(metadata)?;
-    let graph = snapshot.graph();
-    let facts = atlas_lib::analysis::Analysis::new(&snapshot)?.representations()?;
     let views = types::project(&facts, &query)?;
     options.output.emit(
         root,
@@ -107,4 +113,111 @@ fn most_mentioned_type(metadata: &cargo_metadata::Metadata) -> Option<String> {
         .into_iter()
         .max_by(|(a, x), (b, y)| x.len().cmp(&y.len()).then_with(|| b.cmp(a)))
         .map(|(name, _)| name.to_owned())
+}
+
+/// The one type `word` names: `Name`, `module::Name` (the end of its module
+/// path, as `name` reads it) or `FILE:Name`, kept to `within` when given.
+/// Several matches are refused with each one's `FILE:Name` spelling, which
+/// this command reads back.
+fn selector(
+    graph: &atlas_lib::model::SourceGraph,
+    facts: &atlas_lib::representations::Facts,
+    word: &str,
+    within: Option<&str>,
+) -> Result<types::Selector> {
+    let inside =
+        |file: &str| within.is_none_or(|path| atlas_lib::architecture::contains(path, file));
+    let (name, candidates): (&str, Vec<&atlas_lib::representations::Type>) =
+        if let Some((file, name)) = word.rsplit_once(':').filter(|(file, _)| {
+            std::path::Path::new(file)
+                .extension()
+                .is_some_and(|e| e == "rs")
+        }) {
+            let file = file.trim_end_matches(':');
+            (
+                name,
+                facts
+                    .types
+                    .iter()
+                    .filter(|t| t.file == file && t.name == name)
+                    .collect(),
+            )
+        } else if let Some((_, name)) = word.rsplit_once("::") {
+            // The lexical declarations `name` selects, read back as types.
+            let declared: std::collections::BTreeSet<(&str, usize)> =
+                cargo_atlas::queries::name(graph, word)
+                    .map(|names| {
+                        names
+                            .matches
+                            .iter()
+                            .map(|card| (card.file, card.declaration.line))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+            (
+                name,
+                facts
+                    .types
+                    .iter()
+                    .filter(|t| t.name == name && declared.contains(&(t.file.as_str(), t.line)))
+                    .collect(),
+            )
+        } else {
+            (
+                word,
+                facts.types.iter().filter(|t| t.name == word).collect(),
+            )
+        };
+    let candidates: Vec<_> = candidates.into_iter().filter(|t| inside(&t.file)).collect();
+    match candidates.as_slice() {
+        [one] => Ok(types::Selector {
+            name: one.name.clone(),
+            file: Some(one.file.clone()),
+        }),
+        [] => Err(format!(
+            "no type matches {word:?}{}; cargo atlas name {name} lists what is declared with that name",
+            within.map_or_else(String::new, |path| format!(" in {path}"))
+        )
+        .into()),
+        several => {
+            let spellings: Vec<String> = several
+                .iter()
+                .map(|t| respelled(word, &format!("{}:{}", t.file, t.name)))
+                .collect();
+            Err(format!(
+                "{word:?} names {} types; choose one: {}",
+                several.len(),
+                spellings.join(", ")
+            )
+            .into())
+        }
+    }
+}
+/// This run's command line with the first comma-separated element equal to
+/// `word` replaced by `with`: the other types and every flag stay as given.
+fn respelled(word: &str, with: &str) -> String {
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "atlas") {
+        args.remove(0);
+    }
+    let mut done = false;
+    for arg in &mut args {
+        if done {
+            break;
+        }
+        let mut parts: Vec<&str> = arg.split(',').collect();
+        if let Some(part) = parts.iter_mut().find(|part| **part == word) {
+            *part = with;
+            *arg = parts.join(",");
+            done = true;
+        }
+    }
+    if !done {
+        return format!("cargo atlas types {with}");
+    }
+    let words: Vec<String> = args
+        .iter()
+        .map(|arg| crate::cli::output::rows::quoted(arg))
+        .collect();
+    format!("cargo atlas {}", words.join(" "))
 }

@@ -49,7 +49,7 @@ pub(crate) struct Name {
 /// The bare words of `types`: the types, after an optional project directory.
 #[derive(Args)]
 pub(crate) struct Types {
-    /// Type names, comma separated (as --type takes them).
+    /// The types, comma separated: each a Name, module::Name or FILE:Name.
     #[arg(value_name = "TYPES")]
     first: Option<String>,
     #[arg(hide = true)]

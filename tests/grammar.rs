@@ -375,3 +375,58 @@ fn vs_is_the_bare_revision_and_compare_takes_vs_and_at() {
     };
     assert_eq!(changes(&current), changes(&new));
 }
+
+/// `types` names one type the way `name` and `callers` do: a bare name when
+/// it is unique, `module::Name`, `FILE:Name`, or `--in PATH`; a shared name is
+/// refused with a runnable spelling for each candidate.
+#[test]
+fn types_chooses_between_types_that_share_a_name() {
+    let f = Fixture::new(&[
+        (
+            "src/lib.rs",
+            "pub mod check;\npub mod land;\npub struct Other;\npub fn make() -> check::Checked { check::Checked }\n",
+        ),
+        ("src/check.rs", "pub struct Checked;\n"),
+        (
+            "src/land.rs",
+            "pub struct Checked;\npub fn landed() -> Checked { Checked }\n",
+        ),
+    ]);
+    let dir = f.path();
+    let refused = refusal(dir, &["types", "Checked"]);
+    assert_eq!(
+        refused,
+        "atlas: \"Checked\" names 2 types; choose one: cargo atlas types src/check.rs:Checked, cargo atlas types src/land.rs:Checked\n"
+    );
+    let chosen = |args: &[&str]| -> String {
+        let report: serde_json::Value =
+            serde_json::from_str(&stdout(&atlas(dir, &[args, &["--as", "json"]].concat())))
+                .expect("JSON");
+        report["views"]["types"][0]["file"]
+            .as_str()
+            .expect("file")
+            .to_owned()
+    };
+    assert_eq!(chosen(&["types", "src/land.rs:Checked"]), "src/land.rs");
+    assert_eq!(chosen(&["types", "land::Checked"]), "src/land.rs");
+    assert_eq!(chosen(&["types", "check::Checked"]), "src/check.rs");
+    assert_eq!(
+        chosen(&["types", "Checked", "--in", "src/land.rs"]),
+        "src/land.rs"
+    );
+    assert!(
+        refusal(dir, &["types", "Nowhere"])
+            .contains("no type matches \"Nowhere\"; cargo atlas name Nowhere")
+    );
+    // A suggestion keeps the other types and the flags as given, and runs.
+    let several = refusal(dir, &["types", "Other,Checked", "--panel", "producers"]);
+    assert!(
+        several.ends_with("choose one: cargo atlas types Other,src/check.rs:Checked --panel producers, cargo atlas types Other,src/land.rs:Checked --panel producers\n"),
+        "{several}"
+    );
+    let suggested = atlas(
+        dir,
+        &["types", "Other,src/land.rs:Checked", "--panel", "producers"],
+    );
+    assert!(suggested.status.success(), "{}", stderr(&suggested));
+}

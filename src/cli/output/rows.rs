@@ -64,7 +64,7 @@ pub(crate) fn rerun_all(subject: Option<(&str, &str)>) -> String {
 }
 /// `word` as a shell reads it back: as is when it is plain, otherwise in
 /// single quotes (a query program has spaces, quotes and braces).
-fn quoted(word: &str) -> String {
+pub(crate) fn quoted(word: &str) -> String {
     // `~` is plain inside a word (`HEAD~1`); only a leading one expands.
     let plain = !word.is_empty()
         && !word.starts_with('~')
