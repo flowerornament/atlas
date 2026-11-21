@@ -82,3 +82,31 @@ fn a_hint_is_printed_in_text_as_in_json() {
         "{text}"
     );
 }
+
+#[test]
+fn the_summary_counts_module_homes_too() {
+    let fixture = Fixture::new(&[
+        ("src/lib.rs", "pub struct Home;\npub mod front;\n"),
+        ("src/front/mod.rs", "pub struct Front;\n"),
+        (
+            "policy.toml",
+            &POLICY.replace(
+                "authority=[{fact='one home',home='src/lib.rs::Home'}]",
+                "authority=[{fact='one home',home='src/lib.rs::Home'},{fact='the front',home='src/front/'}]",
+            ),
+        ),
+    ]);
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir("/")
+        .args(["policy", "--root"])
+        .arg(fixture.path())
+        .args(["--policy", "policy.toml"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        text.starts_with("policy inputs: PASS · 1 core crates · 2 authority homes"),
+        "{text}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

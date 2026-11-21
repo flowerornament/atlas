@@ -6,6 +6,9 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- `cargo atlas policy`'s `N authority homes`, and `delta`'s `authorities`,
+ count module homes as well as item homes. **Library:**
+ `policy::Report::module_homes`, each resolved module home by fact.
 - `cargo atlas delta` with a policy absent at the baseline says so, naming
  the baseline, instead of reporting a missing file: it reads the policy
  from both commits, and the first commit of a policy is checked with

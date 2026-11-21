@@ -100,7 +100,12 @@ pub struct Report {
     pub violations: Vec<String>,
     pub unavailable: Vec<MissingInput>,
     pub typed_errors: BTreeMap<String, crate::checks::typed_errors::Reading>,
+    /// Each item home, by fact: where its one declaration is.
     pub authority_homes: BTreeMap<String, Match>,
+    /// Each module home (a file, or a directory's module), by fact, as
+    /// written.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub module_homes: BTreeMap<String, String>,
     /// Per authority with `allowed_readers`: what reads its home.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub authority_readers: BTreeMap<String, super::readers::ReaderReading>,
@@ -319,6 +324,9 @@ fn read_home(
         return Ok(false);
     }
     if module_home {
+        report
+            .module_homes
+            .insert(authority.fact.clone(), authority.home.clone());
         return Ok(true);
     }
     item_home(snapshot, files, authority, path, report)

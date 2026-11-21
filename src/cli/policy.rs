@@ -68,7 +68,7 @@ pub(crate) fn run(
         println!(
             "policy inputs: {label} · {} core crates · {} authority homes",
             policy.population.core.len(),
-            report.authority_homes.len()
+            report.authority_homes.len() + report.module_homes.len()
         );
         for violation in &report.violations {
             println!("{violation}");

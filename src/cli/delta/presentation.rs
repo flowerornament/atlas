@@ -49,7 +49,7 @@ pub(super) fn json(
             "delta": s.surface_delta,
             "current": s.surface,
             "ceilings": policy.surface,
-            "authority_homes": report.policy.authority_homes.len(),
+            "authority_homes": report.policy.authority_homes.len() + report.policy.module_homes.len(),
         })
     });
     let seams = seams(report);
@@ -249,7 +249,7 @@ fn write_coupling_and_surface(
             out,
             "\nsurface   {} public declarations · {surface} · {} authorities",
             signed(s.surface_delta),
-            report.policy.authority_homes.len()
+            report.policy.authority_homes.len() + report.policy.module_homes.len()
         )?;
     } else {
         out.push_str("\ncoupling  unavailable\nsurface   unavailable");
