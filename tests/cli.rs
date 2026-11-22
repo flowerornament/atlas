@@ -5,9 +5,11 @@ use std::{
     process::{Command, Output},
 };
 use support::Fixture;
+/// A command run from the fixture's root, which it also names, so the paths
+/// a test types are the fixture's.
 fn run(f: &Fixture, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
-        .current_dir("/")
+        .current_dir(f.path())
         .arg(args[0])
         .arg(f.path())
         .args(&args[1..])
@@ -61,6 +63,7 @@ fn commands_expose_source_data_and_refuse_missing_names() {
     // `cargo atlas census` reaches the binary as `cargo-atlas atlas census`.
     let census = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .current_dir(f.path())
             .args(args)
             .arg("--root")
             .arg(f.path())
@@ -133,25 +136,27 @@ fn workflows_preserve_independent_bodies_and_raw_source_evidence() {
     );
 }
 #[test]
-fn member_invocations_resolve_workflows_and_outputs_at_workspace_root() {
+fn paths_typed_in_a_member_directory_are_read_from_there() {
     let f = fixture();
     f.write("Cargo.toml","[package]\nname='fixture'\nversion='0.1.0'\nedition='2024'\n[workspace]\nmembers=['member']\n");
     f.write(
         "member/Cargo.toml",
         "[package]\nname='member'\nversion='0.1.0'\nedition='2024'\n",
     );
-    f.write("member/src/lib.rs", "pub struct Member;\n");
+    f.write(
+        "member/src/lib.rs",
+        "pub struct Member;\npub fn member() {}\n",
+    );
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
-        .current_dir("/")
-        .arg("flow")
-        .arg(f.path().join("member"))
+        .current_dir(f.path().join("member"))
         .args([
+            "flow",
             "--path",
             "src/lib.rs",
             "--function",
-            "first",
+            "member",
             "--out",
-            "docs/root.txt",
+            "docs/member.txt",
         ])
         .output()
         .unwrap();
@@ -160,8 +165,24 @@ fn member_invocations_resolve_workflows_and_outputs_at_workspace_root() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(f.path().join("docs/root.txt").is_file());
-    assert!(!f.path().join("member/docs/root.txt").exists());
+    assert!(f.path().join("member/docs/member.txt").is_file());
+    assert!(!f.path().join("docs/member.txt").exists());
+    // A scope word is a path from here too: the member's src, not the root's.
+    let census = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path().join("member"))
+        .args(["nontest-loc", "src", "--json"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&census.stdout);
+    assert!(
+        census.status.success(),
+        "{}",
+        String::from_utf8_lossy(&census.stderr)
+    );
+    assert!(
+        text.contains("member/src/lib.rs") && !text.contains("\"src/lib.rs\""),
+        "{text}"
+    );
 }
 
 #[test]
@@ -175,6 +196,7 @@ fn representation_query_outputs_are_explicit_and_cannot_overwrite_inputs() {
     let exe = env!("CARGO_BIN_EXE_cargo-atlas");
     let run = |args: &[&str]| {
         std::process::Command::new(exe)
+            .current_dir(f.path())
             .arg("types")
             .arg(f.path())
             .args(args)
@@ -367,7 +389,7 @@ fn named_and_positional_workflows_use_the_same_output_identity() {
     }));
     fs::remove_dir_all(f.path().join("target/atlas")).expect("clear owned fixture artifacts");
     let named = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
-        .current_dir("/")
+        .current_dir(f.path())
         .arg("flow")
         .arg("--root")
         .arg(f.path())
@@ -543,6 +565,7 @@ fn dependencies_draws_every_package_by_default() {
         f.write(&format!("crates/{name}/src/lib.rs"), "pub fn run() {}\n");
     }
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .args(["atlas", "dependencies", "--json", "--root"])
         .arg(f.path())
         .output()
@@ -606,6 +629,7 @@ fn every_json_flag_is_documented_and_comments_needs_no_audit_flag() {
     let f = fixture();
     for audit in [None, Some("--audit")] {
         let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .current_dir(f.path())
             .args(["atlas", "comments", "--json", "--root"])
             .arg(f.path())
             .args(audit)
@@ -629,6 +653,7 @@ fn dependencies_text_names_files_unambiguously_and_says_what_follows() {
         ("src/b/mod.rs", "pub fn run() {}\n"),
     ]);
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .args(["atlas", "dependencies", "--root"])
         .arg(f.path())
         .output()
@@ -651,6 +676,7 @@ fn flow_text_names_the_function_once_and_an_if_let_once() {
         "fn run() -> Result<(), String> { Ok(()) }\nfn main() {\n    if let Err(error) = run() {\n        eprintln!(\"{error}\");\n    }\n}\n",
     )]);
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .args([
             "atlas",
             "flow",
@@ -683,6 +709,7 @@ fn name_text_counts_impls_under_their_type_and_uses_rust_spellings() {
         "pub struct Foo;\nimpl Foo {\n    pub fn new() -> Foo { Foo }\n}\n",
     )]);
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .args(["atlas", "name", "Foo", "--relations", "--root"])
         .arg(f.path())
         .output()
@@ -731,6 +758,7 @@ fn visibility_text_says_plainly_when_nothing_changed() {
         "before",
     ]);
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .args(["atlas", "visibility", "HEAD", "--root"])
         .arg(f.path())
         .output()
@@ -757,6 +785,7 @@ fn per_file_listings_are_bounded_with_a_tail_that_says_how_to_see_more() {
     ]);
     let run_with = |args: &[&str]| {
         let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .current_dir(f.path())
             .arg("atlas")
             .args(args)
             .arg("--root")
@@ -803,6 +832,7 @@ fn refusals_end_with_a_runnable_command_built_from_real_names() {
     ]);
     let refusal = |args: &[&str]| {
         let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .current_dir(f.path())
             .arg("atlas")
             .args(args)
             .arg("--root")
@@ -859,4 +889,60 @@ fn a_printed_command_reads_the_project_this_run_read() {
             String::from_utf8_lossy(&rerun.stderr)
         );
     }
+}
+
+/// From a member directory, a list's tail and a refusal's hint name paths
+/// from there, so each runs as printed where the run was.
+#[test]
+fn a_tail_and_a_hint_run_as_printed_from_a_member_directory() {
+    let f = fixture();
+    f.write("Cargo.toml","[package]\nname='fixture'\nversion='0.1.0'\nedition='2024'\n[workspace]\nmembers=['member']\n");
+    f.write(
+        "member/Cargo.toml",
+        "[package]\nname='member'\nversion='0.1.0'\nedition='2024'\n",
+    );
+    f.write(
+        "member/src/lib.rs",
+        "pub fn one() {}\npub fn two() {}\npub fn three() {}\n",
+    );
+    let member = f.path().join("member");
+    let printed = |args: &[&str], marker: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .current_dir(&member)
+            .args(args)
+            .output()
+            .expect("atlas");
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let line = text
+            .lines()
+            .find_map(|line| {
+                line.split_once(marker)
+                    .map(|(_, rest)| rest.trim().to_owned())
+            })
+            .unwrap_or_else(|| panic!("{args:?} prints a command after {marker:?}: {text}"));
+        let rerun = Command::new("sh")
+            .current_dir(&member)
+            .arg("-c")
+            .arg(format!("\"$0\" {line}"))
+            .arg(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .output()
+            .expect("the printed command");
+        assert!(
+            rerun.status.success(),
+            "{line}: {}",
+            String::from_utf8_lossy(&rerun.stderr)
+        );
+        line
+    };
+    let tail = printed(&["spans", "src", "--rows", "1"], "more; cargo atlas ");
+    assert!(
+        tail.contains("src/lib.rs") && !tail.contains("member/"),
+        "{tail}"
+    );
+    let hint = printed(&["flow"], "run: cargo atlas ");
+    assert!(!hint.contains("--root"), "{hint}");
 }

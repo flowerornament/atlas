@@ -23,7 +23,7 @@ pub(crate) struct Options {
     /// Superseded by --at.
     #[arg(long, value_name = "REV")]
     after: Option<String>,
-    #[arg(long)]
+    #[arg(long, value_parser = crate::cli::typed::file)]
     query: Option<PathBuf>,
     #[command(flatten)]
     output: artifact_output::Options,
@@ -60,7 +60,7 @@ pub(crate) fn run(
     let query = options
         .query
         .as_ref()
-        .map(|p| fs::read_to_string(root.join(p)))
+        .map(fs::read_to_string)
         .transpose()?
         .map(|s| serde_json::from_str::<types::Query>(&s))
         .transpose()?;
@@ -79,11 +79,7 @@ pub(crate) fn run(
         root,
         "comparison",
         &comparison,
-        &crate::cli::output::protected_inputs(
-            metadata,
-            graph,
-            options.query.iter().map(|p| root.join(p)),
-        ),
+        &crate::cli::output::protected_inputs(metadata, graph, options.query.iter().cloned()),
         || options.output.render_view(View::Comparison(&comparison)),
     )
 }

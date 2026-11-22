@@ -79,6 +79,7 @@ fn spawn_with_fake_node(fixture: &Fixture, real: &str, arguments: &[&str]) -> Ch
         &std::env::var_os("PATH").expect("PATH for Node fixture"),
     ));
     Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(fixture.path())
         .args(arguments)
         .arg("--root")
         .arg(fixture.path())

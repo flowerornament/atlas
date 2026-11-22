@@ -37,7 +37,7 @@ pub(crate) struct Options {
     #[arg(long)]
     pub bare: bool,
     /// Output path; Pele defaults to target/atlas/NAME.svg. ASCII defaults to stdout.
-    #[arg(long)]
+    #[arg(long, value_parser = crate::cli::typed::file)]
     pub out: Option<PathBuf>,
     /// Print the same answer as JSON, for scripts and agents.
     #[arg(long)]
@@ -77,7 +77,7 @@ impl Options {
             return Ok(());
         }
         let artifact = render()?;
-        let output = self.out.as_ref().map(|p| root.join(p)).or_else(|| {
+        let output = self.out.clone().or_else(|| {
             matches!(self.backend(), Backend::Pele)
                 .then(|| root.join("target/atlas").join(format!("{name}.svg")))
         });

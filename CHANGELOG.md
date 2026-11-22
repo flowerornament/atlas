@@ -6,6 +6,21 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
 
 ## Unreleased
 
+- **Breaking (CLI):** every path you type is read from the current
+ directory, as your shell reads it: a scope word, `--in`, `--path`, the
+ `FILE` of a selector (`FILE:LINE`, `FILE:Name`) and every file option
+ (`--out`, `--policy`, `--scip`, `--architecture`, `--query`, `--facts`,
+ `--evidence-dir`, `--declarations`). Before, a plain path was read from
+ the workspace root while `../` and absolute paths were read from the
+ current directory, so inside `crates/core`, `nontest-loc src` answered
+ for the root's `src` without saying so, and `--out docs/x.svg` wrote the
+ root's `docs/`. Now both mean `crates/core`'s. From the workspace root
+ nothing changes. A unique file or directory name (`parse.rs`) is still
+ looked up across the project when no such path exists here; a source
+ path outside the workspace is refused. The commands Atlas prints are
+ written the same way and carry `--root` only when the current directory
+ is outside the workspace.
+
 - Every command Atlas prints for someone to run (a refusal's hint, a
  list's tail, `orient`'s next lines, a check's "lists them") reads the
  project this run read, however it was named (`--root PATH` or a
@@ -16,10 +31,12 @@ library) and `atlas-lib`. Before 0.11.0 they were named `atlas` and
  scope were read; it now keeps both.
 - atlas-lib: `suggestion::Command` builds every printed command and is the
  one rendering of it, with `suggestion::PROGRAM`, `quoted` and `shown`.
- **Breaking (library):** `queries::orient::command_line` is gone (render
- `suggestion::Command::from_words`), and `Orientation::text` takes no
- suffix: a program states its project once with
- `suggestion::set_project`.
+ **Breaking (library):** `queries::orient::command_line` is gone (orient's
+ commands are `suggestion::Command`s), and `Orientation::text` takes no
+ suffix: a program states its project, workspace root and current
+ directory once with `suggestion::set_run`. `NextCommand::args` and
+ `Section::all` are `suggestion::Command`s, which serialize as the same
+ word lists.
 
 - A helper program (the renderer, an adapter or an indexer) that stops
  reading its request no longer holds Atlas past its time limit: a failed

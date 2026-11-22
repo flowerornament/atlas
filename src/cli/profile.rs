@@ -5,7 +5,7 @@ pub(super) fn architecture(
     root: &Path,
     path: Option<&Path>,
 ) -> Result<(Option<String>, Option<Architecture>)> {
-    let text = path.map(|p| fs::read_to_string(root.join(p))).transpose()?;
+    let text = path.map(fs::read_to_string).transpose()?;
     let profile = text
         .as_deref()
         .map(|s| Architecture::parse(s, root))

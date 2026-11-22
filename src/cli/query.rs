@@ -40,14 +40,14 @@ pub(crate) struct Options {
     )]
     file: Option<PathBuf>,
     /// Query a saved `cargo atlas facts` export instead of capturing now.
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE", value_parser = crate::cli::typed::file)]
     facts: Option<PathBuf>,
     #[command(flatten)]
     tests: super::tests::Tests,
     /// Read the semantic family (`semantic_call`, `semantic_unknown`) from
     /// this SCIP index, for example from `rust-analyzer scip`. A relative
-    /// path is resolved against the workspace root. Atlas runs no indexer.
-    #[arg(long, value_name = "FILE", conflicts_with = "facts")]
+    /// path is read from the current directory. Atlas runs no indexer.
+    #[arg(long, value_name = "FILE", conflicts_with = "facts", value_parser = crate::cli::typed::file)]
     scip: Option<PathBuf>,
     #[command(flatten)]
     indexer: super::semantic::IndexerArgs,

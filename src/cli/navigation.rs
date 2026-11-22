@@ -7,7 +7,7 @@ use atlas_lib::{
     population::VisibilitySelection,
     queries::navigation::{self, Navigation},
 };
-use cargo_atlas::suggestion::PROGRAM;
+use cargo_atlas::suggestion::{Command, PROGRAM};
 use clap::Args;
 use std::{fmt::Write as _, path::PathBuf};
 
@@ -337,9 +337,9 @@ pub(super) struct DumpArgs {
     population: PopulationArgs,
     /// Add a `semantic` field: every production call read against this SCIP
     /// index (for example from `rust-analyzer scip`), beside its qualified
-    /// target. A relative path is resolved against the workspace root. Atlas
+    /// target. A relative path is read from the current directory. Atlas
     /// runs no indexer.
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE", value_parser = crate::cli::typed::file)]
     scip: Option<PathBuf>,
     #[command(flatten)]
     indexer: super::semantic::IndexerArgs,
@@ -356,21 +356,29 @@ pub(super) fn run_census(metadata: &cargo_metadata::Metadata, args: &ScopeArgs) 
         args.rows,
     )
 }
+/// A name question's selector, its `FILE:LINE` read from the current
+/// directory.
+fn typed_name(metadata: &cargo_metadata::Metadata, name: &str) -> Result<String> {
+    let root = metadata.workspace_root.as_std_path().canonicalize()?;
+    super::typed::selector(name, &root)
+}
 pub(super) fn run_name(metadata: &cargo_metadata::Metadata, args: &RelatedNameArgs) -> Result<()> {
+    let name = typed_name(metadata, args.name.subject())?;
     dispatch(
         metadata,
         args.population.selected(),
-        Question::Name(args.name.subject()),
+        Question::Name(&name),
         args.output.json(),
         args.relations,
         args.rows,
     )
 }
 pub(super) fn run_related(metadata: &cargo_metadata::Metadata, args: &NameArgs) -> Result<()> {
+    let name = typed_name(metadata, args.name.subject())?;
     dispatch(
         metadata,
         args.population.selected(),
-        Question::Name(args.name.subject()),
+        Question::Name(&name),
         args.output.json(),
         true,
         args.rows,
@@ -381,11 +389,15 @@ pub(super) fn run_module(metadata: &cargo_metadata::Metadata, args: &ModuleArgs)
         .population
         .selected()
         .or_else(|| (args.items || args.graph).then_some(VisibilitySelection::RestrictedOrPublic));
+    // A path is read from the current directory; a package name as written.
+    let subject = args.name.subject();
+    let root = metadata.workspace_root.as_std_path().canonicalize()?;
+    let path = super::typed::path(subject, &root)?.unwrap_or_else(|| subject.to_owned());
     dispatch(
         metadata,
         population,
         Question::Module {
-            path: args.name.subject(),
+            path: &path,
             items: args.items,
             graph: args.graph,
         },
@@ -484,7 +496,9 @@ fn legacy(
                 let cards = rows.limit(if relations { 4 } else { 10 });
                 let shown = cards.min(result.matches.len());
                 result.text_bounded(relations, cards, rows.nested(shown, 40), &|id| {
-                    id.map_or_else(rerun_all, |id| narrower("name", id, &["--relations"]))
+                    id.map_or_else(rerun_all, |id| {
+                        narrower(Command::new("name").arg(id).arg("--relations"))
+                    })
                 })
             }
         }
@@ -497,7 +511,9 @@ fn legacy(
                 let shown = files.min(result.files.len());
                 // 8 files of 3 declarations, or one file of 24, fill a page.
                 result.text_bounded(files, rows.nested(shown, 24), &|file| {
-                    file.map_or_else(rerun_all, |file| narrower("module", file, &[]))
+                    file.map_or_else(rerun_all, |file| {
+                        narrower(Command::new("module").path(file))
+                    })
                 })
             }
         }

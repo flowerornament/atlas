@@ -6,24 +6,17 @@ use atlas_lib::{
 };
 use cargo_atlas::{Result, discovery};
 use clap::Args;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{fs, path::PathBuf};
 #[derive(Args)]
 pub(crate) struct Options {
     /// Native schema-1 authored policy, relative to the workspace or absolute.
-    #[arg(long)]
+    #[arg(long, value_parser = crate::cli::typed::file)]
     policy: PathBuf,
     #[command(flatten)]
     output: crate::cli::output::form::Report,
 }
-pub(crate) fn run(
-    root: &Path,
-    metadata: &cargo_metadata::Metadata,
-    options: &Options,
-) -> Result<()> {
-    let path = root.join(&options.policy).canonicalize()?;
+pub(crate) fn run(metadata: &cargo_metadata::Metadata, options: &Options) -> Result<()> {
+    let path = options.policy.canonicalize()?;
     let text = fs::read_to_string(&path)?;
     let policy = Policy::parse(&text)?;
     let snapshot = discovery::snapshot_metadata(metadata)?;

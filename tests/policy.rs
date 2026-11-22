@@ -24,7 +24,7 @@ fn policy_command_distinguishes_pass_refusal_and_unavailable() {
     ] {
         fixture.write("policy.toml", &text);
         let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
-            .current_dir("/")
+            .current_dir(fixture.path())
             .args(["policy", "--root"])
             .arg(fixture.path())
             .args(["--policy", "policy.toml", "--json"])
@@ -63,7 +63,7 @@ fn a_hint_is_printed_in_text_as_in_json() {
         ),
     ]);
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
-        .current_dir("/")
+        .current_dir(fixture.path())
         .args(["policy", "--root"])
         .arg(fixture.path())
         .args(["--policy", "policy.toml"])
@@ -97,7 +97,7 @@ fn the_summary_counts_module_homes_too() {
         ),
     ]);
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
-        .current_dir("/")
+        .current_dir(fixture.path())
         .args(["policy", "--root"])
         .arg(fixture.path())
         .args(["--policy", "policy.toml"])

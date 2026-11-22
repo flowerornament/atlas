@@ -43,24 +43,27 @@ pub(crate) fn run(
     options: &Options,
 ) -> Result<()> {
     let started = Instant::now();
+    // The policy as typed, from the current directory; both commits are
+    // read at that path in the workspace.
+    let path = super::typed::key(&options.policy, root)?;
     let store = GitStore::discover(root)?;
     let (before, published_bytes, baseline_id) = {
         let baseline = store.revision(options.revision.reference())?;
-        if !baseline.path().join(&options.policy).exists() {
+        if !baseline.path().join(&path).exists() {
             return Err(format!(
                 "the policy {} is not in the baseline {} ({}): delta reads the policy from both commits and holds the change to the baseline's; commit the policy, then compare against a commit that has it (for the first commit of a policy there is no baseline to compare, so run `{}` instead)",
-                options.policy,
+                path,
                 options.revision.reference(),
                 &baseline.commit_id()[..12.min(baseline.commit_id().len())],
                 cargo_atlas::suggestion::Command::new("policy")
                     .arg("--policy")
-                    .path(options.policy.as_str()),
+                    .path(path.as_str()),
             )
             .into());
         }
         (
             discovery::snapshot_workspace(baseline.path())?,
-            baseline.file(&options.policy)?,
+            baseline.file(&path)?,
             baseline.commit_id().to_owned(),
         )
     };
@@ -72,12 +75,9 @@ pub(crate) fn run(
     let (policy_bytes, candidate_id) = {
         let candidate = store.revision(&candidate_reference)?;
         store.verify_capture(&candidate, &after)?;
-        (
-            candidate.file(&options.policy)?,
-            candidate.commit_id().to_owned(),
-        )
+        (candidate.file(&path)?, candidate.commit_id().to_owned())
     };
-    if std::fs::read(root.join(&options.policy))? != policy_bytes {
+    if std::fs::read(root.join(&path))? != policy_bytes {
         return Err("policy bytes changed or do not belong to the pinned candidate".into());
     }
     let published = Policy::parse(std::str::from_utf8(&published_bytes)?)?;
@@ -95,7 +95,7 @@ pub(crate) fn run(
         description,
     )?;
     let report = delta::check(&before, &after, &published, &policy, &inputs)?;
-    emit(&report, &policy, options, &policy_bytes, started)
+    emit(&report, &policy, options, (&path, &policy_bytes), started)
 }
 
 /// Present the report (JSON or text) and turn its verdict into the exit:
@@ -105,7 +105,7 @@ fn emit(
     report: &delta::Report,
     policy: &Policy,
     options: &Options,
-    policy_bytes: &[u8],
+    (path, policy_bytes): (&str, &[u8]),
     started: Instant,
 ) -> Result<()> {
     let stats = Stats::read(report, policy)?;
@@ -119,7 +119,7 @@ fn emit(
         report,
         policy,
         stats.as_ref(),
-        &options.policy,
+        path,
         &sha256(policy_bytes)?,
         &display,
         started.elapsed().as_millis(),

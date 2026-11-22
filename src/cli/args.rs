@@ -18,7 +18,7 @@ use std::path::PathBuf;
     disable_help_subcommand = true,
     about = "Answer questions about how a Rust codebase is put together",
     before_help = "New here, or an agent? Run `cargo atlas help agent` first: one page on what answers mean, which command to use, and query recipes. Then `cargo atlas orient` in your project.",
-    after_help = "Start here: orient (entry points, where the code is, and what Atlas could not resolve)\nAsk by question: what is X, who names X: name · what is in a directory: module · who calls X, what X calls: callers, callees · steps in a function: flow · which files call which: dependencies · what takes or returns a type: types · what changed: diff, moved, visibility · rules: policy, delta · every fact as tables: facts · your own question over the facts: query\n\nFind your way around: orient, census, name, module, callers, callees, dump, facts, query\nReview a change: diff, moved, visibility, compare\nMeasure: spans, concentration, nontest-loc, comments\nDraw diagrams: dependencies, types, flow, overview, program, map\nCheck architecture: delta, stages, policy, seams\n\nCommands read the Cargo project in the current directory, or the one given with --root.\nAdd --as json (or --json) for machine-readable output, or --as svg for an image; flow and map write their JSON evidence beside the drawing instead. Atlas never changes the code it reads.\nGuides: cargo atlas help topics lists them; cargo atlas help TOPIC prints one (also at https://github.com/flowerornament/atlas#documentation)"
+    after_help = "Start here: orient (entry points, where the code is, and what Atlas could not resolve)\nAsk by question: what is X, who names X: name · what is in a directory: module · who calls X, what X calls: callers, callees · steps in a function: flow · which files call which: dependencies · what takes or returns a type: types · what changed: diff, moved, visibility · rules: policy, delta · every fact as tables: facts · your own question over the facts: query\n\nFind your way around: orient, census, name, module, callers, callees, dump, facts, query\nReview a change: diff, moved, visibility, compare\nMeasure: spans, concentration, nontest-loc, comments\nDraw diagrams: dependencies, types, flow, overview, program, map\nCheck architecture: delta, stages, policy, seams\n\nCommands read the Cargo project in the current directory, or the one given with --root. A path you type (a scope, --in, --path, --out, a FILE:LINE) is read from the current directory, as your shell reads it.\nAdd --as json (or --json) for machine-readable output, or --as svg for an image; flow and map write their JSON evidence beside the drawing instead. Atlas never changes the code it reads.\nGuides: cargo atlas help topics lists them; cargo atlas help TOPIC prints one (also at https://github.com/flowerornament/atlas#documentation)"
 )]
 pub(super) struct Cli {
     /// Cargo project directory; defaults to the current directory. A project directory as the first bare word still works until 1.0.
@@ -82,7 +82,7 @@ pub(super) fn this_command_with(from: &str, to: &[&str]) -> Option<String> {
     let mut words = super::output::rows::this_run();
     let at = words.iter().position(|word| word == from)?;
     words.splice(at..=at, to.iter().map(|word| (*word).to_owned()));
-    Some(super::output::rows::rerun(&words))
+    Some(cargo_atlas::suggestion::Command::rerun(&words).to_string())
 }
 #[derive(Subcommand)]
 pub(super) enum Command {

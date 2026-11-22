@@ -106,8 +106,9 @@ pub struct Section {
     pub tied: usize,
     /// Rows left out of `rows`.
     pub more: usize,
-    /// The command that lists every row, as arguments after `cargo atlas`.
-    pub all: Vec<String>,
+    /// The command that lists every row; as data, its arguments after
+    /// `cargo atlas`.
+    pub all: Command,
 }
 
 #[derive(Debug, Serialize)]
@@ -201,8 +202,9 @@ pub struct Count {
 #[derive(Debug, Serialize)]
 #[non_exhaustive]
 pub struct NextCommand {
-    /// Arguments after `cargo atlas`. A placeholder argument is in `<angle brackets>`.
-    pub args: Vec<String>,
+    /// The command; as data, its arguments after `cargo atlas`, a
+    /// placeholder in `<angle brackets>`.
+    pub args: Command,
     /// Which row produced it.
     pub why: String,
     /// False when an argument is a placeholder: no single candidate exists.
@@ -598,12 +600,12 @@ fn type_mentions(
 }
 
 /// `command`, with `--in` the physical scope when there is one.
-fn scoped(command: &[&str], physical_scope: Option<&str>) -> Vec<String> {
-    let mut args: Vec<String> = command.iter().map(|&a| a.to_owned()).collect();
-    if let Some(scope) = physical_scope {
-        args.extend(["--in".to_owned(), scope.to_owned()]);
+fn scoped(command: &str, physical_scope: Option<&str>) -> Command {
+    let command = Command::new(command);
+    match physical_scope {
+        Some(scope) => command.arg("--in").path(scope),
+        None => command,
     }
-    args
 }
 /// The `mass` and `blocks` sections: where the lines are.
 fn size_sections(mass: CodeMass, physical_scope: Option<&str>, rows: usize) -> [Section; 2] {
@@ -615,7 +617,7 @@ fn size_sections(mass: CodeMass, physical_scope: Option<&str>, rows: usize) -> [
                 unit: "non-test lines in production files, by directory",
                 order: "most lines first",
                 total_unit: "lines",
-                all: scoped(&["nontest-loc"], physical_scope),
+                all: scoped("nontest-loc", physical_scope),
             },
             mass.lines,
             mass.directories,
@@ -628,7 +630,7 @@ fn size_sections(mass: CodeMass, physical_scope: Option<&str>, rows: usize) -> [
                 unit: "lines from a top-level declaration to the next, one per file; @generated files left out",
                 order: "most lines first",
                 total_unit: "files",
-                all: scoped(&["concentration"], physical_scope),
+                all: scoped("concentration", physical_scope),
             },
             mass.blocks.len(),
             mass.blocks,
@@ -651,14 +653,10 @@ fn reference_sections(
                 unit: "distinct calling functions, counting resolved calls only, so a lower bound",
                 order: "most callers first",
                 total_unit: "functions with a resolved caller",
-                all: vec![
-                    "dependencies".into(),
-                    "--in".into(),
-                    physical_scope.unwrap_or(".").to_owned(),
-                    "--relation".into(),
-                    "calls".into(),
-                    "--json".into(),
-                ],
+                all: Command::new("dependencies")
+                    .arg("--in")
+                    .path(physical_scope.unwrap_or(""))
+                    .args(["--relation", "calls", "--json"]),
             },
             called.total,
             called.rows,
@@ -671,7 +669,7 @@ fn reference_sections(
                 unit: "distinct declarations naming it in a signature or type body; unique lexical targets only",
                 order: "most declarations first",
                 total_unit: "mentioned types",
-                all: vec!["dump".into(), "--json".into()],
+                all: Command::new("dump").arg("--json"),
             },
             mentioned.total,
             mentioned.rows,
@@ -735,7 +733,7 @@ struct Measure {
     unit: &'static str,
     order: &'static str,
     total_unit: &'static str,
-    all: Vec<String>,
+    all: Command,
 }
 fn section(measure: Measure, total: usize, mut rows: Vec<Row>, shown: usize) -> Section {
     rows.sort_by(|a, b| {
@@ -792,44 +790,36 @@ fn next_commands(
 ) -> Vec<NextCommand> {
     let by_id = |id: &str| sections.iter().find(|s| s.id == id);
     let mut next = Vec::new();
-    let directory = by_id("mass").and_then(leader).map(|row| {
-        let dir = row.path.trim_end_matches('/');
-        if dir.is_empty() {
-            ".".to_owned()
-        } else {
-            dir.to_owned()
-        }
-    });
-    if let Some(dir) = &directory {
+    let directory = by_id("mass")
+        .and_then(leader)
+        .map(|row| row.path.trim_end_matches('/'));
+    if let Some(dir) = directory {
         next.push(command(
-            &["module", dir],
+            Command::new("module").path(dir),
             "declarations in the directory with the most non-test lines",
-            true,
         ));
     }
     next.extend(main_command(packages, functions));
     next.extend(by_id("mentioned").and_then(mentioned_command));
-    if let Some(dir) = &directory {
+    if let Some(dir) = directory {
         next.push(command(
-            &["dependencies", "--in", dir],
+            Command::new("dependencies").arg("--in").path(dir),
             "which files in that directory call each other",
-            true,
         ));
     }
     if let Some(row) = by_id("blocks").and_then(leader) {
         next.push(command(
-            &["spans", "--in", &row.path],
+            Command::new("spans").arg("--in").path(&row.path),
             "item boundaries in the file holding the largest block",
-            true,
         ));
     }
     next
 }
-fn command(args: &[&str], why: &str, runnable: bool) -> NextCommand {
+fn command(args: Command, why: &str) -> NextCommand {
     NextCommand {
-        args: args.iter().map(|&a| a.to_owned()).collect(),
+        runnable: args.runnable(),
+        args,
         why: why.to_owned(),
-        runnable,
     }
 }
 /// The flow of the binaries' `main`: runnable for one binary, a placeholder
@@ -850,28 +840,19 @@ fn main_command(packages: &[Package], functions: &[Function]) -> Option<NextComm
         })
         .map(|f| f.file.as_str())
         .collect();
+    let flow = |path: Command| path.args(["--function", "main", "--depth", "1"]);
     match mains.as_slice() {
         [] => None,
         [main] => Some(command(
-            &["flow", "--path", main, "--function", "main", "--depth", "1"],
+            flow(Command::new("flow").arg("--path").path(*main)),
             "steps and branches of the binary's main",
-            true,
         )),
         several => Some(command(
-            &[
-                "flow",
-                "--path",
-                "<bin root>",
-                "--function",
-                "main",
-                "--depth",
-                "1",
-            ],
+            flow(Command::new("flow").arg("--path").placeholder("bin root")),
             &format!(
                 "steps and branches of a binary's main; {} binaries (`packages` in --json lists them), so none is picked",
                 several.len()
             ),
-            false,
         )),
     }
 }
@@ -880,22 +861,16 @@ fn main_command(packages: &[Package], functions: &[Function]) -> Option<NextComm
 fn mentioned_command(section: &Section) -> Option<NextCommand> {
     match leader(section) {
         Some(row) => Some(command(
-            &[
-                "name",
-                row.name.as_deref().unwrap_or_default(),
-                "--relations",
-            ],
+            Command::new("name")
+                .arg(row.name.as_deref().unwrap_or_default())
+                .arg("--relations"),
             "where the most-mentioned type is declared and what names it",
-            true,
         )),
         None if section.tied > 1 => Some(command(
-            &[
-                "name",
-                &format!("<one of the {} tied types above>", section.tied),
-                "--relations",
-            ],
+            Command::new("name")
+                .placeholder(format!("one of the {} tied types above", section.tied))
+                .arg("--relations"),
             "where a most-mentioned type is declared; the first rows tie, so none is picked",
-            false,
         )),
         None => None,
     }
@@ -905,7 +880,7 @@ impl Orientation {
     /// One page of text. Each printed command is rendered by
     /// [`crate::suggestion`], so it carries the run's project.
     pub fn text(&self) -> String {
-        let render = |args: &[String]| Command::from_words(args).to_string();
+        let render = |command: &Command| command.to_string();
         let mut out = String::new();
         let _ = writeln!(
             out,
@@ -987,7 +962,7 @@ impl Orientation {
             );
         }
     }
-    fn write_resolution(&self, out: &mut String, render: &dyn Fn(&[String]) -> String) {
+    fn write_resolution(&self, out: &mut String, render: &dyn Fn(&Command) -> String) {
         const REASONS: usize = 3;
         let r = &self.resolution;
         let calls = r.calls_resolved + r.calls_unknown;
@@ -999,7 +974,7 @@ impl Orientation {
                     "  calls: {calls} call sites in scope: {} resolved to a workspace function; {} unresolved, external or unknown, not absent (by kind below)\n    most unresolved calls are into other packages, which Atlas does not resolve; an index tells them apart: {} (runs rust-analyzer and the build scripts)",
                     r.calls_resolved,
                     r.calls_unknown,
-                    render(&["orient".to_owned(), "--semantic".to_owned()])
+                    render(&Command::new("orient").arg("--semantic"))
                 );
             }
             Some(semantic) => {
@@ -1057,7 +1032,7 @@ impl Orientation {
 }
 
 /// One section: its measure line, any tie, its rows and the command for the rest.
-fn write_section(out: &mut String, section: &Section, render: &dyn Fn(&[String]) -> String) {
+fn write_section(out: &mut String, section: &Section, render: &dyn Fn(&Command) -> String) {
     let _ = writeln!(
         out,
         "\n{} ({}; {}; {} {} in all)",

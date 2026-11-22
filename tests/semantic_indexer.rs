@@ -66,7 +66,7 @@ impl Setup {
     fn run(&self, mode: &str, args: &[&str]) -> Output {
         let tools = self.tools.path();
         Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
-            .current_dir("/")
+            .current_dir(self.project.path())
             .args(args)
             .arg("--root")
             .arg(self.project.path())
@@ -86,7 +86,7 @@ impl Setup {
     fn run_with_path(&self, mode: &str, args: &[&str], path: &Path) -> Output {
         let tools = self.tools.path();
         Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
-            .current_dir("/")
+            .current_dir(self.project.path())
             .args(args)
             .arg("--root")
             .arg(self.project.path())
@@ -278,6 +278,7 @@ fn a_timeout_without_a_process_list_says_cleanup_is_unconfirmed() {
 fn a_missing_or_broken_indexer_is_refused_before_anything_runs() {
     let s = setup();
     let out = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(s.project.path())
         .args(["dump", "--json", "--semantic", "--root"])
         .arg(s.project.path())
         .env("ATLAS_RUST_ANALYZER", s.tools.path().join("absent"))
@@ -298,6 +299,7 @@ fn a_missing_or_broken_indexer_is_refused_before_anything_runs() {
 fn a_missing_rust_src_is_refused_not_read_as_no_std_calls() {
     let s = setup();
     let out = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(s.project.path())
         .args(["dump", "--json", "--semantic", "--root"])
         .arg(s.project.path())
         .env("ATLAS_RUST_ANALYZER", s.tools.path().join("rust-analyzer"))
@@ -377,6 +379,7 @@ fn the_real_indexer_agrees_with_the_committed_index() {
         .expect("cargo generate-lockfile");
     assert!(locked.success());
     let out = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(s.project.path())
         .args(["dump", "--json", "--semantic", "--root"])
         .arg(s.project.path())
         .env("ATLAS_RUST_ANALYZER", &program)

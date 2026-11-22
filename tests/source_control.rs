@@ -343,6 +343,7 @@ fn control_cli_folds_mechanics_and_retains_summary_custody() {
     )]);
     fixture.write("profile.json", r#"{"schema":1,"source":["src/lib.rs"],"modules":[],"workflows":[{"name":"run","path":"src/lib.rs","function":"run"},{"name":"other","path":"src/lib.rs","function":"other"}]}"#);
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(fixture.path())
         .args(["flow", "--root"])
         .arg(fixture.path())
         .args([

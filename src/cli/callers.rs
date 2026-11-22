@@ -25,7 +25,7 @@ pub(crate) struct Options {
     evidence: super::evidence::Evidence,
     /// Answer from this SCIP index's reading beside the qualified one
     /// (Atlas runs no indexer); --semantic makes one instead.
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE", value_parser = crate::cli::typed::file)]
     scip: Option<std::path::PathBuf>,
     #[command(flatten)]
     indexer: super::semantic::IndexerArgs,
@@ -61,7 +61,9 @@ pub(crate) fn run(
     direction: Direction,
     cache: &super::semantic::IndexCache,
 ) -> Result<()> {
-    let (selector, file) = options.function.selector();
+    let root = metadata.workspace_root.as_std_path().canonicalize()?;
+    let (selector, file) = options.function.selector(&root)?;
+    let (selector, file) = (selector.as_str(), file.as_deref());
     let command = match direction {
         Direction::Callers => "callers",
         Direction::Callees => "callees",

@@ -64,7 +64,7 @@ impl Destination {
             query.level.label(),
             query.view.label()
         );
-        let path = options.out.as_ref().map(|p| root.join(p)).or_else(|| {
+        let path = options.out.clone().or_else(|| {
             (options.backend() == Backend::Pele).then(|| {
                 root.join("target/atlas").join(format!(
                     "{base}.{}",
@@ -84,8 +84,8 @@ impl Destination {
             .to_owned();
         let evidence = options
             .evidence_dir
-            .as_ref()
-            .map_or_else(|| root.join("target/atlas"), |p| root.join(p));
+            .clone()
+            .unwrap_or_else(|| root.join("target/atlas"));
         let reference = path
             .as_ref()
             .and_then(|p| p.parent())
@@ -297,11 +297,11 @@ pub(super) struct RenderOptions {
     #[arg(long, value_enum, default_value_t)]
     pub(super) theme: Theme,
     /// Relative output paths are resolved against the Cargo workspace root.
-    #[arg(long)]
+    #[arg(long, value_parser = crate::cli::typed::file)]
     pub(super) out: Option<PathBuf>,
     /// Where to write the JSON evidence files; defaults to `target/atlas`.
     /// Relative paths are resolved against the Cargo workspace root.
-    #[arg(long)]
+    #[arg(long, value_parser = crate::cli::typed::file)]
     pub(super) evidence_dir: Option<PathBuf>,
 }
 

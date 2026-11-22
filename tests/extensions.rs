@@ -280,6 +280,7 @@ fn independently_built_adapters_use_only_public_api_and_the_stock_cli() {
 fn overview_requires_an_explicit_adapter() {
     let f = project();
     let run = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .arg("overview")
         .arg(f.path())
         .arg("--json")
@@ -341,6 +342,7 @@ fn source_changes_during_an_adapter_call_refuse_before_rendering() {
     );
     let mutator = executable(&f, &body);
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .arg("overview")
         .arg(f.path())
         .arg("--adapter")
@@ -473,6 +475,7 @@ fn overview_cannot_replace_the_adapter_it_invoked() {
     fs::copy(plugin(), &adapter).expect("copy adapter");
     let before = fs::read(&adapter).expect("adapter bytes");
     let result = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .arg("overview")
         .arg("--root")
         .arg(f.path())
@@ -523,6 +526,7 @@ fn overview_as_json_prints_the_bytes_json_prints() {
     let f = project();
     let run = |output: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .current_dir(f.path())
             .arg("overview")
             .arg("--root")
             .arg(f.path())

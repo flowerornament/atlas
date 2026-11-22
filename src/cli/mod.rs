@@ -25,9 +25,10 @@ mod semantic;
 mod stages;
 mod subject;
 mod tests;
+mod typed;
 mod types;
 use args::{Cli, Command};
-use cargo_atlas::Result;
+use cargo_atlas::{Result, suggestion::shown};
 use clap::{CommandFactory, FromArgMatches};
 use std::path::Path;
 pub(crate) fn run() -> Result<()> {
@@ -55,13 +56,6 @@ pub(crate) fn run() -> Result<()> {
     let selected_root = cli.selected_root(&mut notices);
     notices.print();
     let selected_root = selected_root?;
-    // Every command Atlas prints for this run reads the project it read.
-    if selected_root != Path::new(".") {
-        cargo_atlas::suggestion::set_project(vec![
-            "--root".to_owned(),
-            selected_root.display().to_string(),
-        ]);
-    }
     if let Some(options) = options {
         output::form::agree(options)?;
     }
@@ -75,6 +69,15 @@ pub(crate) fn run() -> Result<()> {
         .no_deps()
         .exec()?;
     let root = metadata.workspace_root.as_std_path().canonicalize()?;
+    // Every command Atlas prints runs from here and reads the project this
+    // run read: from inside the workspace the current directory finds it.
+    let here = std::env::current_dir()?.canonicalize()?;
+    let project = if here.starts_with(&root) {
+        Vec::new()
+    } else {
+        vec!["--root".to_owned(), selected_root.display().to_string()]
+    };
+    cargo_atlas::suggestion::set_run(project, root.clone(), here);
     let cache = cache::open(cli.no_cache, &root)?;
     let result = dispatch(cli.command, &root, &metadata, &cache);
     cache.finish(result.map_err(with_scope_hint))
@@ -89,9 +92,9 @@ fn dispatch(
 ) -> Result<()> {
     match command {
         Command::Delta(options) => delta::run(root, metadata, &options),
-        Command::Policy(options) => policy::run(root, metadata, &options),
-        Command::Stages(options) => stages::run(root, metadata, &options, stages::Question::Stages),
-        Command::Seams(options) => stages::seams(root, metadata, &options),
+        Command::Policy(options) => policy::run(metadata, &options),
+        Command::Stages(options) => stages::run(metadata, &options, stages::Question::Stages),
+        Command::Seams(options) => stages::seams(metadata, &options),
         Command::Help(options) => help::run(&options),
         Command::Comments(options) => documentation::run(metadata, &options),
         Command::Diff(options) => review::diff(root, metadata, &options),
@@ -100,7 +103,7 @@ fn dispatch(
         }
         Command::Moved(options) => review::run(root, metadata, &options, review::Question::Moved),
         Command::Compare(options) => comparison::run(root, metadata, &options),
-        Command::Overview(options) => overview::run(root, metadata, options),
+        Command::Overview(options) => overview::run(root, metadata, &options),
         Command::Dependencies(options) => dependencies::run(root, metadata, &options),
         Command::Types(options) => types::run(root, metadata, &options),
         Command::Flow(options) => flow::run(root, metadata, &options, &cache.semantic()),
@@ -140,6 +143,8 @@ fn dispatch(
 
 /// An ambiguous scope names its candidates; end the refusal with this run's
 /// command narrowed to the first of them, ready to run.
+/// A refusal that names candidate paths, with the command that picks the
+/// first, its path written from here.
 fn with_scope_hint(
     error: Box<dyn std::error::Error + Send + Sync>,
 ) -> Box<dyn std::error::Error + Send + Sync> {
@@ -147,17 +152,20 @@ fn with_scope_hint(
         error.downcast_ref::<subject::Ambiguous>()
     {
         // A bare word becomes `--in`; a flag's value is replaced in place.
-        candidates.first().and_then(|first| {
-            args::this_command_with(word, &[first])
-                .filter(|_| args::follows_flag(word))
-                .or_else(|| args::this_command_with(word, &["--in", first]))
-        })
+        candidates
+            .first()
+            .map(|first| shown(first))
+            .and_then(|first| {
+                args::this_command_with(word, &[&first])
+                    .filter(|_| args::follows_flag(word))
+                    .or_else(|| args::this_command_with(word, &["--in", &first]))
+            })
     } else if let Some(cargo_atlas::discovery::ScopeError::Ambiguous { scope, candidates }) =
         error.downcast_ref::<cargo_atlas::discovery::ScopeError>()
     {
         candidates
             .first()
-            .and_then(|first| args::this_command_with(scope, &[first]))
+            .and_then(|first| args::this_command_with(scope, &[&shown(first)]))
     } else {
         return error;
     };

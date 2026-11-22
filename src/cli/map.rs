@@ -20,7 +20,7 @@ pub(super) struct Options {
     /// Superseded by --in.
     #[arg(long, value_name = "PATH")]
     pub(super) scope: Option<String>,
-    #[arg(long)]
+    #[arg(long, value_parser = crate::cli::typed::file)]
     architecture: Option<PathBuf>,
     #[arg(long, value_enum)]
     level: Option<Level>,
@@ -70,17 +70,17 @@ pub(super) fn run(
 ) -> Result<()> {
     let graph = discovery::scan_metadata(metadata)?;
     let (profile_text, profile) = architecture(root, options.architecture.as_deref())?;
-    let query = options.query();
+    let mut query = options.query();
+    // A focus that is a path is read from the current directory.
+    if let Some(focus) = &query.focus {
+        query.focus = Some(super::typed::path(focus, root)?.unwrap_or_else(|| focus.clone()));
+    }
     let mut diagram = diagram::project(&graph, profile.as_ref(), &query)?;
     let destination = output::Destination::new(
         root,
         &options.render,
         &query,
-        protected_inputs(
-            metadata,
-            &graph,
-            options.architecture.iter().map(|path| root.join(path)),
-        ),
+        protected_inputs(metadata, &graph, options.architecture.iter().cloned()),
     );
     let pending = destination.prepare(Some(&graph), &mut diagram, profile_text.as_deref(), None)?;
     destination.write(render(&options.render, &diagram), pending)?;

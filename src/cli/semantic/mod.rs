@@ -28,15 +28,14 @@ pub(super) fn obtain(
         let (index, indexing) = indexer::index(root, metadata, &captured(), indexer, cache)?;
         Ok(Some((index, Some(indexing))))
     } else {
-        Ok(scip.map(|file| (index(root, file), None)))
+        Ok(scip.map(|file| (index(file), None)))
     }
 }
 
-/// The supplied index. A relative path is resolved against the workspace
-/// root, like the other input paths.
-pub(super) fn index(root: &Path, file: &Path) -> SemanticIndex {
-    let path = root.join(file);
-    match std::fs::read(&path) {
+/// The supplied index, read from the path as given: an option's path is
+/// made absolute from the current directory when it is parsed.
+pub(super) fn index(path: &Path) -> SemanticIndex {
+    match std::fs::read(path) {
         Ok(bytes) => SemanticIndex::read(&bytes),
         Err(error) => {
             SemanticIndex::unavailable_because(format!("cannot read {}: {error}", path.display()))

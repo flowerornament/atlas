@@ -13,7 +13,7 @@ use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 #[derive(Args)]
@@ -23,7 +23,7 @@ pub(crate) struct Options {
     #[arg(long = "scope", conflicts_with = "scope")]
     named_scope: Option<String>,
     /// Explicit native schema-1 authored policy; relative to the workspace.
-    #[arg(long)]
+    #[arg(long, value_parser = crate::cli::typed::file)]
     policy: PathBuf,
     #[command(flatten)]
     output: crate::cli::output::form::Report,
@@ -156,20 +156,14 @@ fn read(
 }
 
 pub(crate) fn run(
-    root: &Path,
     metadata: &cargo_metadata::Metadata,
     options: &Options,
     question: Question,
 ) -> Result<()> {
-    present(root, metadata, options, question, (false, &[]))
+    present(metadata, options, question, (false, &[]))
 }
-pub(crate) fn seams(
-    root: &Path,
-    metadata: &cargo_metadata::Metadata,
-    options: &SeamOptions,
-) -> Result<()> {
+pub(crate) fn seams(metadata: &cargo_metadata::Metadata, options: &SeamOptions) -> Result<()> {
     present(
-        root,
         metadata,
         &options.inputs,
         Question::Seams,
@@ -177,13 +171,12 @@ pub(crate) fn seams(
     )
 }
 fn present(
-    root: &Path,
     metadata: &cargo_metadata::Metadata,
     options: &Options,
     question: Question,
     (items, test_support_features): (bool, &[String]),
 ) -> Result<()> {
-    let policy_path = root.join(&options.policy).canonicalize()?;
+    let policy_path = options.policy.canonicalize()?;
     let text = fs::read_to_string(&policy_path)?;
     let policy = Policy::parse(&text)?;
     let snapshot = discovery::snapshot_metadata(metadata)?;

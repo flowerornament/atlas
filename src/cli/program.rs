@@ -19,7 +19,7 @@ use std::{
 pub(super) struct Options {
     #[command(flatten)]
     pub(super) words: super::subject::Root,
-    #[arg(long)]
+    #[arg(long, value_parser = crate::cli::typed::file)]
     architecture: PathBuf,
     #[arg(long, requires = "function")]
     path: Option<String>,
@@ -46,7 +46,12 @@ pub(super) fn run(
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let graph = snapshot.graph();
     let analysis = atlas_lib::analysis::Analysis::new(&snapshot)?;
-    let entry = options.path.as_deref().zip(options.function.as_deref());
+    let path = options
+        .path
+        .as_deref()
+        .map(|path| super::typed::key(path, root))
+        .transpose()?;
+    let entry = path.as_deref().zip(options.function.as_deref());
     let program = program::from_analysis(&analysis, &architecture, entry)?;
     let overview = program.overview();
     if as_json {
@@ -66,7 +71,7 @@ pub(super) fn run(
         root,
         &options.render,
         &query,
-        protected_inputs(metadata, graph, [root.join(&options.architecture)]),
+        protected_inputs(metadata, graph, [options.architecture.clone()]),
     );
     let pending = destination.prepare(
         Some(graph),

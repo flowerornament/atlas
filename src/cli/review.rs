@@ -480,7 +480,7 @@ pub(super) fn source_review(
                     &file.items,
                     items,
                     "  ",
-                    || narrower("spans", &file.file, &[]),
+                    || narrower(cargo_atlas::suggestion::Command::new("spans").path(&file.file)),
                     |item| {
                         println!(
                             "  {}:{}-{} {} {}",

@@ -48,8 +48,9 @@ fn fixture() -> Fixture {
 }
 fn run(fixture: &Fixture, before: &str, candidate: &str, markers: bool) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"));
+    // From the project's root, where its policy path is typed.
     command
-        .current_dir("/")
+        .current_dir(fixture.path())
         .args(["delta", before, "--root"])
         .arg(fixture.path())
         .args([
@@ -276,7 +277,7 @@ fn delta_prints_the_policy_hints_in_text() {
     );
     let candidate = commit(&fixture);
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
-        .current_dir("/")
+        .current_dir(fixture.path())
         .args(["delta", &candidate, "--root"])
         .arg(fixture.path())
         .args([
@@ -316,10 +317,7 @@ fn a_policy_missing_at_the_baseline_names_the_baseline() {
         error.contains(&format!(
             "the policy .config/architecture.toml is not in the baseline {base} ({})",
             &base[..12]
-        )) && error.contains(&format!(
-            "run `cargo atlas policy --policy .config/architecture.toml --root {}` instead",
-            fixture.path().display()
-        )),
+        )) && error.contains("run `cargo atlas policy --policy .config/architecture.toml` instead"),
         "{error}"
     );
 }

@@ -120,14 +120,27 @@ counts the unresolved ones beyond the first level instead of listing them.
 Commands read the Cargo project in the current directory. To read another
 one, pass `--root path/to/project`.
 
+### Paths you type
+
+A path you type means what your shell means by it: Atlas reads it from the
+current directory, wherever the project root is. That holds for a scope,
+`--in`, `--path`, the `FILE` of a selector (`src/parse.rs:4`,
+`src/parse.rs:Tree`) and every file option, such as `--out`, `--policy` and
+`--scip`. Inside `crates/core`, `cargo atlas census src` reads
+`crates/core/src`. A source path outside the workspace is refused. The
+commands Atlas prints for you to run are written the same way, so they run
+as printed from where you are; reports and JSON name files relative to the
+workspace root, as data.
+
 ### Scope
 
 A scope narrows a command to part of the project. Name it after the command,
 as in `cargo atlas census crates/core/src`. Atlas reads the name as the first
 of these that matches:
 
-1. a path relative to the project root, such as `crates/core/src`;
-2. a file or directory name that is unique in the project, such as `parse.rs`;
+1. a path from the current directory, such as `crates/core/src`;
+2. a file or directory name that is unique in the project, such as `parse.rs`,
+   when no such path exists here: a name, not a path;
 3. a Cargo package name.
 
 A name that is both a path and a package somewhere else, or that matches

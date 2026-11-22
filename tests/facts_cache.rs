@@ -49,6 +49,7 @@ fn tree(dir: &Path) -> BTreeMap<String, Vec<u8>> {
 
 fn atlas(project: &Path, cache: &str, dir: &Path, args: &[&str]) -> (Vec<u8>, String) {
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(project)
         .args(args)
         .arg("--root")
         .arg(project)
@@ -169,6 +170,7 @@ fn off_and_no_cache_write_nothing_and_an_unknown_setting_is_refused() {
     );
     assert!(tree(cache.path()).is_empty());
     let refused = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(fixture.path())
         .args(["census", "--root"])
         .arg(fixture.path())
         .env("ATLAS_CACHE", "sometimes")

@@ -32,7 +32,7 @@ pub(super) struct Options {
     pub(super) named_anchor: Option<String>,
     /// An architecture profile (JSON) whose declared workflows to draw,
     /// instead of one function named with --path and --function.
-    #[arg(long)]
+    #[arg(long, value_parser = crate::cli::typed::file)]
     pub(super) architecture: Option<PathBuf>,
     /// The file that holds the function to draw, relative to the project
     /// root, such as `src/main.rs`; needs --function.
@@ -45,9 +45,9 @@ pub(super) struct Options {
     function: Option<String>,
     /// Write the selected bodies' calls, read against this SCIP index (for
     /// example from `rust-analyzer scip`), as a separate semantic evidence
-    /// file. A relative path is resolved against the workspace root. Atlas
+    /// file. A relative path is read from the current directory. Atlas
     /// runs no indexer.
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE", value_parser = crate::cli::typed::file)]
     scip: Option<PathBuf>,
     #[command(flatten)]
     indexer: super::semantic::IndexerArgs,
@@ -96,9 +96,9 @@ pub(super) fn run(
             options
                 .architecture
                 .iter()
-                .map(|path| root.join(path))
+                .cloned()
                 .chain(anchors.iter().map(|anchor| root.join(&anchor.path)))
-                .chain(options.scip.iter().map(|path| root.join(path))),
+                .chain(options.scip.iter().cloned()),
         ),
     );
     let semantic = semantic_evidence(root, metadata, options, cache, sources, &flows)?;
@@ -127,9 +127,10 @@ fn anchors(
         if selected_anchor.is_some() {
             return Err("choose a named workflow or --path/--function, not both".into());
         }
+        let root = metadata.workspace_root.as_std_path().canonicalize()?;
         return Ok(vec![WorkflowAnchor {
             name: function.clone(),
-            path: path.clone(),
+            path: super::typed::key(path, &root)?,
             function: function.clone(),
         }]);
     }

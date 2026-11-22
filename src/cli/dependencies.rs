@@ -113,7 +113,7 @@ fn narrowing_hint(metadata: &cargo_metadata::Metadata, graph: &cargo_atlas::mode
         eprintln!(
             "atlas: drew all {} packages; to draw one: {}",
             packages.len(),
-            Command::new("dependencies").arg(src.display().to_string())
+            Command::new("dependencies").path(cargo_atlas::discovery::path_key(&src))
         );
     }
 }
@@ -172,7 +172,7 @@ fn ranked(
                 .unwrap_or_default();
             let mut command = Command::new("dependencies").args(["--relation", &relation]);
             if !scope.is_empty() {
-                command = command.args(["--in", scope]);
+                command = command.arg("--in").path(scope);
             }
             format!("{} (each edge's count)", command.args(["--as", "json"]))
         };

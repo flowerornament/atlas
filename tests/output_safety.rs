@@ -10,6 +10,7 @@ fn fixture() -> Fixture {
 fn refuses(f: &Fixture, args: &[&str], protected: &str) {
     let before = fs::read(f.path().join(protected)).expect("output fixture operation");
     let result = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .args(args)
         .arg("--root")
         .arg(f.path())
@@ -137,6 +138,7 @@ fn output_alias_to_source_is_refused() {
 fn ordinary_artifacts_still_write_with_their_evidence() {
     let f = fixture();
     let result = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .args(["map", "--out", "docs/view.txt", "--root"])
         .arg(f.path())
         .output()
@@ -167,6 +169,7 @@ fn writing_an_uninspected_hardlink_alias_cannot_change_source_bytes() {
     let before = fs::read(f.path().join("src/lib.rs")).expect("source");
     fs::hard_link(f.path().join("src/lib.rs"), f.path().join("alias.txt")).expect("hardlink");
     let result = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .args(["map", "--out", "alias.txt", "--root"])
         .arg(f.path())
         .output()
@@ -210,6 +213,7 @@ fn expanded_workflow_protects_captured_callee_source() {
 fn output_and_evidence_directory_cannot_be_the_same_path() {
     let f = fixture();
     let result = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .args([
             "map",
             "--out",
@@ -230,6 +234,7 @@ fn existing_directory_destination_refuses_before_evidence() {
     let f = fixture();
     fs::create_dir(f.path().join("view.txt")).expect("directory");
     let result = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .args(["map", "--out", "view.txt", "--root"])
         .arg(f.path())
         .output()
@@ -246,6 +251,7 @@ fn artifact_permissions_follow_create_defaults_and_preserve_existing_mode() {
     f.write("control.txt", "control");
     let invoke = || {
         Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .current_dir(f.path())
             .args(["map", "--out", "view.txt", "--root"])
             .arg(f.path())
             .output()
@@ -285,6 +291,7 @@ fn unexpanded_workflow_protects_other_project_sources_without_parsing_their_ast(
         "src/transformer.rs",
     );
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .args([
             "flow",
             "--path",
@@ -330,6 +337,7 @@ fn program_json_refuses_output_paths_it_would_ignore() {
         &["--evidence-dir", "evidence"][..],
     ] {
         let result = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .current_dir(f.path())
             .args(["program", "--architecture", "profile.json", "--json"])
             .args(["--path", "src/lib.rs", "--function", "run"])
             .args(extra)
@@ -352,6 +360,7 @@ fn a_dependencies_drawing_is_the_same_with_or_without_bare() {
     let f = fixture();
     let draw = |out: &str, bare: bool| {
         let result = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .current_dir(f.path())
             .args(["dependencies", "--backend", "pele", "--out", out])
             .args(bare.then_some("--bare"))
             .arg("--root")
@@ -366,4 +375,41 @@ fn a_dependencies_drawing_is_the_same_with_or_without_bare() {
         fs::read(f.path().join(out)).expect("drawing")
     };
     assert_eq!(draw("plain.svg", false), draw("bare.svg", true));
+}
+
+/// From a member directory, where typed paths are read, an --out naming a
+/// source file the run reads, or the workspace's manifest, is refused and
+/// the file is unchanged.
+#[test]
+fn a_member_directory_cannot_write_over_the_sources_it_reads() {
+    let f = Fixture::new(&[(
+        "Cargo.toml",
+        "[package]\nname='fixture'\nversion='0.1.0'\nedition='2024'\n[workspace]\nmembers=['member']\n",
+    )]);
+    f.write("src/lib.rs", "pub fn root() {}\n");
+    f.write(
+        "member/Cargo.toml",
+        "[package]\nname='member'\nversion='0.1.0'\nedition='2024'\n",
+    );
+    f.write("member/src/lib.rs", "pub fn member() {}\n");
+    for out in ["src/lib.rs", "../Cargo.toml"] {
+        let target = f.path().join("member").join(out);
+        let before = fs::read(&target).expect("source");
+        let result = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .current_dir(f.path().join("member"))
+            .args(["map", "--in", "src", "--out", out])
+            .output()
+            .expect("map");
+        assert!(!result.status.success(), "{out}: unexpected success");
+        assert!(
+            String::from_utf8_lossy(&result.stderr).contains("collision"),
+            "{out}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(
+            fs::read(&target).expect("source"),
+            before,
+            "{out} was changed"
+        );
+    }
 }

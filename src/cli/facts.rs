@@ -51,15 +51,15 @@ pub(crate) struct Options {
     #[arg(long, value_enum)]
     format: Option<Format>,
     /// The SCIP index the semantic family is read from (with --families
-    /// ...,semantic). A relative path is resolved against the workspace root.
-    #[arg(long, value_name = "FILE")]
+    /// ...,semantic). A relative path is read from the current directory.
+    #[arg(long, value_name = "FILE", value_parser = crate::cli::typed::file)]
     scip: Option<PathBuf>,
     #[command(flatten)]
     indexer: super::semantic::IndexerArgs,
     #[command(flatten)]
     tests: super::tests::Tests,
     /// Write to this file instead of standard output.
-    #[arg(long)]
+    #[arg(long, value_parser = crate::cli::typed::file)]
     out: Option<PathBuf>,
     /// Print every relation and column, what each means, and each relation's
     /// basis and unknowns companion, without reading the source; --as json

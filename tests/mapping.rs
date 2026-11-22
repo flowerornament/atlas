@@ -397,6 +397,7 @@ fn cli_retains_evidence_when_external_render_fails_and_refuses_collisions() {
     )]);
     let output = f.path().join("failed.html");
     let result = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .args([
             "map",
             f.path().to_str().unwrap(),
@@ -421,6 +422,7 @@ fn cli_retains_evidence_when_external_render_fails_and_refuses_collisions() {
     }
     let collision = f.path().join("collision.mmd");
     let result = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .args([
             "map",
             f.path().to_str().unwrap(),

@@ -15,7 +15,7 @@ pub(crate) struct Options {
     /// Read this SCIP index to split unresolved calls into other packages,
     /// workspace functions and open ones (Atlas runs no indexer); --semantic
     /// makes one instead.
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE", value_parser = crate::cli::typed::file)]
     scip: Option<std::path::PathBuf>,
     #[command(flatten)]
     indexer: crate::cli::semantic::IndexerArgs,

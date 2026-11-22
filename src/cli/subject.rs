@@ -7,7 +7,7 @@
 //! project: the first of two bare words, or one bare word naming a Cargo
 //! project outside the workspace Atlas would otherwise read.
 use super::output::notice::Notices;
-use cargo_atlas::{Result, model::SourceGraph};
+use cargo_atlas::{Result, model::SourceGraph, suggestion::shown};
 use clap::Args;
 use std::{
     fmt::Write as _,
@@ -167,13 +167,20 @@ pub(crate) struct Function {
     named: Option<String>,
 }
 impl Function {
-    /// The selector, and the file it is restricted to.
-    pub(crate) fn selector(&self) -> (&str, Option<&str>) {
-        match (&self.bare, &self.named) {
-            (Some(bare), _) => (bare, None),
-            (None, Some(name)) => (name, self.path.as_deref()),
-            (None, None) => ("", None),
-        }
+    /// The selector, and the file it is restricted to, with each typed path
+    /// read from the current directory as a key under `root`.
+    pub(crate) fn selector(&self, root: &Path) -> Result<(String, Option<String>)> {
+        Ok(match (&self.bare, &self.named) {
+            (Some(bare), _) => (super::typed::selector(bare, root)?, None),
+            (None, Some(name)) => (
+                name.clone(),
+                self.path
+                    .as_deref()
+                    .map(|path| super::typed::key(path, root))
+                    .transpose()?,
+            ),
+            (None, None) => (String::new(), None),
+        })
     }
 }
 
@@ -247,8 +254,10 @@ impl Scope {
             Ok(Some(path)) if path.is_empty() => Ok(Chosen::Workspace),
             Ok(Some(path)) => match package {
                 Some(dir) if dir != path => Err(format!(
-                    "{word:?} is both the path {path} and the package {word} (at {}); use --in {path} or -p {word}",
-                    if dir.is_empty() { "." } else { &dir }
+                    "{word:?} is both the path {} and the package {word} (at {}); use --in {} or -p {word}",
+                    shown(&path),
+                    shown(&dir),
+                    shown(&path)
                 )
                 .into()),
                 _ => Ok(Chosen::Path(path)),
@@ -541,29 +550,27 @@ fn package_named(metadata: &cargo_metadata::Metadata, name: &str) -> Result<Chos
 }
 /// `word` as a discovered path (R1.1) or a unique file or directory name
 /// (R1.2): `None` when it is neither, a refusal when the name is not unique.
-/// An absolute path or one through `..` that lands in the workspace reads as
-/// the same path relative to the workspace root.
+/// A path is read from the current directory (`typed`); only a word that
+/// names no path from here is looked up as a name.
 fn path_or_basename(
     graph: &SourceGraph,
     metadata: &cargo_metadata::Metadata,
     word: &str,
 ) -> Result<Option<String>> {
-    let relative = Path::new(word)
-        .canonicalize()
-        .ok()
-        .filter(|_| Path::new(word).is_absolute() || word.starts_with(".."))
-        .and_then(|path| {
-            path.strip_prefix(metadata.workspace_root.as_std_path())
-                .ok()
-                .map(cargo_atlas::discovery::path_key)
-        });
-    let word = relative.as_deref().unwrap_or(word);
+    let root = metadata.workspace_root.as_std_path().canonicalize()?;
+    let key = super::typed::path(word, &root)?;
+    let path = key.is_some();
+    let word = key.as_deref().unwrap_or(word);
+    if word.is_empty() {
+        return Ok(Some(String::new()));
+    }
     match cargo_atlas::discovery::resolve_scope(graph, Some(word)) {
         Ok(path) => Ok(Some(path)),
         Err(error) => match error.downcast::<cargo_atlas::discovery::ScopeError>() {
             Ok(scope) => match *scope {
                 // `resolve_scope` matches directory names and file stems
                 // (`--scope` in 0.18); R1.2 also reads a file's whole name.
+                cargo_atlas::discovery::ScopeError::Absent { .. } if path => Ok(None),
                 cargo_atlas::discovery::ScopeError::Absent { .. } => {
                     let mut files: Vec<String> = graph
                         .files
@@ -606,7 +613,8 @@ pub(crate) struct Ambiguous {
 }
 impl std::fmt::Display for Ambiguous {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let names: Vec<&str> = self.candidates.iter().map(String::as_str).collect();
+        let shown: Vec<String> = self.candidates.iter().map(|path| shown(path)).collect();
+        let names: Vec<&str> = shown.iter().map(String::as_str).collect();
         write!(
             formatter,
             "{:?} matches {} paths: {}; give one with --in PATH",

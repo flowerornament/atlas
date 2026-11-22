@@ -12,9 +12,10 @@ use std::path::{Path, PathBuf};
 pub(crate) struct Options {
     #[command(flatten)]
     pub(super) words: crate::cli::subject::Root,
-    /// Normalized declaration source path supplied to the adapter.
-    #[arg(long, default_value = "src/lib.rs")]
-    declarations: String,
+    /// The declaration source file supplied to the adapter; read from the
+    /// current directory, and src/lib.rs of the workspace root by default.
+    #[arg(long)]
+    declarations: Option<String>,
     /// Declaration adapter executable that interprets the project's declarations.
     #[arg(long)]
     adapter: PathBuf,
@@ -24,14 +25,18 @@ pub(crate) struct Options {
 pub(crate) fn run(
     root: &Path,
     metadata: &cargo_metadata::Metadata,
-    options: Options,
+    options: &Options,
 ) -> Result<()> {
     let snapshot = discovery::snapshot_metadata(metadata)?;
     let graph = snapshot.graph();
     let facts = atlas_lib::analysis::Analysis::new(&snapshot)?.representations()?;
+    let declarations = match &options.declarations {
+        Some(path) => super::typed::key(path, root)?,
+        None => "src/lib.rs".to_owned(),
+    };
     let input = Request::new(
-        Snapshot::from_facts(graph, &facts, &options.declarations)?,
-        options.declarations,
+        Snapshot::from_facts(graph, &facts, &declarations)?,
+        declarations,
     )?;
     let program = options.adapter.canonicalize()?;
     let invocation = adapter::invoke(&program, root, &input)?;

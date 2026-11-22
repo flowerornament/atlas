@@ -86,6 +86,7 @@ fn a_revision_extracted_inside_another_workspace_is_refused_by_name() {
     let temp = outer.path().join("tmp");
     std::fs::create_dir_all(&temp).expect("temp directory");
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(project.path())
         .args(["diff", "HEAD", "--root"])
         .arg(project.path())
         .env("TMPDIR", &temp)
@@ -108,6 +109,7 @@ fn a_revision_with_its_own_workspace_is_reviewed_inside_another() {
     let temp = outer.path().join("tmp");
     std::fs::create_dir_all(&temp).expect("temp directory");
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(project.path())
         .args(["diff", "HEAD", "--root"])
         .arg(project.path())
         .env("TMPDIR", &temp)

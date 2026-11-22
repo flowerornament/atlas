@@ -63,6 +63,7 @@ fn alias_is_selectable_in_public_contracts_producers_preparation_and_comparison(
         .unwrap();
     assert_eq!(preparation.calls[0].1.name, "infer");
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(fixture.path())
         .args(["types", "--root"])
         .arg(fixture.path())
         .args(["--type", "Forms", "--panel", "contracts", "--json"])

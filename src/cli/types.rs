@@ -14,7 +14,7 @@ pub(crate) struct Options {
     #[command(flatten)]
     pub(super) words: crate::cli::subject::Types,
     /// Saved selection: title, types, optional apis and preparation_files; no edges.
-    #[arg(long, conflicts_with = "types")]
+    #[arg(long, conflicts_with = "types", value_parser = crate::cli::typed::file)]
     pub(super) query: Option<PathBuf>,
     /// Superseded by the bare TYPES; still accepted (repeat or comma separate).
     #[arg(long = "type", value_delimiter = ',')]
@@ -36,13 +36,18 @@ pub(crate) fn run(
     let query_path = options
         .query
         .as_ref()
-        .map(|p| root.join(p).canonicalize())
+        .map(|p| p.canonicalize())
         .transpose()?;
     let names = if options.types.is_empty() {
         options.words.names()
     } else {
         options.types.clone()
     };
+    // A `FILE:Name` is read from the current directory.
+    let names = names
+        .iter()
+        .map(|name| super::typed::selector(name, root))
+        .collect::<Result<Vec<_>>>()?;
     if query_path.is_none() && names.is_empty() {
         let example = most_mentioned_type(metadata).map_or_else(String::new, |name| {
             format!(
@@ -187,7 +192,10 @@ fn selector(
         several => {
             let spellings: Vec<String> = several
                 .iter()
-                .map(|t| respelled(word, &format!("{}:{}", t.file, t.name)))
+                .map(|t| {
+                    let file = cargo_atlas::suggestion::shown(&t.file);
+                    respelled(word, &format!("{file}:{}", t.name))
+                })
                 .collect();
             Err(format!(
                 "{word:?} names {} types; choose one: {}",
@@ -207,7 +215,7 @@ fn respelled(word: &str, with: &str) -> String {
         if let Some(part) = parts.iter_mut().find(|part| **part == word) {
             *part = with;
             *arg = parts.join(",");
-            return crate::cli::output::rows::rerun(&words);
+            return cargo_atlas::suggestion::Command::rerun(&words).to_string();
         }
     }
     cargo_atlas::suggestion::Command::new("types")

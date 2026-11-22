@@ -21,7 +21,7 @@ fn fixture() -> Fixture {
 }
 fn atlas(f: &Fixture, args: &[&str]) -> Value {
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
-        .current_dir("/")
+        .current_dir(f.path())
         .args(args)
         .arg("--root")
         .arg(f.path())
@@ -77,7 +77,7 @@ fn flow_writes_semantic_evidence_beside_its_workflow_evidence() {
     let f = fixture();
     let run = |extra: &[&str]| {
         let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
-            .current_dir("/")
+            .current_dir(f.path())
             .args(["flow", "--path", "src/lib.rs", "--function", "generic"])
             .args(extra)
             .arg("--root")
@@ -196,7 +196,7 @@ fn the_semantic_family_flattens_the_reading_one_row_per_call() {
 fn the_semantic_family_needs_an_index() {
     let f = fixture();
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
-        .current_dir("/")
+        .current_dir(f.path())
         .args([
             "query",
             "?- any_call{from: F, to: G, reading: R}.",
@@ -354,6 +354,7 @@ fn an_index_selects_the_semantic_reading_and_the_evidence_needs_one() {
     let f = fixture();
     let run = |args: &[&str]| {
         let output = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+            .current_dir(f.path())
             .args(args)
             .arg("--root")
             .arg(f.path())

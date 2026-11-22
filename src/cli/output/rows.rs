@@ -45,10 +45,6 @@ pub(crate) fn this_run() -> Vec<String> {
     }
     words
 }
-/// This run's own `words`, edited, as a printed command.
-pub(crate) fn rerun(words: &[String]) -> String {
-    Command::rerun(words).to_string()
-}
 /// This run's command line with `--rows N` dropped and `--all` added.
 pub(crate) fn rerun_all() -> String {
     let mut kept = Vec::new();
@@ -62,16 +58,11 @@ pub(crate) fn rerun_all() -> String {
         }
     }
     kept.push("--all".to_owned());
-    rerun(&kept)
+    Command::rerun(&kept).to_string()
 }
-/// `cargo atlas COMMAND SUBJECT [FLAGS] --all`: the narrower command a
-/// nested list's tail names, reading this run's project.
-pub(crate) fn narrower(question: &str, subject: &str, flags: &[&str]) -> String {
-    Command::new(question)
-        .arg(subject)
-        .args(flags.iter().copied())
-        .arg("--all")
-        .to_string()
+/// `command --all`: the narrower command a nested list's tail names.
+pub(crate) fn narrower(command: Command) -> String {
+    command.arg("--all").to_string()
 }
 /// Print up to `limit` of `rows` with `line`, then the tail if any were left
 /// out.

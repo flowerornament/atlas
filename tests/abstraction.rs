@@ -257,12 +257,12 @@ fn profile_refuses_duplicates_overlaps_unknown_deps_and_missing_paths() {
     assert!(Architecture::parse("atlas-architecture-v1", f.path()).is_err());
 }
 #[test]
-fn cli_paths_are_workspace_relative_with_spaces_and_docs_exclude_source_payloads() {
+fn cli_paths_are_read_from_the_current_directory_with_spaces_and_docs_exclude_source_payloads() {
     let f = fixture();
     let binary = env!("CARGO_BIN_EXE_cargo-atlas");
     let run = || {
         Command::new(binary)
-            .current_dir("/")
+            .current_dir(f.path())
             .args([
                 "map",
                 f.path().to_str().unwrap(),
@@ -295,6 +295,7 @@ fn cli_paths_are_workspace_relative_with_spaces_and_docs_exclude_source_payloads
     assert!(run().status.success());
     assert_eq!(bytes, fs::read(path).unwrap());
     let result = Command::new(binary)
+        .current_dir(f.path())
         .args([
             "map",
             f.path().to_str().unwrap(),
@@ -385,6 +386,7 @@ fn html_links_refuse_active_or_absolute_urls_and_escape_local_evidence() {
 fn html_primary_cannot_overwrite_its_svg_companion() {
     let f = fixture();
     let result = Command::new(env!("CARGO_BIN_EXE_cargo-atlas"))
+        .current_dir(f.path())
         .args([
             "map",
             f.path().to_str().unwrap(),
